@@ -12,6 +12,7 @@ path = "src/main.rs"
 # `proxy` feature pulls in pingora-proxy (ProxyHttp, Session) and
 # pingora-core (Server, HttpPeer, RequestHeader, ResponseHeader).
 pingora = { version = "0.8", features = ["proxy"] }
+pingora-load-balancing = "0.8"
 
 # ─── Async runtime ───────────────────────────────────────────────────────────
 tokio      = { version = "1", features = ["full"] }

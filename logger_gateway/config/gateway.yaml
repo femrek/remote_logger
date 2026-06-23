@@ -37,11 +37,6 @@ channels:
     # true  → validate Google Play Integrity / Apple App Attest token at /auth/exchange
     # false → skip attestation (useful for CI, internal tools, dev environments)
     validate_attestation: true
-    backend:
-      # Internal Kafka-writer / HTTP-to-Kafka proxy address (host:port or ip:port).
-      addr: "127.0.0.1:9088"
-      tls: false
-      sni: ""
     # Extra headers injected into every upstream request for this channel.
     headers:
       X-Channel-Id: "fancy-app-prod"
@@ -52,10 +47,6 @@ channels:
     path_prefix: "/v1/logs/fancy-app-dev"
     app_id: "com.acme.fancyapp.dev"
     validate_attestation: false    # no attestation in dev
-    backend:
-      addr: "127.0.0.1:9089"
-      tls: false
-      sni: ""
     headers:
       X-Channel-Id: "fancy-app-dev"
       X-Environment: "local-dev"

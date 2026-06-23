@@ -60,6 +60,7 @@ use crate::metrics::{
     ATTESTATION_TOTAL, BODY_SIZE_BYTES, ENVELOPE_ERRORS_TOTAL, JWT_VALIDATIONS_TOTAL,
     REQUEST_DURATION_SECONDS, REQUESTS_TOTAL,
 };
+use crate::discovery::ServiceDiscovery;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Per-request context
@@ -120,6 +121,8 @@ pub struct LogGateway {
     pub config: SharedConfig,
     /// Platform-dispatching attestation verifier (shared across all requests).
     pub verifier: Arc<dyn AttestationVerifier>,
+    /// Dynamic load balancer for upstream selection.
+    pub discovery: Arc<ServiceDiscovery>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -311,29 +314,19 @@ impl ProxyHttp for LogGateway {
     where
         Self::CTX: Send + Sync,
     {
-        let cfg = self.config.load();
-        let ch_cfg = cfg
-            .find_channel_by_id(&ctx.channel_id)
-            .expect("channel_id set in request_filter; channel lookup must succeed");
+        let lb = self.discovery.load_balancer.load();
+        
+        // Round-robin selection. The key/hash parameters are ignored by RoundRobin.
+        let backend = lb
+            .select(b"", 256)
+            .ok_or_else(|| pingora::Error::new_str("No available backends in load balancer"))?;
 
-        // Parse "host:port" → SocketAddr.
-        //
-        // Production note: for hostname-based backends (not IP), use
-        // `tokio::net::lookup_host` to resolve and round-robin across the
-        // returned addresses, or integrate Pingora's built-in LoadBalancer.
-        let addr: std::net::SocketAddr = ch_cfg
-            .backend
-            .addr
-            .parse()
-            .map_err(|e| pingora::Error::new_str(Box::leak(
-                format!("backend addr parse failed '{}': {e}", ch_cfg.backend.addr).into_boxed_str()
-            )))?;
-
-        let peer = HttpPeer::new(addr, ch_cfg.backend.tls, ch_cfg.backend.sni.clone());
+        // Internal workers are plain TCP without TLS/SNI.
+        let peer = HttpPeer::new(backend.addr.clone(), false, String::new());
 
         tracing::debug!(
             channel = %ctx.channel_id,
-            backend = %ch_cfg.backend.addr,
+            backend = %backend.addr,
             "Routing request to upstream"
         );
 

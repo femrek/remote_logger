@@ -16,4 +16,5 @@ services:
     volumes:
       # Mount the gateway.yaml file so that modifying it on the host triggers the hot-reload watcher in the container.
       - ../config/gateway.yaml:/app/config/gateway.yaml
+      - ../config/workers_list.json:/app/config/workers_list.json
     restart: unless-stopped

@@ -152,27 +152,8 @@ pub struct ChannelConfig {
     /// Integrity or Apple App Attest token before issuing a gateway JWT.
     pub validate_attestation: bool,
 
-    pub backend: BackendConfig,
-
     /// Key-value pairs injected as HTTP headers into every upstream request.
     #[serde(default)]
     pub headers: HashMap<String, String>,
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Backend (upstream Kafka-writer)
-// ─────────────────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct BackendConfig {
-    /// `host:port` or `ip:port` of the internal Kafka-writer service.
-    pub addr: String,
-
-    /// Set `true` if the backend expects TLS.
-    #[serde(default)]
-    pub tls: bool,
-
-    /// TLS SNI hostname. Required when `tls = true` and the host is not an IP.
-    #[serde(default)]
-    pub sni: String,
-}

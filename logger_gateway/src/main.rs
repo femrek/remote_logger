@@ -9,6 +9,7 @@ use pingora::services::background::{BackgroundService, background_service};
 
 mod auth;
 mod config;
+mod discovery;
 mod error;
 mod metrics;
 mod proxy;
@@ -18,6 +19,7 @@ use auth::{
     PlatformDispatchVerifier,
 };
 use config::{SharedConfig, bootstrap, spawn_watcher};
+use discovery::{ServiceDiscovery, load_initial_workers, spawn_discovery_watcher};
 use proxy::LogGateway;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -35,6 +37,10 @@ struct Cli {
     /// The file is watched at runtime; saving it triggers a zero-downtime reload.
     #[arg(short, long, default_value = "config/gateway.yaml")]
     config: String,
+
+    /// Path to the JSON file containing the list of worker backends.
+    #[arg(short = 'w', long, default_value = "config/workers_list.json")]
+    workers: String,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -145,10 +151,16 @@ fn main() -> anyhow::Result<()> {
     let mut server = Server::new(None).context("Creating Pingora server")?;
     server.bootstrap();
 
+    // ── Service Discovery ─────────────────────────────────────────────────────
+    let lb = load_initial_workers(&cli.workers)
+        .with_context(|| format!("Loading initial workers from '{}'", cli.workers))?;
+    let discovery = Arc::new(ServiceDiscovery::new(lb));
+
     // ── Proxy service ─────────────────────────────────────────────────────────
     let gateway = LogGateway {
         config: shared_config.clone(),
         verifier: build_verifier(),
+        discovery: discovery.clone(),
     };
 
     let mut proxy_svc = http_proxy_service(&server.configuration, gateway);
@@ -181,6 +193,30 @@ fn main() -> anyhow::Result<()> {
         ConfigWatcherService {
             config_path: cli.config.clone(),
             shared: shared_config,
+        },
+    ));
+
+    // ── Background: discovery watcher ─────────────────────────────────────────
+    struct DiscoveryWatcherService {
+        path: String,
+        discovery: Arc<ServiceDiscovery>,
+    }
+
+    #[async_trait]
+    impl BackgroundService for DiscoveryWatcherService {
+        async fn start(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
+            if let Err(e) = spawn_discovery_watcher(self.path.clone(), self.discovery.clone()).await {
+                tracing::error!("Failed to start discovery watcher: {e}");
+            }
+            let _ = shutdown.changed().await;
+        }
+    }
+
+    server.add_service(background_service(
+        "discovery-watcher",
+        DiscoveryWatcherService {
+            path: cli.workers.clone(),
+            discovery,
         },
     ));
 
