@@ -1,0 +1,7 @@
+target/
+.git/
+*.log
+.docker-build/
+build.sh
+docker-compose.yml
+Dockerfile

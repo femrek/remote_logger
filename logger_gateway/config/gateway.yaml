@@ -1,0 +1,62 @@
+gateway:
+  # TCP bind address for the proxy listener.
+  # TLS is optional — see the `tls` block below.
+  bind_addr: "0.0.0.0:8080"
+
+  # ── Optional TLS ──────────────────────────────────────────────────────────
+  # Uncomment to enable TLS termination at the gateway listener.
+  # tls:
+  #   cert_path: "/etc/certs/server.crt"
+  #   key_path:  "/etc/certs/server.key"
+
+  # ── JWT session tokens ────────────────────────────────────────────────────
+  jwt:
+    # secret:      "change-me-in-development"   ← inline, dev-only
+    secret_env:  "GATEWAY_JWT_SECRET"          # overrides `secret` when set
+    ttl_seconds: 300                           # 5-minute session window
+    issuer:      "logger-gateway"
+
+  # Hard upper bound on ingest request bodies (bytes). Requests exceeding this
+  # are rejected with 413 before any parsing occurs.
+  max_body_bytes: 2097152   # 2 MiB
+
+  # Prometheus /metrics scrape endpoint (separate port, internal only).
+  metrics_addr: "0.0.0.0:9090"
+
+# ── Per-channel routing table ─────────────────────────────────────────────────
+# Each entry defines one application channel. Add/remove channels and send a
+# SIGHUP (or just save the file) to hot-reload without dropping connections.
+channels:
+  - id: "fancy-app-prod"
+    # Requests whose path starts with this prefix are routed to this channel.
+    path_prefix: "/v1/logs/fancy-app-prod"
+    app_id: "com.acme.fancyapp"
+    # Required keys for attestation verification (since validate_attestation: true)
+    google_project_number: "1234567890"
+    apple_team_id: "STUBTEAMID"
+    # true  → validate Google Play Integrity / Apple App Attest token at /auth/exchange
+    # false → skip attestation (useful for CI, internal tools, dev environments)
+    validate_attestation: true
+    backend:
+      # Internal Kafka-writer / HTTP-to-Kafka proxy address (host:port or ip:port).
+      addr: "127.0.0.1:9088"
+      tls: false
+      sni: ""
+    # Extra headers injected into every upstream request for this channel.
+    headers:
+      X-Channel-Id: "fancy-app-prod"
+      X-Environment: "production"
+      X-Kafka-Topic: "mobile-logs-prod"
+
+  - id: "fancy-app-dev"
+    path_prefix: "/v1/logs/fancy-app-dev"
+    app_id: "com.acme.fancyapp.dev"
+    validate_attestation: false    # no attestation in dev
+    backend:
+      addr: "127.0.0.1:9089"
+      tls: false
+      sni: ""
+    headers:
+      X-Channel-Id: "fancy-app-dev"
+      X-Environment: "local-dev"
+      X-Kafka-Topic: "mobile-logs-dev"

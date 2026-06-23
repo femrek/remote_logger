@@ -1,6 +1,43 @@
 [package]
-name = "logger_gateway"
+name    = "logger_gateway"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
+[[bin]]
+name = "logger_gateway"
+path = "src/main.rs"
 
 [dependencies]
+# ─── Proxy engine ────────────────────────────────────────────────────────────
+# `proxy` feature pulls in pingora-proxy (ProxyHttp, Session) and
+# pingora-core (Server, HttpPeer, RequestHeader, ResponseHeader).
+pingora = { version = "0.8", features = ["proxy"] }
+
+# ─── Async runtime ───────────────────────────────────────────────────────────
+tokio      = { version = "1", features = ["full"] }
+async-trait = "0.1"
+
+# ─── Config & serialization ───────────────────────────────────────────────────
+serde      = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+serde_yaml = "0.9"
+
+# ─── Hot-reload ───────────────────────────────────────────────────────────────
+arc-swap = "1"
+notify   = "6"
+
+# ─── Auth ────────────────────────────────────────────────────────────────────
+jsonwebtoken = "9"
+chrono       = { version = "0.4", features = ["serde"] }
+
+# ─── Observability ────────────────────────────────────────────────────────────
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+prometheus         = "0.13"
+lazy_static        = "1"
+
+# ─── Utilities ───────────────────────────────────────────────────────────────
+bytes     = "1"
+thiserror = "1"
+anyhow    = "1"
+clap      = { version = "4", features = ["derive"] }

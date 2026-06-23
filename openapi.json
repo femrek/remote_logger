@@ -1,0 +1,571 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Mobile Log Ingestion Gateway",
+    "description": "Pingora-based multi-tenant mobile log ingestion gateway. It terminates client-facing SSL/TLS connections, validates mobile hardware attestations (Google Play Integrity or Apple App Attest) to verify that requests originate from official app builds, issues short-lived session JWT tokens, and forwards authenticated telemetry payloads to internal Kafka-writer backends.",
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Local development gateway instance"
+    }
+  ],
+  "paths": {
+    "/auth/exchange": {
+      "post": {
+        "summary": "Exchange device attestation for gateway session token",
+        "description": "Validates a mobile hardware attestation token (Google Play Integrity on Android or Apple App Attest on iOS) for a specific routing channel. Upon successful validation, issues a short-lived HMAC-SHA256 (HS256) session JWT to be used for authenticating subsequent log ingestion requests.\n\nIf the targeted channel's configuration has `validate_attestation: false`, the attestation validation step is skipped, but the session token is still issued.",
+        "parameters": [
+          {
+            "name": "X-Channel-Id",
+            "in": "header",
+            "required": true,
+            "description": "Unique routing channel identifier (e.g., `fancy-app-prod`, `fancy-app-dev`).",
+            "schema": {
+              "type": "string",
+              "example": "fancy-app-prod"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttestationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Attestation verified. Session JWT token issued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttestationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (missing headers or failed to parse request body).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (attestation verification failed).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found (no channel exists for the provided X-Channel-Id).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large (request body exceeds `max_body_bytes` limit).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error (e.g. JWT issuance failure).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/logs/{channel}/log/device": {
+      "post": {
+        "summary": "Ingest device metadata",
+        "description": "Uploads system and hardware metadata for the logging device. The request must be authenticated with the bearer JWT received from `/auth/exchange`.\n\nThe gateway enforces:\n- Bearer JWT token presence and signature validation.\n- The token subject (`sub` claim) must match the path's `{channel}` parameter.\n- The token application (`app` claim) must match the routing channel's allowed `app_id`.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "channel",
+            "in": "path",
+            "required": true,
+            "description": "The channel ID matching the path prefix (e.g., `fancy-app-prod`).",
+            "schema": {
+              "type": "string",
+              "example": "fancy-app-prod"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceMetadata"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Device metadata accepted and forwarded to the upstream backend."
+          },
+          "401": {
+            "description": "Unauthorized (missing, invalid, or expired session JWT).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (JWT channel mismatch or application ID mismatch).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found (no channel matches this path prefix).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large (request body size exceeds limit).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/logs/{channel}/log": {
+      "post": {
+        "summary": "Ingest single log record",
+        "description": "Uploads a single log record. Requires Bearer JWT authentication.\n\nThe gateway enforces:\n- Bearer JWT token presence and signature validation.\n- The token subject (`sub` claim) must match the path's `{channel}` parameter.\n- The token application (`app` claim) must match the routing channel's allowed `app_id`.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "channel",
+            "in": "path",
+            "required": true,
+            "description": "The channel ID matching the path prefix (e.g., `fancy-app-prod`).",
+            "schema": {
+              "type": "string",
+              "example": "fancy-app-prod"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServerLog"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Log record accepted and forwarded to the upstream backend."
+          },
+          "401": {
+            "description": "Unauthorized (missing, invalid, or expired session JWT).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (JWT channel mismatch or application ID mismatch).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found (no channel matches this path prefix).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large (request body size exceeds limit).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/logs/{channel}/log/batch": {
+      "post": {
+        "summary": "Ingest a batch of log records",
+        "description": "Uploads a JSON array of log records in a single payload. Requires Bearer JWT authentication.\n\nThe gateway enforces:\n- Bearer JWT token presence and signature validation.\n- The token subject (`sub` claim) must match the path's `{channel}` parameter.\n- The token application (`app` claim) must match the routing channel's allowed `app_id`.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "channel",
+            "in": "path",
+            "required": true,
+            "description": "The channel ID matching the path prefix (e.g., `fancy-app-prod`).",
+            "schema": {
+              "type": "string",
+              "example": "fancy-app-prod"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ServerLog"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Log batch accepted and forwarded to the upstream backend."
+          },
+          "401": {
+            "description": "Unauthorized (missing, invalid, or expired session JWT).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (JWT channel mismatch or application ID mismatch).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found (no channel matches this path prefix).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large (request body size exceeds limit).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "AttestationRequest": {
+        "type": "object",
+        "required": [
+          "platform",
+          "attestation_token",
+          "tenant_id"
+        ],
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "android",
+              "ios"
+            ],
+            "description": "Mobile client OS platform. Used to dispatch to the correct verification API."
+          },
+          "attestation_token": {
+            "type": "string",
+            "description": "Raw attestation blob from Google Play Integrity or Apple App Attest.",
+            "example": "eyJhbGciOiJSUzI1NiIsImtpZCI6"
+          },
+          "tenant_id": {
+            "type": "string",
+            "description": "The tenant ID identifier claimed by the client.",
+            "example": "acme"
+          }
+        }
+      },
+      "AttestationResponse": {
+        "type": "object",
+        "required": [
+          "token",
+          "expires_in"
+        ],
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "The gateway-issued JWT session token for logging ingestion.",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6"
+          },
+          "expires_in": {
+            "type": "integer",
+            "description": "The remaining lifetime of the token in seconds.",
+            "example": 300
+          }
+        }
+      },
+      "GatewayError": {
+        "type": "object",
+        "required": [
+          "error",
+          "code"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Description details of the encountered gateway error.",
+            "example": "Authorization: Bearer <token> required"
+          },
+          "code": {
+            "type": "string",
+            "description": "Machine-readable gateway error classification code.",
+            "enum": [
+              "MISSING_CHANNEL_HEADER",
+              "INVALID_REQUEST",
+              "ATTESTATION_FAILED",
+              "CHANNEL_NOT_FOUND",
+              "PAYLOAD_TOO_LARGE",
+              "INTERNAL_ERROR",
+              "MISSING_AUTH",
+              "JWT_INVALID",
+              "JWT_CHANNEL_MISMATCH",
+              "JWT_APP_MISMATCH",
+              "VALIDATION_ERROR"
+            ],
+            "example": "MISSING_AUTH"
+          }
+        }
+      },
+      "DeviceMetadata": {
+        "type": "object",
+        "required": [
+          "timestamp",
+          "deviceUUID",
+          "sessionId",
+          "os",
+          "osVersion",
+          "model",
+          "brand",
+          "device",
+          "identifier",
+          "manufacturer",
+          "isPhysicalDevice"
+        ],
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when metadata was collected in UTC ISO 8601.",
+            "example": "2026-06-21T03:55:14Z"
+          },
+          "deviceUUID": {
+            "type": "string",
+            "description": "Unique client-generated device ID.",
+            "example": "a809b022-7934-4b53-90d2-bf7cb95a947d"
+          },
+          "sessionId": {
+            "type": "string",
+            "description": "Unique logging session identifier.",
+            "example": "3f338d38-9588-46d4-83b6-96d5395a12ef"
+          },
+          "os": {
+            "type": "string",
+            "description": "Device Operating System name.",
+            "example": "Android"
+          },
+          "osVersion": {
+            "type": "string",
+            "description": "Operating System version release string.",
+            "example": "13"
+          },
+          "model": {
+            "type": "string",
+            "description": "Hardware model name.",
+            "example": "Pixel 6 Pro"
+          },
+          "brand": {
+            "type": "string",
+            "description": "Device brand.",
+            "example": "Google"
+          },
+          "device": {
+            "type": "string",
+            "description": "Device identifier name.",
+            "example": "raven"
+          },
+          "identifier": {
+            "type": "string",
+            "description": "Unique build identifier.",
+            "example": "TQ3A.230605.012"
+          },
+          "manufacturer": {
+            "type": "string",
+            "description": "Device manufacturer name.",
+            "example": "Google"
+          },
+          "isPhysicalDevice": {
+            "type": "string",
+            "description": "Boolean representation string ('true' or 'false').",
+            "enum": [
+              "true",
+              "false"
+            ],
+            "example": "true"
+          }
+        }
+      },
+      "ServerLog": {
+        "type": "object",
+        "required": [
+          "timestamp",
+          "loggerName",
+          "message",
+          "level",
+          "zone",
+          "deviceUUID",
+          "sessionId"
+        ],
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when the log record was generated.",
+            "example": "2026-06-21T03:55:20Z"
+          },
+          "loggerName": {
+            "type": "string",
+            "description": "Subsystem name or category for the logger.",
+            "example": "AppDatabase"
+          },
+          "message": {
+            "type": "string",
+            "description": "Log message content.",
+            "example": "Database connection established successfully."
+          },
+          "level": {
+            "type": "string",
+            "description": "Severity logging level.",
+            "example": "INFO"
+          },
+          "zone": {
+            "type": "string",
+            "description": "Dart execution zone name.",
+            "example": ""
+          },
+          "deviceUUID": {
+            "type": "string",
+            "description": "Unique client-generated device ID.",
+            "example": "a809b022-7934-4b53-90d2-bf7cb95a947d"
+          },
+          "sessionId": {
+            "type": "string",
+            "description": "Unique logging session identifier.",
+            "example": "3f338d38-9588-46d4-83b6-96d5395a12ef"
+          },
+          "error": {
+            "type": "string",
+            "description": "Stringified error content (if any).",
+            "example": "TimeoutException: Connection timed out"
+          },
+          "stacktrace": {
+            "type": "string",
+            "description": "Stringified exception stack trace.",
+            "example": "#0      DB.connect (db.dart:45)\n#1      main (main.dart:12)"
+          }
+        }
+      }
+    }
+  }
+}
