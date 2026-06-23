@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  logger_gateway:
+    build:
+      context: ./logger_gateway
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount the workers file into the container so Pingora can watch it
+      - ./docker/workers.txt:/docker/workers.txt:ro
+    environment:
+      # Optional: hint to the app where the file is, if it relies on env vars
+      - WORKERS_FILE=/docker/workers.txt
+    networks:
+      - logger_network
+    depends_on:
+      - validation_worker
+
+  validation_worker:
+    build:
+      context: ./validation_worker
+    deploy:
+      replicas: 2
+    environment:
+      - KAFKA_BROKERS=redpanda:9092
+      # Assuming the worker listens on 8000 by default based on the workers.txt example
+      - PORT=8000 
+    networks:
+      - logger_network
+    depends_on:
+      - redpanda
+
+  redpanda:
+    image: redpandadata/redpanda:latest
+    command:
+      - redpanda
+      - start
+      - --smp
+      - '1'
+      - --reserve-memory
+      - 0M
+      - --overprovisioned
+      - --node-id
+      - '0'
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - PLAINTEXT://redpanda:9092
+    ports:
+      - "9092:9092"
+    networks:
+      - logger_network
+
+  vector:
+    image: timberio/vector:latest-alpine
+    volumes:
+      - ./docker/vector.yaml:/etc/vector/vector.yaml:ro
+    depends_on:
+      - redpanda
+      - opensearch
+    networks:
+      - logger_network
+
+  opensearch:
+    image: opensearchproject/opensearch:latest
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - OPENSEARCH_JAVA_OPTS="-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    networks:
+      - logger_network
+
+networks:
+  logger_network:
+    driver: bridge
