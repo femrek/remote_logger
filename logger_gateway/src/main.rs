@@ -38,8 +38,8 @@ struct Cli {
     #[arg(short, long, default_value = "config/gateway.yaml")]
     config: String,
 
-    /// Path to the JSON file containing the list of worker backends.
-    #[arg(short = 'w', long, default_value = "config/workers_list.json")]
+    /// Path to the JSON or text file containing the list of worker backends.
+    #[arg(short = 'w', long, env = "WORKERS_FILE", default_value = "config/workers_list.json")]
     workers: String,
 }
 

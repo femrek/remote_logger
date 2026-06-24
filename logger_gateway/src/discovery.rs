@@ -18,7 +18,15 @@ impl ServiceDiscovery {
 
 pub fn load_initial_workers(path: &str) -> anyhow::Result<LoadBalancer<RoundRobin>> {
     let content = std::fs::read_to_string(path)?;
-    let ips: Vec<String> = serde_json::from_str(&content)?;
+    let trimmed = content.trim();
+    let ips: Vec<String> = if trimmed.starts_with('[') {
+        serde_json::from_str(&content)?
+    } else {
+        content.lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect()
+    };
     
     let mut lb = LoadBalancer::<RoundRobin>::try_from_iter(ips).map_err(|e| anyhow::anyhow!("LB init error: {}", e))?;
     lb.set_health_check(pingora_load_balancing::health_check::TcpHealthCheck::new());
@@ -51,32 +59,41 @@ pub async fn spawn_discovery_watcher(
         let _watcher = watcher;
         
         while rx.changed().await.is_ok() {
-            tracing::info!("workers_list.json changed, reloading load balancer");
+            tracing::info!("workers file changed, reloading load balancer");
             
             // Read and parse file
             match std::fs::read_to_string(&path) {
                 Ok(content) => {
-                    match serde_json::from_str::<Vec<String>>(&content) {
-                        Ok(ips) => {
-                            match LoadBalancer::<RoundRobin>::try_from_iter(ips) {
-                                Ok(mut lb) => {
-                                    lb.set_health_check(pingora_load_balancing::health_check::TcpHealthCheck::new());
-                                    lb.health_check_frequency = Some(std::time::Duration::from_secs(5));
-                                    
-                                    // Swap the load balancer
-                                    discovery.load_balancer.store(Arc::new(lb));
-                                    tracing::info!("Load balancer reloaded successfully with new IPs");
-                                }
-                                Err(e) => tracing::error!("Failed to initialize load balancer from new IPs: {}", e),
+                    let trimmed = content.trim();
+                    let ips: Vec<String> = if trimmed.starts_with('[') {
+                        match serde_json::from_str::<Vec<String>>(&content) {
+                            Ok(parsed) => parsed,
+                            Err(e) => {
+                                tracing::error!("Failed to parse JSON workers: {}", e);
+                                continue;
                             }
                         }
-                        Err(e) => {
-                            tracing::error!("Failed to parse workers_list.json: {}", e);
+                    } else {
+                        content.lines()
+                            .map(|l| l.trim().to_string())
+                            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                            .collect()
+                    };
+                    
+                    match LoadBalancer::<RoundRobin>::try_from_iter(ips) {
+                        Ok(mut lb) => {
+                            lb.set_health_check(pingora_load_balancing::health_check::TcpHealthCheck::new());
+                            lb.health_check_frequency = Some(std::time::Duration::from_secs(5));
+                            
+                            // Swap the load balancer
+                            discovery.load_balancer.store(Arc::new(lb));
+                            tracing::info!("Load balancer reloaded successfully with new IPs");
                         }
+                        Err(e) => tracing::error!("Failed to initialize load balancer from new IPs: {}", e),
                     }
                 }
                 Err(e) => {
-                    tracing::error!("Failed to read workers_list.json: {}", e);
+                    tracing::error!("Failed to read workers: {}", e);
                 }
             }
         }

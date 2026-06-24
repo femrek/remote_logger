@@ -1,5 +1,6 @@
+# syntax=docker/dockerfile:1
 # Build stage
-FROM rust:1.76-bookworm as builder
+FROM rust:bookworm as builder
 
 # Install cmake for rdkafka's cmake-build feature
 RUN apt-get update && apt-get install -y cmake
@@ -10,8 +11,12 @@ WORKDIR /usr/src/validation_worker
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
-# Build for release
-RUN cargo build --release
+# Build for release with BuildKit cache mounts
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/usr/src/validation_worker/target \
+    cargo build --release && \
+    cp target/release/validation_worker /usr/local/bin/validation_worker
 
 # Production stage
 FROM debian:bookworm-slim
@@ -20,7 +25,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Copy the compiled binary from the builder environment
-COPY --from=builder /usr/src/validation_worker/target/release/validation_worker /usr/local/bin/validation_worker
+COPY --from=builder /usr/local/bin/validation_worker /usr/local/bin/validation_worker
 
 # Expose the application port
 EXPOSE 3000
