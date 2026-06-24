@@ -1,0 +1,17 @@
+[package]
+name    = "e2e"
+version = "0.1.0"
+edition = "2024"
+
+# Explicit test target — `cargo test --test e2e_test`
+[[test]]
+name = "e2e_test"
+path = "tests/e2e_test.rs"
+
+[dependencies]
+# No production dependencies — this is a test-only crate.
+
+[dev-dependencies]
+serde_json = "1.0"
+dotenvy    = "0.15"                             # loads .env.test at test start
+ureq       = { version = "2", features = ["json"] }  # sync HTTP client (no async runtime needed)

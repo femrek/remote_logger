@@ -1,0 +1,335 @@
+//! Tier-3 End-to-End Test — full Docker Compose pipeline.
+//!
+//! This test exercises the entire log ingestion pipeline in one shot:
+//!
+//! ```text
+//! [test] ──HTTP POST──► logger_gateway (8080)
+//!                              │ JWT-authenticated proxy
+//!                              ▼
+//!                    validation_worker
+//!                              │ rdkafka produce
+//!                              ▼
+//!                    Kafka broker (mobile-logs topic)
+//!                              │ Fluent Bit consumes (Flush=2s)
+//!                              ▼
+//!                    OpenSearch (9200)  ◄── [test] asserts document exists
+//! ```
+//!
+//! # Running
+//! ```bash
+//! # Default (Docker must be running):
+//! cargo test --test e2e_test --manifest-path e2e/Cargo.toml
+//!
+//! # Skip without removing:
+//! SKIP_E2E=1 cargo test --test e2e_test --manifest-path e2e/Cargo.toml
+//! ```
+//!
+//! # Environment
+//! Variables are loaded from `e2e/.env.test` at test start.
+//! `GATEWAY_JWT_SECRET` is required; set it in `.env.test` before running.
+
+use std::{
+    path::Path,
+    process::Command,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
+
+// ─── DockerComposeHandle — RAII stack lifecycle ────────────────────────────────
+
+/// Brings the compose stack up on construction and tears it down (volumes
+/// included) when dropped — even if the test panics.
+struct DockerComposeHandle {
+    compose_file: String,
+}
+
+impl DockerComposeHandle {
+    /// Run `docker compose -f <compose_file> up -d --wait` with the supplied
+    /// environment variables injected into the child process.
+    ///
+    /// `--wait` (Docker Compose v2) blocks until every service with a
+    /// `healthcheck` reports healthy, removing the need for custom polling.
+    fn up(compose_file: &str, env_vars: &[(&str, &str)]) -> Self {
+        eprintln!("[e2e] docker compose up -d --wait …");
+        let mut cmd = Command::new("docker");
+        cmd.args(["compose", "-f", compose_file, "up", "-d", "--wait"]);
+        for (k, v) in env_vars {
+            cmd.env(k, v);
+        }
+        let status = cmd
+            .status()
+            .expect("Failed to invoke 'docker compose up' — is Docker running?");
+        assert!(
+            status.success(),
+            "docker compose up exited with non-zero status: {status}"
+        );
+        Self {
+            compose_file: compose_file.to_string(),
+        }
+    }
+}
+
+impl Drop for DockerComposeHandle {
+    fn drop(&mut self) {
+        eprintln!("[e2e] docker compose down -v (teardown) …");
+        let status = Command::new("docker")
+            .args([
+                "compose",
+                "-f",
+                &self.compose_file,
+                "down",
+                "-v",               // Remove named volumes (clean OpenSearch data).
+                "--remove-orphans",
+            ])
+            .status();
+        match status {
+            Ok(s) if s.success() => eprintln!("[e2e] Teardown succeeded"),
+            Ok(s) => eprintln!("[e2e] WARNING: docker compose down exited with {s}"),
+            Err(e) => eprintln!("[e2e] WARNING: docker compose down failed: {e}"),
+        }
+    }
+}
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+
+/// Load env vars from `path` into the current process environment.
+/// Missing file is logged but not fatal — caller can provide vars via the shell.
+fn load_env_file(path: &str) {
+    match dotenvy::from_filename(path) {
+        Ok(_) => eprintln!("[e2e] Loaded env from {path}"),
+        Err(e) => eprintln!("[e2e] Could not load env file '{path}': {e}"),
+    }
+}
+
+/// Synchronously poll a TCP port until it accepts connections or until
+/// `timeout` elapses. Returns `true` on success.
+fn wait_for_port(host: &str, port: u16, timeout: Duration) -> bool {
+    let addr = format!("{host}:{port}");
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if std::net::TcpStream::connect(&addr).is_ok() {
+            eprintln!("[e2e] Port {addr} is ready");
+            return true;
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+    eprintln!("[e2e] Timed out waiting for {addr}");
+    false
+}
+
+/// Milliseconds since the Unix epoch — used to make the log message unique
+/// so that a stale document from a previous failed run is never a false positive.
+fn epoch_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+}
+
+// ─── E2E test ─────────────────────────────────────────────────────────────────
+
+/// Full pipeline test: gateway → worker → Kafka → Fluent Bit → OpenSearch.
+///
+/// The test is **enabled by default** and can be disabled by setting
+/// `SKIP_E2E=1` (or `SKIP_E2E=true`) in the environment or in `e2e/.env.test`.
+#[test]
+fn e2e_full_pipeline_log_reaches_opensearch() {
+    // ── 0. Load .env.test and check opt-out flag ──────────────────────────────
+    let manifest_dir = env!("CARGO_MANIFEST_DIR"); // …/remote_logger_backend/e2e
+    let env_file = format!("{manifest_dir}/.env.test");
+    load_env_file(&env_file);
+
+    if std::env::var("SKIP_E2E")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        eprintln!("[e2e] SKIP_E2E is set — skipping E2E test");
+        return;
+    }
+
+    let jwt_secret = std::env::var("GATEWAY_JWT_SECRET")
+        .expect("GATEWAY_JWT_SECRET must be set in env or e2e/.env.test");
+
+    let gateway_url = std::env::var("GATEWAY_URL")
+        .unwrap_or_else(|_| "http://localhost:8080".to_string());
+
+    let opensearch_url = std::env::var("OPENSEARCH_URL")
+        .unwrap_or_else(|_| "http://localhost:9200".to_string());
+
+    let channel = std::env::var("LOG_CHANNEL")
+        .unwrap_or_else(|_| "fancy-app-dev".to_string());
+
+    // ── 1. Resolve paths ──────────────────────────────────────────────────────
+    //
+    // CARGO_MANIFEST_DIR for this crate = …/remote_logger_backend/e2e
+    // The compose file lives one directory up, under docker/.
+    let project_root = Path::new(manifest_dir)
+        .parent()
+        .expect("CARGO_MANIFEST_DIR has no parent directory");
+
+    let compose_file = project_root
+        .join("docker")
+        .join("docker-compose.yml");
+
+    assert!(
+        compose_file.exists(),
+        "docker-compose.yml not found at {:?}",
+        compose_file
+    );
+
+    let compose_file_str = compose_file
+        .to_str()
+        .expect("compose file path is not valid UTF-8");
+
+    // ── 2. Bring up the compose stack ────────────────────────────────────────
+    //
+    // The `_stack` binding is intentionally held for the lifetime of this test.
+    // When it goes out of scope (whether by return, panic, or normal exit) the
+    // Drop impl runs `docker compose down -v` for guaranteed cleanup.
+    let _stack = DockerComposeHandle::up(
+        compose_file_str,
+        &[("GATEWAY_JWT_SECRET", &jwt_secret)],
+    );
+
+    // ── 3. Wait for dependent services ───────────────────────────────────────
+    eprintln!("[e2e] Waiting for gateway on port 8080 …");
+    assert!(
+        wait_for_port("localhost", 8080, Duration::from_secs(120)),
+        "Gateway did not become reachable within 120 s"
+    );
+
+    // Extra grace period: the gateway might reject connections while it reads
+    // the workers.txt file and the validation worker replicas register.
+    std::thread::sleep(Duration::from_secs(5));
+
+    eprintln!("[e2e] Waiting for OpenSearch on port 9200 …");
+    assert!(
+        wait_for_port("localhost", 9200, Duration::from_secs(120)),
+        "OpenSearch did not become reachable within 120 s"
+    );
+
+    // OpenSearch might accept TCP connections via docker-proxy before the HTTP API is actually ready.
+    // Poll the root endpoint until it returns a successful status.
+    let opensearch_api_start = Instant::now();
+    let mut opensearch_ready = false;
+    while opensearch_api_start.elapsed() < Duration::from_secs(60) {
+        if ureq::get(&opensearch_url).call().is_ok() {
+            opensearch_ready = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+    assert!(opensearch_ready, "OpenSearch HTTP API did not become ready in time");
+
+    // ── 4. Obtain a gateway JWT via /auth/exchange ────────────────────────────
+    //
+    // Mirrors the pattern in scripts/send_logs.sh.
+    eprintln!("[e2e] Exchanging attestation token for JWT …");
+    let auth_body = serde_json::json!({
+        "platform": "android",
+        "attestation_token": "mock",
+        "tenant_id": "acme"
+    });
+
+    let auth_response: serde_json::Value = ureq::post(&format!("{gateway_url}/auth/exchange"))
+        .set("Content-Type", "application/json")
+        .set("X-Channel-Id", &channel)
+        .send_json(auth_body)
+        .expect("Auth exchange HTTP request failed")
+        .into_json()
+        .expect("Auth exchange response is not valid JSON");
+
+    let jwt = auth_response["token"]
+        .as_str()
+        .expect("Auth exchange response missing 'token' field");
+
+    eprintln!(
+        "[e2e] JWT obtained (first 30 chars): {}…",
+        &jwt[..jwt.len().min(30)]
+    );
+
+    // ── 5. POST a log with a unique message marker ────────────────────────────
+    //
+    // Route: /v1/logs/{channel} — the workaround path from spec report §1.
+    // (The /log suffix causes a 404 on the validation worker.)
+    let test_marker = format!("e2e-test-marker-{}", epoch_ms());
+    eprintln!("[e2e] Sending log with unique marker: {test_marker}");
+
+    let log_body = serde_json::json!({
+        "app_id":    "com.acme.fancyapp.dev",
+        "tenant_id": "acme",
+        "payload": {
+            "timestamp":  "2026-06-23T15:00:00Z",
+            "loggerName": "E2ETestLogger",
+            "message":    test_marker,
+            "level":      "INFO",
+            "zone":       "main",
+            "deviceUUID": "e2e-test-device-0001"
+        }
+    });
+
+    let log_response = ureq::post(&format!("{gateway_url}/v1/logs/{channel}"))
+        .set("Content-Type", "application/json")
+        .set("Authorization", &format!("Bearer {jwt}"))
+        .send_json(log_body)
+        .expect("Log POST HTTP request failed");
+
+    assert_eq!(
+        log_response.status(),
+        200,
+        "Expected 200 OK from gateway log endpoint, got {}",
+        log_response.status()
+    );
+    eprintln!("[e2e] Gateway accepted the log → 200 OK ✓");
+
+    // ── 6. Wait for Fluent Bit to flush ──────────────────────────────────────
+    //
+    // fluent-bit.conf sets `Flush 2` (2-second interval). We wait 5 seconds to
+    // allow for the full flush cycle plus OpenSearch indexing latency.
+    eprintln!("[e2e] Waiting 5 s for Fluent Bit flush (Flush=2) + indexing …");
+    std::thread::sleep(Duration::from_secs(5));
+
+    // ── 7. Query OpenSearch for the test marker ───────────────────────────────
+    //
+    // The index name is `mobile-logs-{app_id}` plus Fluent Bit's date suffix
+    // (Logstash_Format=On), e.g. `mobile-logs-com.acme.fancyapp.dev-2026.06.24`.
+    // The wildcard pattern covers all date suffixes.
+    let search_url = format!(
+        "{opensearch_url}/mobile-logs-*/_search?q=message:{}",
+        test_marker
+    );
+    eprintln!("[e2e] Querying OpenSearch: {search_url}");
+
+    let mut search_response = serde_json::Value::Null;
+    let mut total_hits = 0;
+    let search_start = Instant::now();
+
+    while search_start.elapsed() < Duration::from_secs(30) {
+        if let Ok(resp) = ureq::get(&search_url).call() {
+            if let Ok(json) = resp.into_json::<serde_json::Value>() {
+                search_response = json;
+                total_hits = search_response["hits"]["total"]["value"].as_u64().unwrap_or(0);
+                if total_hits > 0 {
+                    break;
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+
+    eprintln!(
+        "[e2e] OpenSearch response (hits.total): {}",
+        search_response["hits"]["total"]
+    );
+
+    // ── 8. Assert document was indexed ───────────────────────────────────────
+    assert!(
+        total_hits > 0,
+        "Expected at least 1 document in OpenSearch with message '{}', but got 0 hits.\n\
+         Full search response:\n{search_response:#}",
+        test_marker
+    );
+
+    eprintln!("[e2e] ✓ Found {total_hits} document(s) — E2E test passed!");
+
+    // `_stack` is dropped here → `docker compose down -v` runs automatically.
+}

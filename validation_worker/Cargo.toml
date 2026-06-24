@@ -1,15 +1,36 @@
 [package]
 name = "validation_worker"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
+# Explicit targets so Cargo knows about both the library and the binary.
+[lib]
+name = "validation_worker"
+path = "src/lib.rs"
+
+[[bin]]
+name = "validation_worker"
+path = "src/main.rs"
+
+# ── Production dependencies ───────────────────────────────────────────────────
 [dependencies]
-axum = "0.7"
-tokio = { version = "1.36", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-rdkafka = { version = "0.36", features = ["cmake-build"] }
-http = "1.0"
-tracing = "0.1"
+axum              = "0.7"
+tokio             = { version = "1.36", features = ["full"] }
+serde             = { version = "1.0",  features = ["derive"] }
+serde_json        = "1.0"
+rdkafka           = { version = "0.36", features = ["cmake-build"] }
+http              = "1.0"
+tracing           = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# ── Test-only dependencies ────────────────────────────────────────────────────
+[dev-dependencies]
+# Tier 1 — Unit tests (in-process, zero network)
+tower          = { version = "0.4", features = ["util"] }  # ServiceExt::oneshot
+http-body-util = "0.1"                                     # BodyExt (if body inspection needed)
+
+# Tier 2 — Integration tests (ephemeral Kafka via Docker)
+testcontainers         = "0.23"
+testcontainers-modules = { version = "0.11", features = ["kafka"] }
+reqwest  = { version = "0.12", features = ["json"] }
+futures  = "0.3"   # StreamExt for rdkafka StreamConsumer
