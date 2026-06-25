@@ -156,7 +156,7 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
         .unwrap_or_else(|_| "http://localhost:9200".to_string());
 
     let channel = std::env::var("LOG_CHANNEL")
-        .unwrap_or_else(|_| "fancy-app-dev".to_string());
+        .unwrap_or_else(|_| "example-app-dev".to_string());
 
     // ── 1. Resolve paths ──────────────────────────────────────────────────────
     //
@@ -227,7 +227,7 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     let auth_body = serde_json::json!({
         "platform": "android",
         "attestation_token": "mock",
-        "tenant_id": "acme"
+        "tenant_id": "example_tenant"
     });
 
     let auth_response: serde_json::Value = ureq::post(&format!("{gateway_url}/auth/exchange"))
@@ -255,8 +255,8 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     eprintln!("[e2e] Sending log with unique marker: {test_marker}");
 
     let log_body = serde_json::json!({
-        "app_id":    "com.acme.fancyapp.dev",
-        "tenant_id": "acme",
+        "app_id":    "dev.femrek.exampleapp.dev",
+        "tenant_id": "example_tenant",
         "payload": {
             "timestamp":  "2026-06-23T15:00:00Z",
             "loggerName": "E2ETestLogger",
@@ -291,7 +291,7 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     // ── 7. Query OpenSearch for the test marker ───────────────────────────────
     //
     // The index name is `mobile-logs-{app_id}` plus Fluent Bit's date suffix
-    // (Logstash_Format=On), e.g. `mobile-logs-com.acme.fancyapp.dev-2026.06.24`.
+    // (Logstash_Format=On), e.g. `mobile-logs-dev.femrek.exampleapp.dev-2026.06.24`.
     // The wildcard pattern covers all date suffixes.
     let search_url = format!(
         "{opensearch_url}/mobile-logs-*/_search?q=message:{}",

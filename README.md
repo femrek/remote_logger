@@ -147,7 +147,7 @@ bash send_logs.sh
 ```
 
 The script exchanges an attestation token for a JWT, then POSTs a sample
-`IngestEnvelope` to `http://localhost:8080/v1/logs/fancy-app-dev`.
+`IngestEnvelope` to `http://localhost:8080/v1/logs/example-app-dev`.
 
 ### 4. Inspect results
 
@@ -174,12 +174,12 @@ The file is **hot-reloadable** — saving it triggers a zero-downtime config rel
 
 ```yaml
 channels:
-  - id: "fancy-app-dev"
-    path_prefix: "/v1/logs/fancy-app-dev"
-    app_id: "com.acme.fancyapp.dev"
+  - id: "example-app-dev"
+    path_prefix: "/v1/logs/example-app-dev"
+    app_id: "dev.femrek.exampleapp.dev"
     validate_attestation: false   # skip attestation in dev
     headers:
-      X-Channel-Id: "fancy-app-dev"
+      X-Channel-Id: "example-app-dev"
       X-Environment: "local-dev"
 ```
 
@@ -200,8 +200,8 @@ The validation worker expects an **`IngestEnvelope`** wrapper — not a raw `Ser
 
 ```json
 {
-  "app_id":    "com.acme.fancyapp.dev",
-  "tenant_id": "acme",
+  "app_id":    "dev.femrek.exampleapp.dev",
+  "tenant_id": "example_tenant",
   "payload": {
     "timestamp":  "2026-06-23T15:00:00Z",
     "loggerName": "AppDatabase",
@@ -290,7 +290,7 @@ assertion. The test:
    full stack (gateway, workers, Kafka, Fluent Bit, OpenSearch).
 3. Calls `POST /auth/exchange` to obtain a real session JWT.
 4. Posts a log with a unique timestamp-based message marker to
-   `POST /v1/logs/fancy-app-dev`.
+   `POST /v1/logs/example-app-dev`.
 5. Waits 5 seconds for Fluent Bit's 2-second flush cycle to complete.
 6. Queries `GET /mobile-logs-*/_search?q=message:<marker>` and asserts
    `hits.total.value > 0`.

@@ -332,8 +332,8 @@ mod tests {
     /// `sessionId` is deliberately absent — see spec report §3.
     fn valid_envelope() -> serde_json::Value {
         serde_json::json!({
-            "app_id":    "com.acme.fancyapp.dev",
-            "tenant_id": "acme",
+            "app_id":    "dev.femrek.exampleapp.dev",
+            "tenant_id": "example_tenant",
             "payload": {
                 "timestamp":  "2026-06-23T15:00:00Z",
                 "loggerName": "AppDatabase",
@@ -387,7 +387,7 @@ mod tests {
     /// must be accepted and forwarded to the sink → 200 OK.
     #[tokio::test]
     async fn test_valid_envelope_returns_200() {
-        let resp = post_json(test_app(), "/v1/logs/fancy-app-dev", valid_envelope()).await;
+        let resp = post_json(test_app(), "/v1/logs/example-app-dev", valid_envelope()).await;
         assert_eq!(resp.status(), StatusCode::OK);
     }
 
@@ -411,7 +411,7 @@ mod tests {
             "zone":       "",
             "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d"
         });
-        let resp = post_json(test_app(), "/v1/logs/fancy-app-dev", raw_server_log).await;
+        let resp = post_json(test_app(), "/v1/logs/example-app-dev", raw_server_log).await;
         assert_eq!(
             resp.status(),
             StatusCode::BAD_REQUEST,
@@ -425,8 +425,8 @@ mod tests {
     #[tokio::test]
     async fn test_missing_device_uuid_in_payload_returns_400() {
         let envelope = serde_json::json!({
-            "app_id":    "com.acme.fancyapp.dev",
-            "tenant_id": "acme",
+            "app_id":    "dev.femrek.exampleapp.dev",
+            "tenant_id": "example_tenant",
             "payload": {
                 "timestamp":  "2026-06-23T15:00:00Z",
                 "loggerName": "AppDatabase",
@@ -436,7 +436,7 @@ mod tests {
                 // "deviceUUID" intentionally omitted
             }
         });
-        let resp = post_json(test_app(), "/v1/logs/fancy-app-dev", envelope).await;
+        let resp = post_json(test_app(), "/v1/logs/example-app-dev", envelope).await;
         assert_eq!(
             resp.status(),
             StatusCode::BAD_REQUEST,
@@ -461,7 +461,7 @@ mod tests {
                 "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d"
             }
         });
-        let resp = post_json(test_app(), "/v1/logs/fancy-app-dev", envelope).await;
+        let resp = post_json(test_app(), "/v1/logs/example-app-dev", envelope).await;
         assert_eq!(
             resp.status(),
             StatusCode::BAD_REQUEST,
@@ -475,7 +475,7 @@ mod tests {
     #[tokio::test]
     async fn test_session_id_is_optional_and_omission_returns_200() {
         // `valid_envelope()` already omits sessionId — this test makes the intent explicit.
-        let resp = post_json(test_app(), "/v1/logs/fancy-app-dev", valid_envelope()).await;
+        let resp = post_json(test_app(), "/v1/logs/example-app-dev", valid_envelope()).await;
         assert_eq!(
             resp.status(),
             StatusCode::OK,
@@ -501,11 +501,11 @@ mod tests {
         });
         let resp = post_json_with_headers(
             test_app(),
-            "/v1/logs/fancy-app-dev",
+            "/v1/logs/example-app-dev",
             envelope,
             &[
-                ("x-tenant-id", "acme"),
-                ("x-app-id", "com.acme.fancyapp.dev"),
+                ("x-tenant-id", "example_tenant"),
+                ("x-app-id", "dev.femrek.exampleapp.dev"),
             ],
         )
         .await;
@@ -520,8 +520,8 @@ mod tests {
     #[tokio::test]
     async fn test_optional_error_and_stacktrace_fields_accepted() {
         let envelope = serde_json::json!({
-            "app_id":    "com.acme.fancyapp.dev",
-            "tenant_id": "acme",
+            "app_id":    "dev.femrek.exampleapp.dev",
+            "tenant_id": "example_tenant",
             "payload": {
                 "timestamp":  "2026-06-23T15:00:00Z",
                 "loggerName": "CrashReporter",
@@ -533,7 +533,7 @@ mod tests {
                 "stacktrace": "#0  Foo.bar (package:app/foo.dart:12)"
             }
         });
-        let resp = post_json(test_app(), "/v1/logs/fancy-app-dev", envelope).await;
+        let resp = post_json(test_app(), "/v1/logs/example-app-dev", envelope).await;
         assert_eq!(resp.status(), StatusCode::OK);
     }
 
@@ -545,7 +545,7 @@ mod tests {
     async fn test_path_with_log_suffix_returns_404() {
         let resp = post_json(
             test_app(),
-            "/v1/logs/fancy-app-dev/log",
+            "/v1/logs/example-app-dev/log",
             valid_envelope(),
         )
         .await;

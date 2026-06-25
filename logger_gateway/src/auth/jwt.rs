@@ -144,10 +144,10 @@ mod tests {
     #[test]
     fn roundtrip_valid_token() {
         let cfg = test_cfg();
-        let token = issue_jwt("fancy-app-prod", "acme", "android", "com.test", &cfg).unwrap();
+        let token = issue_jwt("example-app-prod", "example_tenant", "android", "com.test", &cfg).unwrap();
         let claims = validate_jwt(&token, &cfg).unwrap();
-        assert_eq!(claims.sub, "fancy-app-prod");
-        assert_eq!(claims.tid, "acme");
+        assert_eq!(claims.sub, "example-app-prod");
+        assert_eq!(claims.tid, "example_tenant");
         assert_eq!(claims.plt, "android");
         assert_eq!(claims.app, "com.test");
         assert_eq!(claims.iss, "logger-gateway");

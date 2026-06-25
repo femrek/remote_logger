@@ -114,7 +114,7 @@ async fn integration_valid_payload_returns_200_and_reaches_kafka() {
     let client = reqwest::Client::new();
     let envelope = serde_json::json!({
         "app_id":    "com.test.app",
-        "tenant_id": "acme-test",
+        "tenant_id": "example_tenant-test",
         "payload": {
             "timestamp":  "2026-06-23T15:00:00Z",
             "loggerName": "IntegrationTestLogger",
@@ -130,7 +130,7 @@ async fn integration_valid_payload_returns_200_and_reaches_kafka() {
             "http://127.0.0.1:{}/v1/logs/test-channel",
             server_port
         ))
-        .header("x-tenant-id", "acme-test")
+        .header("x-tenant-id", "example_tenant-test")
         .header("x-app-id", "com.test.app")
         .json(&envelope)
         .send()
@@ -178,7 +178,7 @@ async fn integration_valid_payload_returns_200_and_reaches_kafka() {
     // ── 5. Assert KafkaPayload structure (spec report §4) ────────────────────
 
     // Top-level enrichment fields added by the worker.
-    assert_eq!(kafka_json["tenant_id"],         "acme-test",              "tenant_id");
+    assert_eq!(kafka_json["tenant_id"],         "example_tenant-test",              "tenant_id");
     assert_eq!(kafka_json["app_id"],            "com.test.app",           "app_id");
     assert_eq!(kafka_json["log_index_prefix"], "mobile-logs-com.test.app","log_index_prefix");
 
@@ -272,7 +272,7 @@ async fn integration_invalid_payloads_return_400() {
     // Case B — Spec report §2: valid envelope but `deviceUUID` missing from inner payload
     let missing_uuid = serde_json::json!({
         "app_id":    "com.test.app",
-        "tenant_id": "acme-test",
+        "tenant_id": "example_tenant-test",
         "payload": {
             "timestamp":  "2026-06-23T15:00:00Z",
             "loggerName": "TestLogger",

@@ -5,7 +5,7 @@ set -euo pipefail
 
 TOKEN_FILE=".token"
 GATEWAY_URL="http://localhost:8080"
-CHANNEL="fancy-app-dev"
+CHANNEL="example-app-dev"
 
 # Function to get a new token
 fetch_new_token() {
@@ -14,7 +14,7 @@ fetch_new_token() {
   response=$(curl -s -X POST "${GATEWAY_URL}/auth/exchange" \
     -H "Content-Type: application/json" \
     -H "X-Channel-Id: ${CHANNEL}" \
-    -d '{"platform":"android","attestation_token":"mock","tenant_id":"acme"}')
+    -d '{"platform":"android","attestation_token":"mock","tenant_id":"example_tenant"}')
 
   # Extract token using jq or fallback grep/sed
   local token
@@ -47,8 +47,8 @@ send_logs() {
     -H "Authorization: Bearer ${token_to_use}" \
     -H "Content-Type: application/json" \
     -d '{
-      "app_id": "com.acme.fancyapp.dev",
-      "tenant_id": "acme",
+      "app_id": "dev.femrek.exampleapp.dev",
+      "tenant_id": "example_tenant",
       "payload": {
         "timestamp": "2026-06-23T15:00:00Z",
         "loggerName": "AppDatabase",

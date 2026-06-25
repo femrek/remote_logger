@@ -21,10 +21,10 @@
             "name": "X-Channel-Id",
             "in": "header",
             "required": true,
-            "description": "Unique routing channel identifier (e.g., `fancy-app-prod`, `fancy-app-dev`).",
+            "description": "Unique routing channel identifier (e.g., `example-app-prod`, `example-app-dev`).",
             "schema": {
               "type": "string",
-              "example": "fancy-app-prod"
+              "example": "example-app-prod"
             }
           }
         ],
@@ -116,10 +116,10 @@
             "name": "channel",
             "in": "path",
             "required": true,
-            "description": "The channel ID matching the path prefix (e.g., `fancy-app-prod`).",
+            "description": "The channel ID matching the path prefix (e.g., `example-app-prod`).",
             "schema": {
               "type": "string",
-              "example": "fancy-app-prod"
+              "example": "example-app-prod"
             }
           }
         ],
@@ -194,10 +194,10 @@
             "name": "channel",
             "in": "path",
             "required": true,
-            "description": "The channel ID matching the path prefix (e.g., `fancy-app-prod`).",
+            "description": "The channel ID matching the path prefix (e.g., `example-app-prod`).",
             "schema": {
               "type": "string",
-              "example": "fancy-app-prod"
+              "example": "example-app-prod"
             }
           }
         ],
@@ -272,10 +272,10 @@
             "name": "channel",
             "in": "path",
             "required": true,
-            "description": "The channel ID matching the path prefix (e.g., `fancy-app-prod`).",
+            "description": "The channel ID matching the path prefix (e.g., `example-app-prod`).",
             "schema": {
               "type": "string",
-              "example": "fancy-app-prod"
+              "example": "example-app-prod"
             }
           }
         ],
@@ -373,7 +373,7 @@
           "tenant_id": {
             "type": "string",
             "description": "The tenant ID identifier claimed by the client.",
-            "example": "acme"
+            "example": "example_tenant"
           }
         }
       },

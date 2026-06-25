@@ -45,7 +45,7 @@ pub enum EnvelopeError {
 /// the `Bytes` buffer for the duration of the request.
 #[derive(Debug, Deserialize)]
 pub struct LogEnvelope<'a> {
-    /// Application bundle identifier (e.g. `"com.acme.fancyapp"`).
+    /// Application bundle identifier (e.g. `"dev.femrek.exampleapp"`).
     /// Used for per-app metrics and Kafka partition keys by the backend.
     pub app_id: String,
 
@@ -102,13 +102,13 @@ mod tests {
     #[test]
     fn valid_envelope_parses() {
         let body = br#"{
-            "app_id": "com.acme.app",
-            "tenant_id": "acme",
+            "app_id": "dev.femrek.app",
+            "tenant_id": "example_tenant",
             "payload": {"level": "info", "msg": "hello", "ts": 1234567890}
         }"#;
         let env = parse_envelope(body, MAX).unwrap();
-        assert_eq!(env.app_id, "com.acme.app");
-        assert_eq!(env.tenant_id, "acme");
+        assert_eq!(env.app_id, "dev.femrek.app");
+        assert_eq!(env.tenant_id, "example_tenant");
         // payload is valid JSON but not traversed
         assert!(env.payload.get().contains("info"));
     }

@@ -136,10 +136,10 @@ pub struct ChannelConfig {
     pub id: String,
 
     /// URL path prefix that routes requests to this channel.
-    /// Example: `"/v1/logs/fancy-app-prod"`.
+    /// Example: `"/v1/logs/example-app-prod"`.
     pub path_prefix: String,
 
-    /// Application bundle identifier (e.g., `"com.acme.fancyapp"`).
+    /// Application bundle identifier (e.g., `"dev.femrek.exampleapp"`).
     pub app_id: String,
 
     /// Optional Google Cloud Project Number for Android Play Integrity verification.
