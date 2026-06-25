@@ -26,6 +26,17 @@ use validation_worker::{build_app, AppState, RdkafkaSink};
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
+/// The external client port exposed by the Confluent Kafka testcontainer module.
+///
+/// The container maps two listeners:
+/// - `BROKER://0.0.0.0:9092` — internal inter-broker (not for external clients)
+/// - `PLAINTEXT://0.0.0.0:9093` — external client listener (KAFKA_PORT)
+///
+/// `exec_after_start` inside the module patches `advertised.listeners` to
+/// `PLAINTEXT://127.0.0.1:<mapped-9093>` so rdkafka can reach the broker
+/// from the host after the initial metadata exchange.
+const KAFKA_CONTAINER_PORT: u16 = 9093;
+
 /// Poll a TCP port until it accepts a connection or `timeout` elapses.
 ///
 /// Used to wait for both the Kafka container and the Axum server to be ready
@@ -39,6 +50,20 @@ async fn wait_for_port(host: &str, port: u16, timeout: Duration) -> bool {
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
     false
+}
+
+/// Build a bootstrap servers string from the started Kafka container.
+///
+/// Uses `KAFKA_CONTAINER_PORT` (9093) — the PLAINTEXT external listener whose
+/// advertised address is patched by the module's `exec_after_start` hook.
+/// Using port 9092 (the BROKER listener) would return the un-patched internal
+/// address and cause rdkafka to fail after the first metadata fetch.
+async fn kafka_bootstrap(container: &testcontainers::ContainerAsync<Kafka>) -> String {
+    let port = container
+        .get_host_port_ipv4(KAFKA_CONTAINER_PORT)
+        .await
+        .expect("Failed to get Kafka mapped port");
+    format!("127.0.0.1:{}", port)
 }
 
 // ── Test 1: Happy path — valid envelope → 200 + Kafka message verified ────────
@@ -65,23 +90,19 @@ async fn integration_valid_payload_returns_200_and_reaches_kafka() {
         .await
         .expect("Failed to start Kafka testcontainer — is Docker running?");
 
-    let kafka_port = kafka_container
-        .get_host_port_ipv4(9092)
-        .await
-        .expect("Failed to get Kafka mapped port");
+    let bootstrap = kafka_bootstrap(&kafka_container).await;
+    eprintln!("[integration] Kafka bootstrap: {bootstrap}");
 
-    let bootstrap = format!("127.0.0.1:{}", kafka_port);
-    eprintln!("[integration] Kafka ready on {bootstrap}");
-
-    // The Confluent Platform Kafka image takes a few seconds to be ready for
-    // producers even after the TCP port is open.
+    // Wait for the external listener port (9093) to be reachable.
+    let port: u16 = bootstrap.split(':').last().unwrap().parse().unwrap();
     assert!(
-        wait_for_port("127.0.0.1", kafka_port, Duration::from_secs(30)).await,
+        wait_for_port("127.0.0.1", port, Duration::from_secs(30)).await,
         "Kafka did not become connectable within 30 s"
     );
-    // Additional grace period for the Kafka broker to elect a leader and create
-    // internal topics.
-    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Additional grace period for exec_after_start (kafka-configs --alter) to
+    // finish patching advertised.listeners and for leader election to complete.
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     // ── 2. Build Axum app pointing at the container ───────────────────────────
     let sink = RdkafkaSink::new(&bootstrap).expect("Failed to create RdkafkaSink");
@@ -229,14 +250,15 @@ async fn integration_invalid_payloads_return_400() {
         .start()
         .await
         .expect("Failed to start Kafka testcontainer");
-    let kafka_port = kafka_container.get_host_port_ipv4(9092).await.unwrap();
-    let bootstrap = format!("127.0.0.1:{}", kafka_port);
+
+    let bootstrap = kafka_bootstrap(&kafka_container).await;
+    let port: u16 = bootstrap.split(':').last().unwrap().parse().unwrap();
 
     assert!(
-        wait_for_port("127.0.0.1", kafka_port, Duration::from_secs(30)).await,
+        wait_for_port("127.0.0.1", port, Duration::from_secs(30)).await,
         "Kafka did not become connectable"
     );
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     let sink = RdkafkaSink::new(&bootstrap).unwrap();
     let state = Arc::new(AppState {
