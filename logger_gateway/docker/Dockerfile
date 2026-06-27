@@ -26,9 +26,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 
 WORKDIR /app
 
-# Copy the binary and configuration files from the build context
+# Copy the binary from the build context
 COPY --from=builder /usr/local/bin/logger_gateway /app/logger_gateway
-COPY config/ /app/config/
 
 # Expose the proxy listener port (8080) and Prometheus metrics port (9090)
 EXPOSE 8080 9090

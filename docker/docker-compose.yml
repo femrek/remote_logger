@@ -7,6 +7,7 @@ services:
       - "8080:8080"
     volumes:
       - ./workers.txt:/docker/workers.txt:ro
+      - ./gateway.yaml:/app/config/gateway.yaml
     environment:
       - WORKERS_FILE=/docker/workers.txt
       - RUST_LOG=${RUST_LOG:-info,logger_gateway=debug}
@@ -50,7 +51,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 40
-      start_period: 15s
+      start_period: 10s
     networks:
       - logger_network
 
