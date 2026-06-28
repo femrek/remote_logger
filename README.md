@@ -16,20 +16,19 @@ Mobile Client (Dart)
         ▼
 ┌──────────────────────────────────────────────────────────────┐
 │  logger_gateway  (Pingora reverse proxy)  :8080              │
-│  • JWT session auth  (POST /auth/exchange → short-lived JWT) │
+│  • Terminates client TLS & manages load-balancing            │
 │  • Per-channel routing (gateway.yaml, hot-reloadable)        │
-│  • Attestation verification (Google Play / Apple App Attest) │
-│  • Wraps payload in IngestEnvelope, injects x-tenant-id /    │
-│    x-app-id headers, forwards to worker pool                 │
+│  • Verifies ingest JWT signature & strips auth headers       │
+│  • Injects x-tenant-id / x-app-id upstream identity headers  │
 └────────────────────────┬─────────────────────────────────────┘
                          │  HTTP POST /v1/logs/{channel}
                          │  x-tenant-id, x-app-id headers
                          ▼
 ┌──────────────────────────────────────────────────────────────┐
 │  validation_worker  (Axum microservice)  :8000  × 2 replicas │
-│  • Parses IngestEnvelope wrapper                             │
+│  • Handles POST /auth/exchange (Attestation + JWT minting)   │
 │  • Deep-validates inner ServerLog schema                     │
-│  • Enriches with log_index_prefix (mobile-logs-{app_id})    │
+│  • Enriches with log_index_prefix (mobile-logs-{app_id})     │
 │  • Awaits Kafka ACK before responding (zero data loss)       │
 └────────────────────────┬─────────────────────────────────────┘
                          │  Kafka produce → "mobile-logs" topic
@@ -196,26 +195,21 @@ channels:
 
 > See [`log_data_specification_report.md`](log_data_specification_report.md) for the full schema and a detailed discrepancy analysis.
 
-The validation worker expects an **`IngestEnvelope`** wrapper — not a raw `ServerLog`:
+The validation worker expects a raw **`ServerLog`** object payload matching the mobile client's log export format:
 
 ```json
 {
-  "app_id":    "dev.femrek.exampleapp.dev",
-  "tenant_id": "example_tenant",
-  "payload": {
-    "timestamp":  "2026-06-23T15:00:00Z",
-    "loggerName": "AppDatabase",
-    "message":    "Connection established.",
-    "level":      "INFO",
-    "zone":       "",
-    "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d"
-  }
+  "timestamp":  "2026-06-23T15:00:00Z",
+  "loggerName": "AppDatabase",
+  "message":    "Connection established.",
+  "level":      "INFO",
+  "zone":       "",
+  "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
+  "sessionId":  "session-123"
 }
 ```
 
-The gateway constructs this envelope automatically from the mobile client's raw
-`ServerLog` body before forwarding. The inner `payload` is deep-validated against
-the strict `ServerLog` schema inside the worker.
+The gateway injects `x-tenant-id` and `x-app-id` headers derived from the requested channel configuration. The worker validates the raw `ServerLog` strictly against its schema and flattens it with the injected identities before forwarding it to Kafka.
 
 ---
 
@@ -239,11 +233,11 @@ Expected output:
 running 9 tests
 test tests::test_valid_envelope_returns_200 ... ok
 test tests::test_ingest_alias_route_returns_200 ... ok
-test tests::test_raw_server_log_without_envelope_returns_400 ... ok
-test tests::test_missing_device_uuid_in_payload_returns_400 ... ok
-test tests::test_empty_identifiers_no_headers_returns_400 ... ok
+test tests::test_missing_device_uuid_returns_400 ... ok
+test tests::test_invalid_json_returns_400 ... ok
+test tests::test_missing_app_id_header_returns_401 ... ok
 test tests::test_session_id_is_optional_and_omission_returns_200 ... ok
-test tests::test_header_ids_accepted_when_envelope_ids_empty ... ok
+test tests::test_valid_server_log_with_headers_returns_200 ... ok
 test tests::test_optional_error_and_stacktrace_fields_accepted ... ok
 test tests::test_path_with_log_suffix_returns_404 ... ok
 test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured
@@ -369,8 +363,7 @@ These are documented in detail in [`log_data_specification_report.md`](log_data_
    (no trailing `/log`). Requests to `/v1/logs/:channel/log` return 404. Use the
    path without the suffix.
 
-2. **IngestEnvelope wrapper (§2):** The worker expects the body to be wrapped in
-   `{"app_id":…,"tenant_id":…,"payload":{…}}`. A raw `ServerLog` body returns 400.
+2. **Raw `ServerLog` Body (§2):** The worker expects the raw `ServerLog` directly, with identity managed via gateway headers. The payload must not be wrapped.
 
 3. **`sessionId` missing from mobile client (§3):** The Dart client never
    serialises `sessionId`. It is stored as `null` in OpenSearch.

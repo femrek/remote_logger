@@ -14,14 +14,32 @@ fetch_new_token() {
   response=$(curl -s -X POST "${GATEWAY_URL}/auth/exchange" \
     -H "Content-Type: application/json" \
     -H "X-Channel-Id: ${CHANNEL}" \
-    -d '{"platform":"android","attestation_token":"mock","tenant_id":"example_tenant"}')
+    -d '{
+      "platform": "android",
+      "attestation_token": "mock",
+      "tenant_id": "example_tenant",
+      "device_uuid": "a809b022-7934-4b53-90d2-bf7cb95a947d",
+      "device_metadata": {
+        "timestamp": "2026-06-23T15:00:00Z",
+        "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
+        "sessionId": "3f338d38-9588-46d4-83b6-96d5395a12ef",
+        "os": "Android",
+        "osVersion": "13",
+        "model": "Pixel 6",
+        "brand": "Google",
+        "device": "raven",
+        "identifier": "build-1",
+        "manufacturer": "Google",
+        "isPhysicalDevice": "true"
+      }
+    }')
 
   # Extract token using jq or fallback grep/sed
   local token
   if command -v jq >/dev/null 2>&1; then
-    token=$(echo "$response" | jq -r '.token')
+    token=$(echo "$response" | jq -r '.access_token')
   else
-    token=$(echo "$response" | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+    token=$(echo "$response" | grep -o '"access_token":"[^"]*' | cut -d'"' -f4)
   fi
 
   if [ -z "${token}" ] || [ "${token}" = "null" ]; then
@@ -47,17 +65,13 @@ send_logs() {
     -H "Authorization: Bearer ${token_to_use}" \
     -H "Content-Type: application/json" \
     -d '{
-      "app_id": "dev.femrek.exampleapp.dev",
-      "tenant_id": "example_tenant",
-      "payload": {
-        "timestamp": "2026-06-23T15:00:00Z",
-        "loggerName": "AppDatabase",
-        "message": "Database connection established successfully.",
-        "level": "INFO",
-        "zone": "main",
-        "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
-        "sessionId": "3f338d38-9588-46d4-83b6-96d5395a12ef"
-      }
+      "timestamp": "2026-06-23T15:00:00Z",
+      "loggerName": "AppDatabase",
+      "message": "Database connection established successfully.",
+      "level": "INFO",
+      "zone": "main",
+      "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
+      "sessionId": "3f338d38-9588-46d4-83b6-96d5395a12ef"
     }')
     
   local response_body

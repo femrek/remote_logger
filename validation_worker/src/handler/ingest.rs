@@ -1,4 +1,21 @@
 //! `POST /ingest` and `POST /v1/logs/:channel` handler.
+//!
+//! ## Request contract (post-refactor)
+//!
+//! The gateway validates the client's JWT and injects two mandatory headers:
+//! - `x-tenant-id` — tenant identifier from the JWT `tid` claim.
+//! - `x-app-id`   — application ID from the JWT `app` claim.
+//!
+//! The HTTP body MUST be a raw `ServerLog` JSON object. The `IngestEnvelope`
+//! wrapper (`{ app_id, tenant_id, payload }`) has been removed; the gateway
+//! now carries identity exclusively via headers.
+//!
+//! ## Processing pipeline
+//!
+//! 1. Extract `x-tenant-id` / `x-app-id` from request headers — 401 if absent.
+//! 2. Parse the raw `ServerLog` from the JSON body — 400 on failure.
+//! 3. Validate the `ServerLog` fields (handled implicitly by serde).
+//! 4. Serialise `KafkaPayload` and await broker ACK — 503 on failure.
 
 use std::sync::Arc;
 
@@ -10,35 +27,36 @@ use axum::{
 
 use crate::{
     app::{AppError, AppState},
-    domain::{IngestEnvelope, KafkaPayload, ServerLog},
+    domain::{KafkaPayload, ServerLog},
 };
 
 // ── Request handler ───────────────────────────────────────────────────────────
 
 /// `POST /ingest` and `POST /v1/logs/:channel` handler.
-///
-/// Processing pipeline:
-/// 1. Extract `x-tenant-id` / `x-app-id` from request headers.
-/// 2. Parse the `IngestEnvelope` wrapper from the JSON body; 400 on failure.
-/// 3. Fall back to envelope fields if headers are absent.
-/// 4. Validate the inner `payload` against the strict `ServerLog` schema; 400 on failure.
-/// 5. Serialise `KafkaPayload` and await broker ACK via the injected sink; 503 on failure.
 pub async fn ingest_handler(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    payload: Result<Json<IngestEnvelope>, axum::extract::rejection::JsonRejection>,
+    payload: Result<Json<ServerLog>, axum::extract::rejection::JsonRejection>,
 ) -> Result<impl IntoResponse, AppError> {
-    // ── 1. Header extraction ──────────────────────────────────────────────────
-    let mut tenant_id = headers
+    // ── 1. Header extraction — REQUIRED (gateway always injects these) ─────────
+    let tenant_id = headers
         .get("x-tenant-id")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or_default()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            tracing::warn!("Missing x-tenant-id header — request did not pass through gateway JWT validation");
+            AppError::Unauthorized
+        })?
         .to_string();
 
-    let mut app_id = headers
+    let app_id = headers
         .get("x-app-id")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or_default()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            tracing::warn!("Missing x-app-id header — request did not pass through gateway JWT validation");
+            AppError::Unauthorized
+        })?
         .to_string();
 
     tracing::info!(
@@ -47,47 +65,16 @@ pub async fn ingest_handler(
         "Received ingest request"
     );
 
-    // ── 2. Parse envelope — reject bare ServerLog bodies (spec report §2) ────
-    let Json(envelope) = match payload {
+    // ── 2. Parse raw ServerLog body ───────────────────────────────────────────
+    let Json(log_payload) = match payload {
         Ok(parsed) => parsed,
         Err(err) => {
-            tracing::warn!(error = %err, "Failed to parse IngestEnvelope JSON body");
-            return Err(AppError::BadRequest);
+            tracing::warn!(error = %err, "Failed to parse ServerLog JSON body");
+            return Err(AppError::BadRequest(format!("Invalid ServerLog body: {err}")));
         }
     };
 
-    // ── 3. Fall back to envelope fields when headers are absent ──────────────
-    if tenant_id.is_empty() {
-        tenant_id = envelope.tenant_id.clone();
-    }
-    if app_id.is_empty() {
-        app_id = envelope.app_id.clone();
-    }
-
-    if tenant_id.is_empty() || app_id.is_empty() {
-        tracing::warn!(
-            tenant_id = %tenant_id,
-            app_id = %app_id,
-            "Rejected: missing tenant/app identifiers in both headers and envelope"
-        );
-        return Err(AppError::BadRequest);
-    }
-
-    // ── 4. Deep-validate inner payload against strict ServerLog schema ────────
-    let log_payload: ServerLog = match serde_json::from_value(envelope.payload) {
-        Ok(parsed) => parsed,
-        Err(err) => {
-            tracing::warn!(
-                tenant_id = %tenant_id,
-                app_id = %app_id,
-                error = %err,
-                "Failed to validate inner payload against ServerLog schema"
-            );
-            return Err(AppError::BadRequest);
-        }
-    };
-
-    // ── 5. Assemble the flattened Kafka message ───────────────────────────────
+    // ── 3. Assemble the flattened Kafka message ───────────────────────────────
     let kafka_payload = KafkaPayload {
         tenant_id: tenant_id.clone(),
         app_id: app_id.clone(),
@@ -103,7 +90,7 @@ pub async fn ingest_handler(
         }
     };
 
-    // ── 6. Zero-data-loss delivery: await broker ACK ─────────────────────────
+    // ── 4. Zero-data-loss delivery: await broker ACK ──────────────────────────
     match state.sink.send(&state.kafka_topic, &tenant_id, &serialised).await {
         Ok(()) => {
             tracing::info!(tenant_id = %tenant_id, "Message delivered to Kafka");
@@ -129,21 +116,19 @@ mod tests {
 
     use axum::body::Body;
     use http::{Request, StatusCode};
-    use tower::ServiceExt; // for Router::oneshot
+    use tower::ServiceExt;
 
     use crate::{
         app::{AppState, build_app},
+        auth::attestation::{NoopVerifier, PlatformDispatchVerifier},
+        config::{WorkerChannelConfig, WorkerConfig},
         kafka::{BoxFuture, KafkaSink, KafkaSinkError},
     };
+    use arc_swap::ArcSwap;
 
     // ── No-op sink ────────────────────────────────────────────────────────────
 
-    /// In-process [`KafkaSink`] that immediately returns `Ok(())`.
-    ///
-    /// This lets unit tests exercise the handler's full validation pipeline up
-    /// to and including the Kafka dispatch step, without requiring a real broker.
     struct NoopSink;
-
     impl KafkaSink for NoopSink {
         fn send<'a>(
             &'a self,
@@ -158,41 +143,43 @@ mod tests {
     // ── Test helpers ──────────────────────────────────────────────────────────
 
     fn test_app() -> axum::Router {
+        let worker_config = Arc::new(ArcSwap::from_pointee(WorkerConfig {
+            channels: vec![WorkerChannelConfig {
+                id: "example-app-dev".to_string(),
+                app_id: "dev.femrek.exampleapp.dev".to_string(),
+                validate_attestation: false,
+                google_project_number: None,
+                apple_team_id: None,
+                require_apple_key_hash: false,
+            }],
+        }));
         let state = Arc::new(AppState {
             sink: Arc::new(NoopSink),
             kafka_topic: "test-topic".to_string(),
+            metadata_topic: "device-metadata".to_string(),
+            verifier: Arc::new(PlatformDispatchVerifier {
+                android: Box::new(NoopVerifier),
+                ios: Box::new(NoopVerifier),
+            }),
+            worker_config,
+            jwt_secret: "test-secret".to_string(),
+            access_ttl_seconds: 900,
+            refresh_ttl_seconds: 604_800,
+            jwt_issuer: "logger-gateway".to_string(),
         });
         build_app(state)
     }
 
-    /// Canonical valid `IngestEnvelope` mirroring what the Dart client sends.
-    /// `sessionId` is deliberately absent — see spec report §3.
-    fn valid_envelope() -> serde_json::Value {
+    /// Canonical valid raw `ServerLog` — no IngestEnvelope wrapper.
+    fn valid_server_log() -> serde_json::Value {
         serde_json::json!({
-            "app_id":    "dev.femrek.exampleapp.dev",
-            "tenant_id": "example_tenant",
-            "payload": {
-                "timestamp":  "2026-06-23T15:00:00Z",
-                "loggerName": "AppDatabase",
-                "message":    "Connection established.",
-                "level":      "INFO",
-                "zone":       "",
-                "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d"
-            }
+            "timestamp":  "2026-06-23T15:00:00Z",
+            "loggerName": "AppDatabase",
+            "message":    "Connection established.",
+            "level":      "INFO",
+            "zone":       "",
+            "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d"
         })
-    }
-
-    async fn post_json(app: axum::Router, uri: &str, body: serde_json::Value) -> http::Response<Body> {
-        app.oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(uri)
-                .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
-        )
-        .await
-        .unwrap()
     }
 
     async fn post_json_with_headers(
@@ -217,179 +204,185 @@ mod tests {
         .unwrap()
     }
 
+    async fn post_json(app: axum::Router, uri: &str, body: serde_json::Value) -> http::Response<Body> {
+        post_json_with_headers(app, uri, body, &[]).await
+    }
+
     // ── Test cases ────────────────────────────────────────────────────────────
 
-    /// Happy path: a fully-formed `IngestEnvelope` with all required `ServerLog`
-    /// fields (and `sessionId` absent, matching real Dart client behaviour)
-    /// must be accepted and forwarded to the sink → 200 OK.
+    /// Happy path: raw ServerLog body + required gateway headers → 200 OK.
     #[tokio::test]
-    async fn test_valid_envelope_returns_200() {
-        let resp = post_json(test_app(), "/v1/logs/example-app-dev", valid_envelope()).await;
-        assert_eq!(resp.status(), StatusCode::OK);
-    }
-
-    /// The `/ingest` alias route must behave identically to `/v1/logs/:channel`.
-    #[tokio::test]
-    async fn test_ingest_alias_route_returns_200() {
-        let resp = post_json(test_app(), "/ingest", valid_envelope()).await;
-        assert_eq!(resp.status(), StatusCode::OK);
-    }
-
-    /// Spec report §2 — Sending a raw `ServerLog` directly (no `IngestEnvelope`
-    /// wrapper) must be rejected. The serde deserialiser requires the `app_id`,
-    /// `tenant_id`, and `payload` keys to be present at the top level.
-    #[tokio::test]
-    async fn test_raw_server_log_without_envelope_returns_400() {
-        let raw_server_log = serde_json::json!({
-            "timestamp":  "2026-06-23T15:00:00Z",
-            "loggerName": "AppDatabase",
-            "message":    "Connection established.",
-            "level":      "INFO",
-            "zone":       "",
-            "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d"
-        });
-        let resp = post_json(test_app(), "/v1/logs/example-app-dev", raw_server_log).await;
-        assert_eq!(
-            resp.status(),
-            StatusCode::BAD_REQUEST,
-            "A raw ServerLog body must be rejected (spec report §2)"
-        );
-    }
-
-    /// Spec report §2 — The inner `payload` is deep-validated against the strict
-    /// `ServerLog` schema. A payload missing the required `deviceUUID` field must
-    /// fail that validation and return 400.
-    #[tokio::test]
-    async fn test_missing_device_uuid_in_payload_returns_400() {
-        let envelope = serde_json::json!({
-            "app_id":    "dev.femrek.exampleapp.dev",
-            "tenant_id": "example_tenant",
-            "payload": {
-                "timestamp":  "2026-06-23T15:00:00Z",
-                "loggerName": "AppDatabase",
-                "message":    "Connection established.",
-                "level":      "INFO",
-                "zone":       ""
-                // "deviceUUID" intentionally omitted
-            }
-        });
-        let resp = post_json(test_app(), "/v1/logs/example-app-dev", envelope).await;
-        assert_eq!(
-            resp.status(),
-            StatusCode::BAD_REQUEST,
-            "A payload missing deviceUUID must be rejected (spec report §2)"
-        );
-    }
-
-    /// When both `x-tenant-id`/`x-app-id` headers are absent AND the envelope
-    /// carries empty strings for both fields, the handler cannot determine
-    /// tenancy and must reject the request with 400.
-    #[tokio::test]
-    async fn test_empty_identifiers_no_headers_returns_400() {
-        let envelope = serde_json::json!({
-            "app_id":    "",
-            "tenant_id": "",
-            "payload": {
-                "timestamp":  "2026-06-23T15:00:00Z",
-                "loggerName": "AppDatabase",
-                "message":    "Connection established.",
-                "level":      "INFO",
-                "zone":       "",
-                "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d"
-            }
-        });
-        let resp = post_json(test_app(), "/v1/logs/example-app-dev", envelope).await;
-        assert_eq!(
-            resp.status(),
-            StatusCode::BAD_REQUEST,
-            "Empty identifiers in both headers and envelope must be rejected"
-        );
-    }
-
-    /// Spec report §3 — The mobile client never serialises `sessionId`. Because
-    /// the Rust struct defines it as `Option<String>`, its absence must not cause
-    /// a validation failure. This test explicitly documents that contract.
-    #[tokio::test]
-    async fn test_session_id_is_optional_and_omission_returns_200() {
-        // `valid_envelope()` already omits sessionId — this test makes the intent explicit.
-        let resp = post_json(test_app(), "/v1/logs/example-app-dev", valid_envelope()).await;
-        assert_eq!(
-            resp.status(),
-            StatusCode::OK,
-            "Omitting sessionId must not fail validation (spec report §3)"
-        );
-    }
-
-    /// When `x-tenant-id` and `x-app-id` headers carry the identity, the handler
-    /// must override the empty envelope fields. The request must succeed.
-    #[tokio::test]
-    async fn test_header_ids_accepted_when_envelope_ids_empty() {
-        let envelope = serde_json::json!({
-            "app_id":    "",    // empty — will be overridden by header
-            "tenant_id": "",   // empty — will be overridden by header
-            "payload": {
-                "timestamp":  "2026-06-23T15:00:00Z",
-                "loggerName": "AppDatabase",
-                "message":    "Connection established.",
-                "level":      "INFO",
-                "zone":       "",
-                "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d"
-            }
-        });
+    async fn test_valid_server_log_with_headers_returns_200() {
         let resp = post_json_with_headers(
             test_app(),
             "/v1/logs/example-app-dev",
-            envelope,
+            valid_server_log(),
             &[
                 ("x-tenant-id", "example_tenant"),
                 ("x-app-id", "dev.femrek.exampleapp.dev"),
             ],
         )
         .await;
-        assert_eq!(
-            resp.status(),
-            StatusCode::OK,
-            "Header identifiers must override empty envelope fields"
-        );
-    }
-
-    /// Optional `error` and `stacktrace` fields are accepted transparently when present.
-    #[tokio::test]
-    async fn test_optional_error_and_stacktrace_fields_accepted() {
-        let envelope = serde_json::json!({
-            "app_id":    "dev.femrek.exampleapp.dev",
-            "tenant_id": "example_tenant",
-            "payload": {
-                "timestamp":  "2026-06-23T15:00:00Z",
-                "loggerName": "CrashReporter",
-                "message":    "Unhandled exception.",
-                "level":      "SEVERE",
-                "zone":       "",
-                "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
-                "error":      "NullPointerException at Foo.bar:12",
-                "stacktrace": "#0  Foo.bar (package:app/foo.dart:12)"
-            }
-        });
-        let resp = post_json(test_app(), "/v1/logs/example-app-dev", envelope).await;
         assert_eq!(resp.status(), StatusCode::OK);
     }
 
-    /// Spec report §1 — the worker's Axum router has no wildcard sub-routes.
-    /// Any request path ending in `/log`, `/log/batch`, or `/log/device` falls
-    /// through to Axum's built-in 404 handler. This test documents the
-    /// *known* routing limitation so future changes don't silently break it.
+    /// The `/ingest` alias route must behave identically.
     #[tokio::test]
-    async fn test_path_with_log_suffix_returns_404() {
-        let resp = post_json(
+    async fn test_ingest_alias_route_returns_200() {
+        let resp = post_json_with_headers(
             test_app(),
-            "/v1/logs/example-app-dev/log",
-            valid_envelope(),
+            "/ingest",
+            valid_server_log(),
+            &[
+                ("x-tenant-id", "example_tenant"),
+                ("x-app-id", "dev.femrek.exampleapp.dev"),
+            ],
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    /// Missing `x-tenant-id` header → 401 (gateway authentication bypassed).
+    #[tokio::test]
+    async fn test_missing_tenant_id_header_returns_401() {
+        let resp = post_json_with_headers(
+            test_app(),
+            "/v1/logs/example-app-dev",
+            valid_server_log(),
+            &[("x-app-id", "dev.femrek.exampleapp.dev")],
         )
         .await;
         assert_eq!(
             resp.status(),
-            StatusCode::NOT_FOUND,
-            "Sub-paths (/log, /log/batch, /log/device) are not routed (spec report §1)"
+            StatusCode::UNAUTHORIZED,
+            "Missing x-tenant-id must be rejected with 401"
         );
+    }
+
+    /// Missing `x-app-id` header → 401.
+    #[tokio::test]
+    async fn test_missing_app_id_header_returns_401() {
+        let resp = post_json_with_headers(
+            test_app(),
+            "/v1/logs/example-app-dev",
+            valid_server_log(),
+            &[("x-tenant-id", "example_tenant")],
+        )
+        .await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "Missing x-app-id must be rejected with 401"
+        );
+    }
+
+    /// Both headers absent → 401.
+    #[tokio::test]
+    async fn test_no_headers_returns_401() {
+        let resp = post_json(test_app(), "/v1/logs/example-app-dev", valid_server_log()).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    /// Malformed JSON body → 400.
+    #[tokio::test]
+    async fn test_invalid_json_returns_400() {
+        let app = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/logs/example-app-dev")
+                    .header("content-type", "application/json")
+                    .header("x-tenant-id", "example_tenant")
+                    .header("x-app-id", "dev.femrek.exampleapp.dev")
+                    .body(Body::from("not-json"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    /// Missing required `deviceUUID` field → 400 (serde rejects the body).
+    #[tokio::test]
+    async fn test_missing_device_uuid_returns_400() {
+        let body = serde_json::json!({
+            "timestamp":  "2026-06-23T15:00:00Z",
+            "loggerName": "AppDatabase",
+            "message":    "Connection established.",
+            "level":      "INFO",
+            "zone":       ""
+            // "deviceUUID" intentionally omitted
+        });
+        let resp = post_json_with_headers(
+            test_app(),
+            "/v1/logs/example-app-dev",
+            body,
+            &[
+                ("x-tenant-id", "example_tenant"),
+                ("x-app-id", "dev.femrek.exampleapp.dev"),
+            ],
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    /// Optional `sessionId` field may be absent — spec report §3.
+    #[tokio::test]
+    async fn test_session_id_is_optional_and_omission_returns_200() {
+        // valid_server_log() already omits sessionId — this test makes the intent explicit.
+        let resp = post_json_with_headers(
+            test_app(),
+            "/v1/logs/example-app-dev",
+            valid_server_log(),
+            &[
+                ("x-tenant-id", "example_tenant"),
+                ("x-app-id", "dev.femrek.exampleapp.dev"),
+            ],
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    /// Optional `error` and `stacktrace` fields are accepted transparently.
+    #[tokio::test]
+    async fn test_optional_error_and_stacktrace_fields_accepted() {
+        let body = serde_json::json!({
+            "timestamp":  "2026-06-23T15:00:00Z",
+            "loggerName": "CrashReporter",
+            "message":    "Unhandled exception.",
+            "level":      "SEVERE",
+            "zone":       "",
+            "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
+            "error":      "NullPointerException at Foo.bar:12",
+            "stacktrace": "#0  Foo.bar (package:app/foo.dart:12)"
+        });
+        let resp = post_json_with_headers(
+            test_app(),
+            "/v1/logs/example-app-dev",
+            body,
+            &[
+                ("x-tenant-id", "example_tenant"),
+                ("x-app-id", "dev.femrek.exampleapp.dev"),
+            ],
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    /// Sub-paths like /log, /log/batch, /log/device fall through to Axum's 404.
+    #[tokio::test]
+    async fn test_path_with_log_suffix_returns_404() {
+        let resp = post_json_with_headers(
+            test_app(),
+            "/v1/logs/example-app-dev/log",
+            valid_server_log(),
+            &[
+                ("x-tenant-id", "example_tenant"),
+                ("x-app-id", "dev.femrek.exampleapp.dev"),
+            ],
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 }

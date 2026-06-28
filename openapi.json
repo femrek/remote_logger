@@ -33,7 +33,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AttestationRequest"
+                "$ref": "#/components/schemas/AuthExchangeRequest"
               }
             }
           }
@@ -44,7 +44,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AttestationResponse"
+                  "$ref": "#/components/schemas/AuthExchangeResponse"
                 }
               }
             }
@@ -102,83 +102,6 @@
         }
       }
     },
-    "/v1/logs/{channel}/log/device": {
-      "post": {
-        "summary": "Ingest device metadata",
-        "description": "Uploads system and hardware metadata for the logging device. The request must be authenticated with the bearer JWT received from `/auth/exchange`.\n\nThe gateway enforces:\n- Bearer JWT token presence and signature validation.\n- The token subject (`sub` claim) must match the path's `{channel}` parameter.\n- The token application (`app` claim) must match the routing channel's allowed `app_id`.",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "channel",
-            "in": "path",
-            "required": true,
-            "description": "The channel ID matching the path prefix (e.g., `example-app-prod`).",
-            "schema": {
-              "type": "string",
-              "example": "example-app-prod"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DeviceMetadata"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Device metadata accepted and forwarded to the upstream backend."
-          },
-          "401": {
-            "description": "Unauthorized (missing, invalid, or expired session JWT).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GatewayError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden (JWT channel mismatch or application ID mismatch).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GatewayError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found (no channel matches this path prefix).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GatewayError"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "Payload Too Large (request body size exceeds limit).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GatewayError"
-                }
-              }
-            }
-          }
-        }
-      }
     },
     "/v1/logs/{channel}/log": {
       "post": {
@@ -349,12 +272,14 @@
       }
     },
     "schemas": {
-      "AttestationRequest": {
+      "AuthExchangeRequest": {
         "type": "object",
         "required": [
           "platform",
           "attestation_token",
-          "tenant_id"
+          "tenant_id",
+          "device_uuid",
+          "device_metadata"
         ],
         "properties": {
           "platform": {
@@ -374,25 +299,50 @@
             "type": "string",
             "description": "The tenant ID identifier claimed by the client.",
             "example": "example_tenant"
+          },
+          "device_uuid": {
+            "type": "string",
+            "description": "Unique client-generated device ID.",
+            "example": "a809b022-7934-4b53-90d2-bf7cb95a947d"
+          },
+          "device_public_key": {
+            "type": "string",
+            "description": "Base64-encoded DER public key from Apple's DCAppAttestService. Required for iOS if require_apple_key_hash is true.",
+            "example": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE..."
+          },
+          "device_metadata": {
+            "$ref": "#/components/schemas/DeviceMetadata"
           }
         }
       },
-      "AttestationResponse": {
+      "AuthExchangeResponse": {
         "type": "object",
         "required": [
-          "token",
-          "expires_in"
+          "access_token",
+          "refresh_token",
+          "access_expires_in",
+          "refresh_expires_in"
         ],
         "properties": {
-          "token": {
+          "access_token": {
             "type": "string",
-            "description": "The gateway-issued JWT session token for logging ingestion.",
-            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6"
+            "description": "Short-lived JWT access token for ingest.",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
           },
-          "expires_in": {
+          "refresh_token": {
+            "type": "string",
+            "description": "Long-lived JWT refresh token.",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+          },
+          "access_expires_in": {
             "type": "integer",
-            "description": "The remaining lifetime of the token in seconds.",
-            "example": 300
+            "description": "Remaining lifetime of access token in seconds.",
+            "example": 900
+          },
+          "refresh_expires_in": {
+            "type": "integer",
+            "description": "Remaining lifetime of refresh token in seconds.",
+            "example": 604800
           }
         }
       },
@@ -514,8 +464,7 @@
           "message",
           "level",
           "zone",
-          "deviceUUID",
-          "sessionId"
+          "deviceUUID"
         ],
         "properties": {
           "timestamp": {

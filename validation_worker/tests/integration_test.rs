@@ -22,7 +22,13 @@ use std::{sync::Arc, time::Duration};
 use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::kafka::Kafka;
 use tokio::net::TcpListener;
-use validation_worker::{build_app, AppState, RdkafkaSink};
+use validation_worker::{
+    auth::attestation::NoopVerifier,
+    build_app,
+    config::WorkerConfig,
+    AppState, RdkafkaSink,
+};
+use arc_swap::ArcSwap;
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
@@ -109,6 +115,13 @@ async fn integration_valid_payload_returns_200_and_reaches_kafka() {
     let state = Arc::new(AppState {
         sink: Arc::new(sink),
         kafka_topic: "mobile-logs".to_string(),
+        metadata_topic: "device-metadata".to_string(),
+        verifier: Arc::new(NoopVerifier),
+        worker_config: Arc::new(ArcSwap::from_pointee(WorkerConfig { channels: vec![] })),
+        jwt_secret: "test_secret".to_string(),
+        access_ttl_seconds: 900,
+        refresh_ttl_seconds: 604800,
+        jwt_issuer: "test".to_string(),
     });
     let app = build_app(state);
 
@@ -134,16 +147,12 @@ async fn integration_valid_payload_returns_200_and_reaches_kafka() {
     // simulate the real Dart client behaviour (spec report §3).
     let client = reqwest::Client::new();
     let envelope = serde_json::json!({
-        "app_id":    "com.test.app",
-        "tenant_id": "example_tenant-test",
-        "payload": {
-            "timestamp":  "2026-06-23T15:00:00Z",
-            "loggerName": "IntegrationTestLogger",
-            "message":    "Integration test log entry.",
-            "level":      "INFO",
-            "zone":       "main",
-            "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d"
-        }
+        "timestamp":  "2026-06-23T15:00:00Z",
+        "loggerName": "IntegrationTestLogger",
+        "message":    "Integration test log entry.",
+        "level":      "INFO",
+        "zone":       "main",
+        "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d"
     });
 
     let response = client
@@ -264,6 +273,13 @@ async fn integration_invalid_payloads_return_400() {
     let state = Arc::new(AppState {
         sink: Arc::new(sink),
         kafka_topic: "mobile-logs".to_string(),
+        metadata_topic: "device-metadata".to_string(),
+        verifier: Arc::new(NoopVerifier),
+        worker_config: Arc::new(ArcSwap::from_pointee(WorkerConfig { channels: vec![] })),
+        jwt_secret: "test_secret".to_string(),
+        access_ttl_seconds: 900,
+        refresh_ttl_seconds: 604800,
+        jwt_issuer: "test".to_string(),
     });
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let server_port = listener.local_addr().unwrap().port();
@@ -275,37 +291,31 @@ async fn integration_invalid_payloads_return_400() {
     let client = reqwest::Client::new();
     let base_url = format!("http://127.0.0.1:{}/v1/logs/ch", server_port);
 
-    // Case A — Spec report §2: raw `ServerLog` body (no `IngestEnvelope` wrapper)
-    let raw_log = serde_json::json!({
-        "timestamp":  "2026-06-23T15:00:00Z",
-        "loggerName": "TestLogger",
-        "message":    "raw body",
-        "level":      "DEBUG",
-        "zone":       "",
-        "deviceUUID": "some-uuid"
-    });
-    let resp = client.post(&base_url).json(&raw_log).send().await.unwrap();
+    // Case A — Spec report §2: raw `ServerLog` body missing required fields (empty object)
+    let raw_log = serde_json::json!({});
+    let resp = client.post(&base_url)
+        .header("x-tenant-id", "example_tenant-test")
+        .header("x-app-id", "com.test.app")
+        .json(&raw_log).send().await.unwrap();
     assert_eq!(
         resp.status(),
         StatusCode::BAD_REQUEST,
-        "Case A: Raw ServerLog must be rejected (spec report §2)"
+        "Case A: Empty payload must be rejected"
     );
 
-    // Case B — Spec report §2: valid envelope but `deviceUUID` missing from inner payload
+    // Case B — Spec report §2: valid payload but `deviceUUID` missing
     let missing_uuid = serde_json::json!({
-        "app_id":    "com.test.app",
-        "tenant_id": "example_tenant-test",
-        "payload": {
-            "timestamp":  "2026-06-23T15:00:00Z",
-            "loggerName": "TestLogger",
-            "message":    "missing uuid",
-            "level":      "DEBUG",
-            "zone":       ""
-            // "deviceUUID" intentionally omitted
-        }
+        "timestamp":  "2026-06-23T15:00:00Z",
+        "loggerName": "TestLogger",
+        "message":    "missing uuid",
+        "level":      "DEBUG",
+        "zone":       ""
+        // "deviceUUID" intentionally omitted
     });
     let resp = client
         .post(&base_url)
+        .header("x-tenant-id", "example_tenant-test")
+        .header("x-app-id", "com.test.app")
         .json(&missing_uuid)
         .send()
         .await
@@ -313,26 +323,25 @@ async fn integration_invalid_payloads_return_400() {
     assert_eq!(
         resp.status(),
         StatusCode::BAD_REQUEST,
-        "Case B: Missing deviceUUID must be rejected (spec report §2)"
+        "Case B: Missing deviceUUID must be rejected"
     );
 
-    // Case C — Empty identifiers in both headers and envelope
+    // Case C — Empty identifiers in headers
     let empty_ids = serde_json::json!({
-        "app_id":    "",
-        "tenant_id": "",
-        "payload": {
-            "timestamp":  "2026-06-23T15:00:00Z",
-            "loggerName": "TestLogger",
-            "message":    "no identity",
-            "level":      "DEBUG",
-            "zone":       "",
-            "deviceUUID": "some-uuid"
-        }
+        "timestamp":  "2026-06-23T15:00:00Z",
+        "loggerName": "TestLogger",
+        "message":    "no identity",
+        "level":      "DEBUG",
+        "zone":       "",
+        "deviceUUID": "some-uuid"
     });
-    let resp = client.post(&base_url).json(&empty_ids).send().await.unwrap();
+    let resp = client.post(&base_url)
+        .header("x-tenant-id", "")
+        .header("x-app-id", "")
+        .json(&empty_ids).send().await.unwrap();
     assert_eq!(
         resp.status(),
-        StatusCode::BAD_REQUEST,
-        "Case C: Empty identifiers must be rejected"
+        StatusCode::UNAUTHORIZED,
+        "Case C: Empty headers must be rejected with 401"
     );
 }

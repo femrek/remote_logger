@@ -6,31 +6,23 @@
 //! ┌────────────────────────────────────────────────────────────────────────┐
 //! │  request_filter()                                                      │
 //! │    ├─ path == "/auth/exchange"                                         │
-//! │    │    ├─ Read X-Channel-Id header → find channel                     │
-//! │    │    ├─ Read + buffer request body (≤ 2 MiB)                        │
-//! │    │    ├─ Deserialise AttestationRequest                              │
-//! │    │    ├─ [validate_attestation=true] verify Google/Apple token       │
-//! │    │    ├─ Issue HS256 gateway JWT                                     │
-//! │    │    └─ Write 200 JSON response → return Ok(true)  [PIPELINE STOP]  │
+//! │    │    └─ return Ok(false)  [PIPELINE CONTINUES → proxied to worker]  │
 //! │    │                                                                   │
 //! │    └─ path starts_with channel.path_prefix                             │
-//! │         ├─ Validate Authorization: Bearer <jwt>                        │
-//! │         ├─ Stash channel_id + tenant_id in ctx                         │
+//! │         ├─ Validate Authorization: Bearer <jwt> (token_type="access")  │
+//! │         ├─ Stash tenant_id + app_id in ctx                             │
 //! │         └─ return Ok(false)  [PIPELINE CONTINUES]                      │
 //! │                                                                        │
 //! │  upstream_peer()                                                       │
-//! │    └─ Select HttpPeer from channel.backend config                      │
+//! │    └─ Round-robin select HttpPeer from the shared load balancer        │
 //! │                                                                        │
 //! │  upstream_request_filter()                                             │
-//! │    └─ Strip Authorization header, inject X-Tenant-Id + channel headers │
+//! │    ├─ /auth/exchange path → forward as-is (no header mutation)         │
+//! │    └─ ingest path → strip Authorization; inject x-tenant-id + x-app-id│
 //! │                                                                        │
 //! │  request_body_filter()  [called per chunk, streaming from client]      │
-//! │    ├─ Accumulate chunks in ctx.body_buffer                             │
-//! │    ├─ Size guard: reject if buffer > max_body_bytes                    │
-//! │    └─ On end_of_stream:                                                │
-//! │         ├─ parse_envelope() → shallow RawValue parse                   │
-//! │         ├─ OK  → *body = Some(full_buffer) — forward to upstream       │
-//! │         └─ Err → ctx.reject set, *body = None                          │
+//! │    ├─ Accumulate byte count (size guard only — body is opaque)         │
+//! │    └─ Reject if buffer > max_body_bytes                                │
 //! │                                                                        │
 //! │  response_filter()                                                     │
 //! │    └─ If ctx.reject → override upstream response status                │
@@ -52,12 +44,10 @@ use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::upstreams::peer::HttpPeer;
 
-use crate::auth::{
-    AttestationRequest, AttestationVerifier, extract_bearer, issue_jwt, validate_jwt,
-};
+use crate::auth::{extract_bearer, validate_jwt};
 use crate::config::SharedConfig;
 use crate::metrics::{
-    ATTESTATION_TOTAL, BODY_SIZE_BYTES, ENVELOPE_ERRORS_TOTAL, JWT_VALIDATIONS_TOTAL,
+    BODY_SIZE_BYTES, ENVELOPE_ERRORS_TOTAL, JWT_VALIDATIONS_TOTAL,
     REQUEST_DURATION_SECONDS, REQUESTS_TOTAL,
 };
 use crate::discovery::ServiceDiscovery;
@@ -70,10 +60,14 @@ use crate::discovery::ServiceDiscovery;
 pub struct RequestContext {
     /// Channel id resolved in `request_filter`. Empty string before resolution.
     pub channel_id: String,
-    /// Tenant id from JWT claims (ingest path) or attestation request (exchange path).
+    /// Tenant id from JWT claims (ingest path).
     pub tenant_id: String,
-    /// App id from the parsed envelope (available after `request_body_filter` on EOS).
+    /// App id from JWT claims (ingest path).
     pub app_id: Option<String>,
+
+    // ── Request classification ───────────────────────────────────────────────
+    /// `true` when the path is `/auth/exchange` — headers must NOT be mutated.
+    pub is_auth_exchange: bool,
 
     // ── Body buffering ───────────────────────────────────────────────────────
     /// Running total of bytes read (we no longer buffer the full body).
@@ -87,11 +81,6 @@ pub struct RequestContext {
     /// our structured error.
     pub reject: Option<(u16, &'static str)>,
 
-    // ── Short-circuit flag ───────────────────────────────────────────────────
-    /// `true` for `/auth/exchange` requests — `request_filter` handled them
-    /// completely and returned `Ok(true)`, so no upstream is contacted.
-    pub is_short_circuit: bool,
-
     // ── Observability ────────────────────────────────────────────────────────
     pub start: Instant,
 }
@@ -102,10 +91,10 @@ impl Default for RequestContext {
             channel_id: String::new(),
             tenant_id: String::new(),
             app_id: None,
+            is_auth_exchange: false,
             body_bytes_read: 0,
             max_body_bytes: 2 * 1024 * 1024,
             reject: None,
-            is_short_circuit: false,
             start: Instant::now(),
         }
     }
@@ -119,8 +108,6 @@ pub struct LogGateway {
     /// Live routing table — updated in-place by the hot-reload watcher via
     /// `ArcSwap::store`. Workers read with `config.load()` on every request.
     pub config: SharedConfig,
-    /// Platform-dispatching attestation verifier (shared across all requests).
-    pub verifier: Arc<dyn AttestationVerifier>,
     /// Dynamic load balancer for upstream selection.
     pub discovery: Arc<ServiceDiscovery>,
 }
@@ -160,30 +147,6 @@ async fn send_error(
     Ok(true)
 }
 
-/// Read the full request body up to `max_bytes` from `session`.
-///
-/// ## Body lifecycle note
-/// Calling this in `request_filter` consumes the bytes from the underlying
-/// TCP/TLS stream. This is intentional for `/auth/exchange` requests because
-/// they are short-circuited — Pingora never attempts to proxy them upstream.
-///
-/// For ingest requests that *do* forward to upstream, body consumption happens
-/// in `request_body_filter` so Pingora can stream the validated bytes.
-async fn read_body_capped(session: &mut Session, max_bytes: usize) -> pingora::Result<Bytes> {
-    let mut buf = BytesMut::new();
-    loop {
-        match session.read_request_body().await? {
-            Some(chunk) => {
-                if buf.len() + chunk.len() > max_bytes {
-                    return Err(pingora::Error::new_str("request body too large"));
-                }
-                buf.extend_from_slice(&chunk);
-            }
-            None => return Ok(buf.freeze()),
-        }
-    }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // ProxyHttp trait
 // ─────────────────────────────────────────────────────────────────────────────
@@ -217,8 +180,12 @@ impl ProxyHttp for LogGateway {
         let path = session.req_header().uri.path().to_owned();
 
         // ── /auth/exchange ────────────────────────────────────────────────────
+        // Blind proxy — the validation worker owns all attestation logic and
+        // JWT minting. The gateway has nothing to do here except let it through.
         if path == "/auth/exchange" {
-            return self.handle_exchange(session, ctx, &cfg).await;
+            ctx.channel_id = "auth".to_string();
+            ctx.is_auth_exchange = true;
+            return Ok(false); // pipeline continues → upstream_peer → worker
         }
 
         // ── /v1/logs/<channel> — ingest ───────────────────────────────────────
@@ -289,6 +256,8 @@ impl ProxyHttp for LogGateway {
             Err(e) => {
                 let reason = if e.to_string().contains("expired") {
                     "expired"
+                } else if e.to_string().contains("access") {
+                    "wrong_type"
                 } else {
                     "invalid"
                 };
@@ -305,7 +274,8 @@ impl ProxyHttp for LogGateway {
 
     // ── Phase 2: upstream_peer ────────────────────────────────────────────────
     //
-    // Select the backend HttpPeer for this channel.
+    // Select the backend HttpPeer from the shared load balancer.
+    // The same worker pool handles both /auth/exchange and ingest routes.
     async fn upstream_peer(
         &self,
         _session: &mut Session,
@@ -315,7 +285,7 @@ impl ProxyHttp for LogGateway {
         Self::CTX: Send + Sync,
     {
         let lb = self.discovery.load_balancer.load();
-        
+
         // Round-robin selection. The key/hash parameters are ignored by RoundRobin.
         let backend = lb
             .select(b"", 256)
@@ -346,6 +316,14 @@ impl ProxyHttp for LogGateway {
     where
         Self::CTX: Send + Sync,
     {
+        // ── /auth/exchange path ───────────────────────────────────────────────
+        // Forward the request completely unmodified so the worker receives the
+        // original X-Channel-Id header and the full attestation body.
+        if ctx.is_auth_exchange {
+            return Ok(());
+        }
+
+        // ── Ingest path ───────────────────────────────────────────────────────
         // Collect all config-sourced header pairs as owned Strings while holding
         // the ArcSwap guard, then drop the guard before any insert_header calls.
         //
@@ -366,7 +344,7 @@ impl ProxyHttp for LogGateway {
         };
 
         // Security: strip the client-facing auth header — it MUST NOT leak
-        // to the internal Kafka-writer service.
+        // to the internal validation-worker service.
         upstream_request.remove_header("authorization");
 
         // Inject routing metadata using `&'static str` for the known static keys.
@@ -391,8 +369,7 @@ impl ProxyHttp for LogGateway {
     // Setting *body = Some(bytes) forwards those bytes to upstream.
     //
     // Strategy: track running total of bytes to enforce `max_body_bytes` limit.
-    // We treat the payload as an opaque blob and do NOT buffer or parse it here;
-    // validation (such as app_id) is handled via JWT claims during `request_filter`.
+    // We treat the payload as an opaque blob and do NOT buffer or parse it here.
     async fn request_body_filter(
         &self,
         _session: &mut Session,
@@ -403,8 +380,8 @@ impl ProxyHttp for LogGateway {
     where
         Self::CTX: Send + Sync,
     {
-        // Short-circuit or already-rejected requests have no body to process.
-        if ctx.is_short_circuit || ctx.reject.is_some() {
+        // Already-rejected requests have no body to process.
+        if ctx.reject.is_some() {
             *body = None;
             return Ok(());
         }
@@ -533,152 +510,5 @@ impl ProxyHttp for LogGateway {
             elapsed_ms = %(elapsed * 1000.0) as u64,
             "Request completed"
         );
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// /auth/exchange handler (called from request_filter, short-circuits)
-// ─────────────────────────────────────────────────────────────────────────────
-
-impl LogGateway {
-    /// Handle a session-exchange request:
-    /// 1. Identify the channel via `X-Channel-Id` header.
-    /// 2. Optionally verify the hardware attestation token.
-    /// 3. Issue a short-lived gateway JWT.
-    /// 4. Write `{"token":"<jwt>"}` and return `Ok(true)` to stop the pipeline.
-    async fn handle_exchange(
-        &self,
-        session: &mut Session,
-        ctx: &mut RequestContext,
-        cfg: &crate::config::GatewayConfig,
-    ) -> pingora::Result<bool> {
-        ctx.is_short_circuit = true;
-
-        // Resolve channel from X-Channel-Id header.
-        let channel_id = match session
-            .req_header()
-            .headers
-            .get("x-channel-id")
-            .and_then(|v| v.to_str().ok())
-        {
-            Some(id) if !id.is_empty() => id.to_owned(),
-            _ => {
-                return send_error(
-                    session,
-                    400,
-                    "MISSING_CHANNEL_HEADER",
-                    "X-Channel-Id header is required for /auth/exchange",
-                )
-                .await;
-            }
-        };
-
-        let ch_cfg = match cfg.find_channel_by_id(&channel_id) {
-            Some(ch) => ch.clone(),
-            None => {
-                return send_error(
-                    session,
-                    404,
-                    "CHANNEL_NOT_FOUND",
-                    &format!("Unknown channel: {channel_id}"),
-                )
-                .await;
-            }
-        };
-
-        ctx.channel_id = ch_cfg.id.clone();
-
-        // Read and parse the attestation request body.
-        let body = match read_body_capped(session, cfg.gateway.max_body_bytes).await {
-            Ok(b) => b,
-            Err(_) => {
-                return send_error(session, 413, "PAYLOAD_TOO_LARGE", "Request body too large")
-                    .await;
-            }
-        };
-
-        let attest_req: AttestationRequest = match serde_json::from_slice(&body) {
-            Ok(r) => r,
-            Err(e) => {
-                return send_error(
-                    session,
-                    400,
-                    "INVALID_REQUEST",
-                    &format!("Failed to parse attestation request: {e}"),
-                )
-                .await;
-            }
-        };
-
-        ctx.tenant_id = attest_req.tenant_id.clone();
-
-        // Verify attestation token (or skip if disabled for this channel).
-        if ch_cfg.validate_attestation {
-            if let Err(e) = self
-                .verifier
-                .verify(
-                    &attest_req.attestation_token,
-                    attest_req.platform,
-                    &attest_req.tenant_id,
-                    &ch_cfg.app_id,
-                    ch_cfg.google_project_number.as_deref(),
-                    ch_cfg.apple_team_id.as_deref(),
-                )
-                .await
-            {
-                ATTESTATION_TOTAL
-                    .with_label_values(&[&ch_cfg.id, "failed"])
-                    .inc();
-                return send_error(session, 403, "ATTESTATION_FAILED", &e.to_string()).await;
-            }
-            ATTESTATION_TOTAL
-                .with_label_values(&[&ch_cfg.id, "ok"])
-                .inc();
-        } else {
-            ATTESTATION_TOTAL
-                .with_label_values(&[&ch_cfg.id, "skipped"])
-                .inc();
-        }
-
-        // Issue the gateway JWT.
-        let jwt = match issue_jwt(
-            &ch_cfg.id,
-            &attest_req.tenant_id,
-            &attest_req.platform.to_string(),
-            &ch_cfg.app_id,
-            &cfg.gateway.jwt,
-        ) {
-            Ok(t) => t,
-            Err(e) => {
-                return send_error(session, 500, "INTERNAL_ERROR", &e.to_string()).await;
-            }
-        };
-
-        // Write 200 response with the JWT.
-        let response_body = Bytes::from(format!(
-            r#"{{"token":"{jwt}","expires_in":{ttl}}}"#,
-            ttl = cfg.gateway.jwt.ttl_seconds,
-        ));
-
-        let mut resp = ResponseHeader::build(StatusCode::OK, None)?;
-        resp.insert_header("content-type", "application/json")?;
-        resp.insert_header("content-length", response_body.len().to_string())?;
-        resp.insert_header("x-gateway", "logger-gateway/0.1")?;
-
-        session.write_response_header(Box::new(resp), false).await?;
-        session
-            .write_response_body(Some(response_body), true)
-            .await?;
-
-        tracing::info!(
-            channel = %ch_cfg.id,
-            tenant  = %attest_req.tenant_id,
-            platform = %attest_req.platform,
-            ttl_s   = cfg.gateway.jwt.ttl_seconds,
-            "JWT issued"
-        );
-
-        // Return true → Pingora stops the pipeline; no upstream is contacted.
-        Ok(true)
     }
 }

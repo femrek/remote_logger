@@ -10,10 +10,12 @@ gateway:
   #   key_path:  "/etc/certs/server.key"
 
   # ── JWT session tokens ────────────────────────────────────────────────────
+  # The gateway ONLY validates JWTs on ingest routes — it never mints them.
+  # Minting lives in the Axum validation workers (see channels.yaml there).
   jwt:
     # secret:      "change-me-in-development"   ← inline, dev-only
     secret_env:  "GATEWAY_JWT_SECRET"          # overrides `secret` when set
-    ttl_seconds: 300                           # 5-minute session window
+    ttl_seconds: 900                           # 15-minute access window (reference only)
     issuer:      "logger-gateway"
 
   # Hard upper bound on ingest request bodies (bytes). Requests exceeding this
@@ -26,18 +28,16 @@ gateway:
 # ── Per-channel routing table ─────────────────────────────────────────────────
 # Each entry defines one application channel. Add/remove channels and send a
 # SIGHUP (or just save the file) to hot-reload without dropping connections.
+#
+# NOTE: Attestation policy (validate_attestation, google_project_number,
+#       apple_team_id, require_apple_key_hash) has moved to the validation
+#       worker's channels.yaml. This file now only controls JWT routing.
 channels:
   - id: "example-app-prod"
     # Requests whose path starts with this prefix are routed to this channel.
     path_prefix: "/v1/logs/example-app-prod"
     app_id: "dev.femrek.exampleapp"
-    # Required keys for attestation verification (since validate_attestation: true)
-    google_project_number: "1234567890"
-    apple_team_id: "STUBTEAMID"
-    # true  → validate Google Play Integrity / Apple App Attest token at /auth/exchange
-    # false → skip attestation (useful for CI, internal tools, dev environments)
-    validate_attestation: true
-    # Extra headers injected into every upstream request for this channel.
+    # Extra headers injected into every upstream ingest request for this channel.
     headers:
       X-Channel-Id: "example-app-prod"
       X-Environment: "production"
@@ -46,7 +46,6 @@ channels:
   - id: "example-app-dev"
     path_prefix: "/v1/logs/example-app-dev"
     app_id: "dev.femrek.exampleapp.dev"
-    validate_attestation: false    # no attestation in dev
     headers:
       X-Channel-Id: "example-app-dev"
       X-Environment: "local-dev"

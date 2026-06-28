@@ -48,7 +48,7 @@ lazy_static! {
 
     /// JWT validation outcomes for ingest requests.
     ///
-    /// `result` label values:  `ok` | `expired` | `invalid` | `missing`
+    /// `result` label values:  `ok` | `expired` | `invalid` | `missing` | `wrong_type`
     pub static ref JWT_VALIDATIONS_TOTAL: IntCounterVec = IntCounterVec::new(
         Opts::new(
             "gateway_jwt_validations_total",
@@ -58,19 +58,7 @@ lazy_static! {
     )
     .expect("Failed to create JWT_VALIDATIONS_TOTAL metric");
 
-    /// Hardware attestation verification outcomes for `/auth/exchange`.
-    ///
-    /// `result` label values:  `ok` | `failed` | `skipped`
-    pub static ref ATTESTATION_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new(
-            "gateway_attestation_total",
-            "Hardware attestation verification outcomes at /auth/exchange",
-        ),
-        &["channel", "result"],
-    )
-    .expect("Failed to create ATTESTATION_TOTAL metric");
-
-    // ── Envelope ──────────────────────────────────────────────────────────────
+    // ── Body ──────────────────────────────────────────────────────────────────
 
     /// Ingest request body size distribution (bytes), by channel.
     pub static ref BODY_SIZE_BYTES: HistogramVec = HistogramVec::new(
@@ -91,13 +79,13 @@ lazy_static! {
     )
     .expect("Failed to create BODY_SIZE_BYTES metric");
 
-    /// Envelope validation failures, labelled by channel and failure reason.
+    /// Body / envelope validation failures, labelled by channel and failure reason.
     ///
-    /// `reason` label values:  `too_large` | `parse_error` | `missing_field`
+    /// `reason` label values:  `too_large`
     pub static ref ENVELOPE_ERRORS_TOTAL: IntCounterVec = IntCounterVec::new(
         Opts::new(
             "gateway_envelope_errors_total",
-            "Log envelope validation failures before upstream forwarding",
+            "Request body validation failures before upstream forwarding",
         ),
         &["channel", "reason"],
     )
@@ -116,7 +104,6 @@ pub fn register_all() -> anyhow::Result<()> {
     REGISTRY.register(Box::new(REQUESTS_TOTAL.clone()))?;
     REGISTRY.register(Box::new(REQUEST_DURATION_SECONDS.clone()))?;
     REGISTRY.register(Box::new(JWT_VALIDATIONS_TOTAL.clone()))?;
-    REGISTRY.register(Box::new(ATTESTATION_TOTAL.clone()))?;
     REGISTRY.register(Box::new(BODY_SIZE_BYTES.clone()))?;
     REGISTRY.register(Box::new(ENVELOPE_ERRORS_TOTAL.clone()))?;
     Ok(())

@@ -9,17 +9,19 @@ use std::sync::Arc;
 use axum::{routing::post, Router};
 
 use super::state::AppState;
-use crate::handler::ingest::ingest_handler;
+use crate::handler::{auth::auth_exchange_handler, ingest::ingest_handler};
 
 // ── Router builder ────────────────────────────────────────────────────────────
 
 /// Build the Axum [`Router`] wired to `state`.
 pub fn build_app(state: Arc<AppState>) -> Router {
     Router::new()
-        // Original ingest alias kept for backwards-compatibility.
+        // ── Auth ──────────────────────────────────────────────────────────────
+        // Hardware attestation + JWT minting. Proxied here by Pingora.
+        .route("/auth/exchange", post(auth_exchange_handler))
+        // ── Log ingestion ─────────────────────────────────────────────────────
+        // Clients post raw ServerLog JSON; x-tenant-id/x-app-id injected by gateway.
         .route("/ingest", post(ingest_handler))
-        // Workaround route — see spec report §1 (routing mismatch).
-        // Clients MUST post to /v1/logs/{channel} without the /log suffix.
         .route("/v1/logs/:channel", post(ingest_handler))
         .with_state(state)
 }

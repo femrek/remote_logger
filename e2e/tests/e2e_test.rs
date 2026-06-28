@@ -51,7 +51,7 @@ impl DockerComposeHandle {
     fn up(compose_file: &str, env_vars: &[(&str, &str)]) -> Self {
         eprintln!("[e2e] docker compose up -d --wait …");
         let mut cmd = Command::new("docker");
-        cmd.args(["compose", "-f", compose_file, "up", "-d", "--wait"]);
+        cmd.args(["compose", "-f", compose_file, "up", "--build", "-d", "--wait"]);
         for (k, v) in env_vars {
             cmd.env(k, v);
         }
@@ -227,7 +227,21 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     let auth_body = serde_json::json!({
         "platform": "android",
         "attestation_token": "mock",
-        "tenant_id": "example_tenant"
+        "tenant_id": "example_tenant",
+        "device_uuid": "e2e-test-device-0001",
+        "device_metadata": {
+            "timestamp": "2026-06-23T15:00:00Z",
+            "deviceUUID": "e2e-test-device-0001",
+            "sessionId": "session-123",
+            "os": "Android",
+            "osVersion": "13",
+            "model": "Pixel 6",
+            "brand": "Google",
+            "device": "raven",
+            "identifier": "build-1",
+            "manufacturer": "Google",
+            "isPhysicalDevice": "true"
+        }
     });
 
     let auth_response: serde_json::Value = ureq::post(&format!("{gateway_url}/auth/exchange"))
@@ -238,9 +252,9 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
         .into_json()
         .expect("Auth exchange response is not valid JSON");
 
-    let jwt = auth_response["token"]
+    let jwt = auth_response["access_token"]
         .as_str()
-        .expect("Auth exchange response missing 'token' field");
+        .expect("Auth exchange response missing 'access_token' field");
 
     eprintln!(
         "[e2e] JWT obtained (first 30 chars): {}…",
@@ -255,16 +269,12 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     eprintln!("[e2e] Sending log with unique marker: {test_marker}");
 
     let log_body = serde_json::json!({
-        "app_id":    "dev.femrek.exampleapp.dev",
-        "tenant_id": "example_tenant",
-        "payload": {
-            "timestamp":  "2026-06-23T15:00:00Z",
-            "loggerName": "E2ETestLogger",
-            "message":    test_marker,
-            "level":      "INFO",
-            "zone":       "main",
-            "deviceUUID": "e2e-test-device-0001"
-        }
+        "timestamp":  "2026-06-23T15:00:00Z",
+        "loggerName": "E2ETestLogger",
+        "message":    test_marker,
+        "level":      "INFO",
+        "zone":       "main",
+        "deviceUUID": "e2e-test-device-0001"
     });
 
     let log_response = ureq::post(&format!("{gateway_url}/v1/logs/{channel}"))

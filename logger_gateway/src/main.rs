@@ -14,10 +14,6 @@ mod error;
 mod metrics;
 mod proxy;
 
-use auth::{
-    AppleAppAttestVerifier, GooglePlayIntegrityVerifier,
-    PlatformDispatchVerifier,
-};
 use config::{SharedConfig, bootstrap, spawn_watcher};
 use discovery::{ServiceDiscovery, load_initial_workers, spawn_discovery_watcher};
 use proxy::LogGateway;
@@ -90,25 +86,6 @@ impl BackgroundService for MetricsService {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Attestation verifier construction
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Build the platform-dispatching attestation verifier.
-///
-/// In production, replace the stubs with real verifier instances configured
-/// from secrets / environment variables (project numbers, bundle IDs, etc.).
-///
-/// The `NoopVerifier` branch is never reached at runtime for channels that
-/// have `validate_attestation: true` because the channel config is checked
-/// inside `handle_exchange`. These stubs are always-pass by design for the PoC.
-fn build_verifier() -> Arc<dyn auth::AttestationVerifier> {
-    Arc::new(PlatformDispatchVerifier {
-        android: Box::new(GooglePlayIntegrityVerifier),
-        ios: Box::new(AppleAppAttestVerifier),
-    })
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Main
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -157,9 +134,10 @@ fn main() -> anyhow::Result<()> {
     let discovery = Arc::new(ServiceDiscovery::new(lb));
 
     // ── Proxy service ─────────────────────────────────────────────────────────
+    // The verifier field has been removed — attestation logic now lives in
+    // the Axum validation workers. The gateway blindly proxies /auth/exchange.
     let gateway = LogGateway {
         config: shared_config.clone(),
-        verifier: build_verifier(),
         discovery: discovery.clone(),
     };
 

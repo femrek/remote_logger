@@ -83,7 +83,8 @@ pub struct JwtConfig {
     #[serde(default)]
     pub secret_env: Option<String>,
 
-    /// Session token lifetime in seconds. Default: 300 (5 minutes).
+    /// Session token lifetime in seconds (used only as a config reference;
+    /// TTLs are now baked into the tokens by the validation worker).
     #[serde(default = "default_ttl_seconds")]
     pub ttl_seconds: u64,
 
@@ -93,7 +94,7 @@ pub struct JwtConfig {
 }
 
 fn default_ttl_seconds() -> u64 {
-    300
+    900
 }
 fn default_issuer() -> String {
     "logger-gateway".to_string()
@@ -130,6 +131,12 @@ impl JwtConfig {
 // Channel (per-application routing entry)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Routing and JWT validation configuration for one application channel.
+///
+/// Attestation policy (validate_attestation, google_project_number,
+/// apple_team_id, require_apple_key_hash) has been moved to the validation
+/// worker's `channels.yaml`. This struct now covers only gateway concerns:
+/// path routing, JWT subject/app matching, and upstream header injection.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ChannelConfig {
     /// Unique channel identifier, used as the JWT `sub` claim.
@@ -142,18 +149,7 @@ pub struct ChannelConfig {
     /// Application bundle identifier (e.g., `"dev.femrek.exampleapp"`).
     pub app_id: String,
 
-    /// Optional Google Cloud Project Number for Android Play Integrity verification.
-    pub google_project_number: Option<String>,
-
-    /// Optional Apple Developer Team ID for Apple App Attest verification.
-    pub apple_team_id: Option<String>,
-
-    /// When `true` the `/auth/exchange` endpoint requires a valid Google Play
-    /// Integrity or Apple App Attest token before issuing a gateway JWT.
-    pub validate_attestation: bool,
-
     /// Key-value pairs injected as HTTP headers into every upstream request.
     #[serde(default)]
     pub headers: HashMap<String, String>,
 }
-

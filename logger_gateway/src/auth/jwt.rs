@@ -1,7 +1,6 @@
 use crate::config::JwtConfig;
-use chrono::Utc;
 use jsonwebtoken::{
-    decode, encode, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation,
+    decode, Algorithm, DecodingKey, Header, TokenData, Validation,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -12,9 +11,10 @@ use thiserror::Error;
 
 /// Claims embedded in every gateway-issued session JWT.
 ///
-/// Clients receive this token from `/auth/exchange` and present it as a
-/// `Bearer` token on every subsequent ingest request.  The gateway validates
-/// only these claims — it never re-contacts the hardware attestation vendor.
+/// Clients receive this token from `/auth/exchange` (now handled by the
+/// validation worker) and present it as a `Bearer` token on every subsequent
+/// ingest request. The gateway validates only these claims — it never contacts
+/// the hardware attestation vendor.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatewayClaims {
     /// Subject — the channel `id` this token was issued for.
@@ -25,6 +25,12 @@ pub struct GatewayClaims {
     pub plt: String,
     /// Application ID validated during the exchange.
     pub app: String,
+    /// Device UUID embedded by the worker at mint time.
+    pub device_uuid: String,
+    /// Session ID embedded by the worker at mint time.
+    pub session_id: String,
+    /// Token type — `"access"` tokens are valid on ingest routes.
+    pub token_type: String,
     /// Expiry (Unix timestamp seconds).
     pub exp: usize,
     /// Issued-at (Unix timestamp seconds).
@@ -43,46 +49,8 @@ pub enum JwtError {
     Validation(#[from] jsonwebtoken::errors::Error),
     #[error("Could not resolve JWT secret: {0}")]
     SecretResolution(String),
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Issue
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Issue a short-lived HS256 gateway JWT.
-///
-/// The resulting token is returned to the client at `/auth/exchange` and
-/// must be presented as `Authorization: Bearer <token>` on ingest endpoints.
-pub fn issue_jwt(
-    channel_id: &str,
-    tenant_id: &str,
-    platform: &str,
-    app_id: &str,
-    cfg: &JwtConfig,
-) -> Result<String, JwtError> {
-    let secret = cfg
-        .resolved_secret()
-        .map_err(|e| JwtError::SecretResolution(e.to_string()))?;
-
-    let now = Utc::now().timestamp() as usize;
-    let exp = now + cfg.ttl_seconds as usize;
-
-    let claims = GatewayClaims {
-        sub: channel_id.to_owned(),
-        tid: tenant_id.to_owned(),
-        plt: platform.to_owned(),
-        app: app_id.to_owned(),
-        exp,
-        iat: now,
-        iss: cfg.issuer.clone(),
-    };
-
-    encode(
-        &Header::new(Algorithm::HS256),
-        &claims,
-        &EncodingKey::from_secret(secret.as_bytes()),
-    )
-    .map_err(JwtError::Validation)
+    #[error("Token type is not 'access'")]
+    WrongTokenType,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,9 +63,11 @@ pub fn issue_jwt(
 /// - Signature (HS256, with the resolved secret)
 /// - Expiry (`exp`)
 /// - Issuer (`iss` must match `cfg.issuer`)
+/// - Token type must be `"access"`
 ///
 /// Intentionally does **not** re-check the hardware attestation — that step
-/// happened once at `/auth/exchange` and is encoded in the signed token.
+/// happened once at `/auth/exchange` on the validation worker and is encoded
+/// in the signed token.
 pub fn validate_jwt(token: &str, cfg: &JwtConfig) -> Result<GatewayClaims, JwtError> {
     let secret = cfg
         .resolved_secret()
@@ -113,6 +83,10 @@ pub fn validate_jwt(token: &str, cfg: &JwtConfig) -> Result<GatewayClaims, JwtEr
         &validation,
     )?;
 
+    if claims.token_type != "access" {
+        return Err(JwtError::WrongTokenType);
+    }
+
     Ok(claims)
 }
 
@@ -125,6 +99,19 @@ pub fn validate_jwt(token: &str, cfg: &JwtConfig) -> Result<GatewayClaims, JwtEr
 /// Returns `None` if the header is absent or has a non-Bearer scheme.
 pub fn extract_bearer(auth_header: &str) -> Option<&str> {
     auth_header.strip_prefix("Bearer ").map(str::trim)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Unused constructor — kept as a reminder of the old interface
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Produce a `Header` for documentation purposes.
+///
+/// JWT *minting* now lives entirely in the Axum validation worker
+/// (`validation_worker::auth::jwt`). The gateway only validates.
+#[allow(dead_code)]
+fn _hs256_header() -> Header {
+    Header::new(Algorithm::HS256)
 }
 
 #[cfg(test)]
@@ -141,23 +128,56 @@ mod tests {
         }
     }
 
+    fn make_test_token(cfg: &JwtConfig, token_type: &str) -> String {
+        use jsonwebtoken::{encode, EncodingKey};
+        let now = 1_000_000usize;
+        let claims = GatewayClaims {
+            sub: "example-app-prod".to_owned(),
+            tid: "example_tenant".to_owned(),
+            plt: "android".to_owned(),
+            app: "com.test".to_owned(),
+            device_uuid: "device-uuid-1".to_owned(),
+            session_id: "session-id-1".to_owned(),
+            token_type: token_type.to_owned(),
+            exp: now + 9_999_999, // far future
+            iat: now,
+            iss: cfg.issuer.clone(),
+        };
+        let secret = cfg.resolved_secret().unwrap();
+        encode(
+            &Header::new(Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .unwrap()
+    }
+
     #[test]
-    fn roundtrip_valid_token() {
+    fn access_token_validates_ok() {
         let cfg = test_cfg();
-        let token = issue_jwt("example-app-prod", "example_tenant", "android", "com.test", &cfg).unwrap();
+        let token = make_test_token(&cfg, "access");
         let claims = validate_jwt(&token, &cfg).unwrap();
         assert_eq!(claims.sub, "example-app-prod");
         assert_eq!(claims.tid, "example_tenant");
-        assert_eq!(claims.plt, "android");
-        assert_eq!(claims.app, "com.test");
-        assert_eq!(claims.iss, "logger-gateway");
+        assert_eq!(claims.device_uuid, "device-uuid-1");
+        assert_eq!(claims.session_id, "session-id-1");
+        assert_eq!(claims.token_type, "access");
+    }
+
+    #[test]
+    fn refresh_token_is_rejected() {
+        let cfg = test_cfg();
+        let token = make_test_token(&cfg, "refresh");
+        assert!(matches!(
+            validate_jwt(&token, &cfg),
+            Err(JwtError::WrongTokenType)
+        ));
     }
 
     #[test]
     fn wrong_secret_is_rejected() {
         let cfg = test_cfg();
-        let token = issue_jwt("ch", "t", "android", "com.test", &cfg).unwrap();
-
+        let token = make_test_token(&cfg, "access");
         let bad_cfg = JwtConfig {
             secret: Some("wrong-secret".to_owned()),
             ..test_cfg()

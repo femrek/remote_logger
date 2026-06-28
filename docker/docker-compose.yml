@@ -22,9 +22,19 @@ services:
       context: ../validation_worker
     deploy:
       replicas: 2
+    volumes:
+      - ./channels.yaml:/app/config/channels.yaml:ro
     environment:
       - KAFKA_BROKERS=broker:9094
-      - PORT=8000 
+      - PORT=8000
+      - KAFKA_TOPIC=mobile-logs
+      - KAFKA_METADATA_TOPIC=device-metadata
+      - GATEWAY_JWT_SECRET=${GATEWAY_JWT_SECRET}
+      - ACCESS_JWT_TTL_SECONDS=900
+      - REFRESH_JWT_TTL_SECONDS=604800
+      - JWT_ISSUER=logger-gateway
+      - WORKER_CONFIG=/app/config/channels.yaml
+      - RUST_LOG=${RUST_LOG:-info,validation_worker=debug}
     networks:
       - logger_network
     depends_on:
