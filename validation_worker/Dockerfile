@@ -24,11 +24,17 @@ FROM debian:bookworm-slim
 # Install ca-certificates and other required minimal runtime libraries
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
-# Copy the compiled binary from the builder environment
-COPY --from=builder /usr/local/bin/validation_worker /usr/local/bin/validation_worker
+# Create a non-privileged group and user
+RUN groupadd -r appgroup && useradd -r -g appgroup -s /sbin/nologin appuser
+
+# Copy the compiled binary from the builder environment with user/group ownership
+COPY --from=builder --chown=appuser:appgroup /usr/local/bin/validation_worker /usr/local/bin/validation_worker
 
 # Expose the application port
 EXPOSE 3000
+
+# Switch to the non-privileged user
+USER appuser
 
 # Start the worker
 CMD ["validation_worker"]

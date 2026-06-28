@@ -3,5 +3,5 @@ target/
 *.log
 .docker-build/
 build.sh
-docker-compose.yml
+docker-compose.yaml
 Dockerfile

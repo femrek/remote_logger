@@ -87,7 +87,7 @@ remote_logger_backend/
 │   └── .env.test            # E2E environment variables
 │
 ├── docker/
-│   ├── docker-compose.yml   # Full local stack definition
+│   ├── docker-compose.yaml   # Full local stack definition
 │   ├── fluent-bit.conf      # Kafka input → OpenSearch output config
 │   ├── workers.txt          # Validation worker addresses (discovery file)
 │   ├── .env                 # Active environment (gitignored)
@@ -131,12 +131,27 @@ vim docker/.env
 
 ### 2. Start the full stack
 
+Depending on your audience, choose one of the options below:
+
+#### Option A: Run stable public images (For Users)
+To run the pre-built latest stable images pulled from the registry:
 ```bash
 cd docker
-docker compose up -d --build
+docker compose up -d
 ```
 
-`docker compose up --wait` can be used to block until all healthchecks pass.
+#### Option B: Build and run local code (For Contributors / Developers)
+To run and develop using local code changes with live-reloading (via overrides and volumes):
+```bash
+cd docker
+docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d --build
+```
+Or use the native `watch` capability:
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.dev.yaml watch
+```
+
+`docker compose up --wait` (or adding `--wait` to the commands above) can be used to block until all service healthchecks pass.
 
 ### 3. Send a test log
 
@@ -280,7 +295,7 @@ Exercises the **entire pipeline** from HTTP POST through to an OpenSearch index
 assertion. The test:
 
 1. Reads `e2e/.env.test` for configuration.
-2. Runs `docker compose -f docker/docker-compose.yml up -d --wait` to start the
+2. Runs `docker compose` with both `docker-compose.yaml` and `docker-compose.dev.yaml` (if it exists) using `up -d --wait` to start the
    full stack (gateway, workers, Kafka, Fluent Bit, OpenSearch).
 3. Calls `POST /auth/exchange` to obtain a real session JWT.
 4. Posts a log with a unique timestamp-based message marker to

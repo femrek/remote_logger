@@ -24,16 +24,22 @@ FROM debian:bookworm-slim
 # Install CA certificates to enable outgoing HTTPS requests
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 
+# Create a non-privileged group and user
+RUN groupadd -r appgroup && useradd -r -g appgroup -s /sbin/nologin appuser
+
 WORKDIR /app
 
-# Copy the binary from the build context
-COPY --from=builder /usr/local/bin/logger_gateway /app/logger_gateway
+# Copy the binary from the build context with user/group ownership
+COPY --from=builder --chown=appuser:appgroup /usr/local/bin/logger_gateway /app/logger_gateway
 
 # Expose the proxy listener port (8080) and Prometheus metrics port (9090)
 EXPOSE 8080 9090
 
 # Define environment variables with empty default values for documentation
 ENV RUST_LOG="info"
+
+# Switch to the non-privileged user
+USER appuser
 
 # Set entrypoint to run the gateway binary
 ENTRYPOINT ["/app/logger_gateway"]

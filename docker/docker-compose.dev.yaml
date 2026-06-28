@@ -1,0 +1,29 @@
+services:
+  logger_gateway:
+    build:
+      context: ../logger_gateway
+      dockerfile: docker/Dockerfile
+    volumes:
+      - ../logger_gateway:/usr/src/logger_gateway
+    develop:
+      watch:
+        - path: ../logger_gateway/src
+          action: rebuild
+        - path: ../logger_gateway/Cargo.toml
+          action: rebuild
+        - path: ../logger_gateway/Cargo.lock
+          action: rebuild
+
+  validation_worker:
+    build:
+      context: ../validation_worker
+    volumes:
+      - ../validation_worker:/usr/src/validation_worker
+    develop:
+      watch:
+        - path: ../validation_worker/src
+          action: rebuild
+        - path: ../validation_worker/Cargo.toml
+          action: rebuild
+        - path: ../validation_worker/Cargo.lock
+          action: rebuild

@@ -39,19 +39,23 @@ use std::{
 /// Brings the compose stack up on construction and tears it down (volumes
 /// included) when dropped — even if the test panics.
 struct DockerComposeHandle {
-    compose_file: String,
+    compose_files: Vec<String>,
 }
 
 impl DockerComposeHandle {
-    /// Run `docker compose -f <compose_file> up -d --wait` with the supplied
+    /// Run `docker compose -f <file1> -f <file2> ... up -d --wait` with the supplied
     /// environment variables injected into the child process.
     ///
     /// `--wait` (Docker Compose v2) blocks until every service with a
     /// `healthcheck` reports healthy, removing the need for custom polling.
-    fn up(compose_file: &str, env_vars: &[(&str, &str)]) -> Self {
+    fn up(compose_files: &[String], env_vars: &[(&str, &str)]) -> Self {
         eprintln!("[e2e] docker compose up -d --wait …");
         let mut cmd = Command::new("docker");
-        cmd.args(["compose", "-f", compose_file, "up", "--build", "-d", "--wait"]);
+        cmd.arg("compose");
+        for file in compose_files {
+            cmd.args(["-f", file]);
+        }
+        cmd.args(["up", "--build", "-d", "--wait"]);
         for (k, v) in env_vars {
             cmd.env(k, v);
         }
@@ -63,7 +67,7 @@ impl DockerComposeHandle {
             "docker compose up exited with non-zero status: {status}"
         );
         Self {
-            compose_file: compose_file.to_string(),
+            compose_files: compose_files.to_vec(),
         }
     }
 }
@@ -71,16 +75,17 @@ impl DockerComposeHandle {
 impl Drop for DockerComposeHandle {
     fn drop(&mut self) {
         eprintln!("[e2e] docker compose down -v (teardown) …");
-        let status = Command::new("docker")
-            .args([
-                "compose",
-                "-f",
-                &self.compose_file,
-                "down",
-                "-v",               // Remove named volumes (clean OpenSearch data).
-                "--remove-orphans",
-            ])
-            .status();
+        let mut cmd = Command::new("docker");
+        cmd.arg("compose");
+        for file in &self.compose_files {
+            cmd.args(["-f", file]);
+        }
+        cmd.args([
+            "down",
+            "-v",               // Remove named volumes (clean OpenSearch data).
+            "--remove-orphans",
+        ]);
+        let status = cmd.status();
         match status {
             Ok(s) if s.success() => eprintln!("[e2e] Teardown succeeded"),
             Ok(s) => eprintln!("[e2e] WARNING: docker compose down exited with {s}"),
@@ -166,19 +171,28 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
         .parent()
         .expect("CARGO_MANIFEST_DIR has no parent directory");
 
-    let compose_file = project_root
-        .join("docker")
-        .join("docker-compose.yml");
+    let docker_dir = project_root.join("docker");
+    
+    let mut compose_file = docker_dir.join("docker-compose.yaml");
+    if !compose_file.exists() {
+        compose_file = docker_dir.join("docker-compose.yaml");
+    }
+
+    let mut compose_dev_file = docker_dir.join("docker-compose.dev.yaml");
+    if !compose_dev_file.exists() {
+        compose_dev_file = docker_dir.join("docker-compose.dev.yaml");
+    }
 
     assert!(
         compose_file.exists(),
-        "docker-compose.yml not found at {:?}",
-        compose_file
+        "docker-compose.yaml or docker-compose.yaml not found at {:?}",
+        docker_dir
     );
 
-    let compose_file_str = compose_file
-        .to_str()
-        .expect("compose file path is not valid UTF-8");
+    let mut compose_files = vec![compose_file.to_str().unwrap().to_string()];
+    if compose_dev_file.exists() {
+        compose_files.push(compose_dev_file.to_str().unwrap().to_string());
+    }
 
     // ── 2. Bring up the compose stack ────────────────────────────────────────
     //
@@ -186,7 +200,7 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     // When it goes out of scope (whether by return, panic, or normal exit) the
     // Drop impl runs `docker compose down -v` for guaranteed cleanup.
     let _stack = DockerComposeHandle::up(
-        compose_file_str,
+        &compose_files,
         &[("GATEWAY_JWT_SECRET", &jwt_secret)],
     );
 
