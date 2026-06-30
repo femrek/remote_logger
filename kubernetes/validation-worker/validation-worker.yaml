@@ -1,0 +1,108 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: validation-worker-service
+  namespace: logger-backend
+  labels:
+    app: validation-worker
+spec:
+  clusterIP: None
+  selector:
+    app: validation-worker
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: validation-worker-cluster-service
+  namespace: logger-backend
+  labels:
+    app: validation-worker
+spec:
+  type: ClusterIP
+  selector:
+    app: validation-worker
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: validation-worker
+  namespace: logger-backend
+  labels:
+    app: validation-worker
+spec:
+  serviceName: validation-worker-service
+  replicas: 2
+  selector:
+    matchLabels:
+      app: validation-worker
+  template:
+    metadata:
+      labels:
+        app: validation-worker
+    spec:
+      containers:
+        - name: validation-worker
+          image: ghcr.io/femrek/validation_worker:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: KAFKA_BROKERS
+              value: "broker:9094"
+            - name: PORT
+              value: "8000"
+            - name: KAFKA_TOPIC
+              value: "mobile-logs"
+            - name: KAFKA_METADATA_TOPIC
+              value: "device-metadata"
+            - name: GATEWAY_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: logger-secrets
+                  key: GATEWAY_JWT_SECRET
+            - name: ACCESS_JWT_TTL_SECONDS
+              value: "900"
+            - name: REFRESH_JWT_TTL_SECONDS
+              value: "604800"
+            - name: JWT_ISSUER
+              value: "logger-gateway"
+            - name: WORKER_CONFIG
+              value: "/app/config/channels.yaml"
+            - name: RUST_LOG
+              value: "info,validation_worker=debug"
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+      volumes:
+        - name: config
+          configMap:
+            name: validation-worker-config

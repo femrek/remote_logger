@@ -1,0 +1,110 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-config
+  namespace: logger-backend
+data:
+  gateway.yaml: |
+    gateway:
+      # TCP bind address for the proxy listener.
+      bind_addr: "0.0.0.0:8080"
+
+      # JWT session tokens
+      jwt:
+        secret_env:  "GATEWAY_JWT_SECRET"          # overrides `secret` when set
+        ttl_seconds: 900                           # 15-minute access window (reference only)
+        issuer:      "logger-gateway"
+
+      # Hard upper bound on ingest request bodies (bytes).
+      max_body_bytes: 2097152   # 2 MiB
+
+      # Prometheus /metrics scrape endpoint.
+      metrics_addr: "0.0.0.0:9090"
+
+    # Per-channel routing table
+    channels:
+      - id: "example-app-prod"
+        path_prefix: "/v1/logs/example-app-prod"
+        app_id: "dev.femrek.exampleapp"
+        headers:
+          X-Channel-Id: "example-app-prod"
+          X-Environment: "production"
+          X-Kafka-Topic: "mobile-logs-prod"
+
+      - id: "example-app-dev"
+        path_prefix: "/v1/logs/example-app-dev"
+        app_id: "dev.femrek.exampleapp.dev"
+        headers:
+          X-Channel-Id: "example-app-dev"
+          X-Environment: "local-dev"
+          X-Kafka-Topic: "mobile-logs-dev"
+
+  workers.txt: |
+    validation-worker-0.validation-worker-service.logger-backend.svc.cluster.local:8000
+    validation-worker-1.validation-worker-service.logger-backend.svc.cluster.local:8000
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: validation-worker-config
+  namespace: logger-backend
+data:
+  channels.yaml: |
+    channels:
+      # Production channel
+      - id: "example-app-prod"
+        app_id: "dev.femrek.exampleapp"
+        validate_attestation: true
+        google_project_number: "1234567890"
+        apple_team_id: "STUBTEAMID"
+        require_apple_key_hash: true
+
+      # Local development / CI channel
+      - id: "example-app-dev"
+        app_id: "dev.femrek.exampleapp.dev"
+        validate_attestation: false
+        require_apple_key_hash: false
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-config
+  namespace: logger-backend
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush         2
+        Log_Level     info
+        Daemon        off
+        HTTP_Server   On
+        HTTP_Listen   0.0.0.0
+        HTTP_Port     2020
+
+    [INPUT]
+        Name          kafka
+        Brokers       broker:9094
+        Topics        mobile-logs
+        Group_Id      fluentbit-ingestion-group
+        Format        json
+        rdkafka.topic.metadata.refresh.interval.ms  5000
+        rdkafka.metadata.max.age.ms                 5000
+        rdkafka.auto.offset.reset                   earliest
+
+    [FILTER]
+        Name          nest
+        Match         *
+        Operation     lift
+        Nested_under  payload
+
+    [OUTPUT]
+        Name          opensearch
+        Match         *
+        Host          opensearch
+        Port          9200
+        Logstash_Format     On
+        Logstash_Prefix_Key  log_index_prefix
+        Suppress_Type_Name On
+        Write_Operation create
+        tls           Off

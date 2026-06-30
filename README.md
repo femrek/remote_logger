@@ -113,6 +113,15 @@ remote_logger_backend/
 
 ---
 
+## Deployment
+
+| Method | Guide |
+|---|---|
+| **Docker Compose** (local / dev) | See [Local Development Setup](#local-development-setup) below |
+| **Kubernetes** (staging / production) | [`kubernetes/DEPLOYMENT.md`](kubernetes/DEPLOYMENT.md) |
+
+---
+
 ## Local Development Setup
 
 ### 1. Clone and prepare environment
