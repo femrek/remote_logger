@@ -36,6 +36,7 @@ use crate::{
         jwt::{JwtConfig, issue_access_jwt, issue_refresh_jwt, sha256_hex},
     },
     domain::{AuthExchangeRequest, AuthExchangeResponse, SystemStartupEvent},
+    metrics::JWT_OPERATIONS_TOTAL,
 };
 
 // ── Request handler ───────────────────────────────────────────────────────────
@@ -149,7 +150,7 @@ pub async fn auth_exchange_handler(
         issuer: &state.jwt_issuer,
     };
 
-    let access_token = issue_access_jwt(
+    let access_token = match issue_access_jwt(
         &channel_id,
         &req.tenant_id,
         &req.platform.to_string(),
@@ -157,13 +158,19 @@ pub async fn auth_exchange_handler(
         &req.device_uuid,
         &session_id,
         &jwt_cfg,
-    )
-    .map_err(|e| {
-        tracing::error!(error = %e, "Failed to mint access JWT");
-        AppError::InternalError
-    })?;
+    ) {
+        Ok(t) => {
+            JWT_OPERATIONS_TOTAL.with_label_values(&["mint_access", "ok"]).inc();
+            t
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to mint access JWT");
+            JWT_OPERATIONS_TOTAL.with_label_values(&["mint_access", "err"]).inc();
+            return Err(AppError::InternalError);
+        }
+    };
 
-    let refresh_token = issue_refresh_jwt(
+    let refresh_token = match issue_refresh_jwt(
         &channel_id,
         &req.tenant_id,
         &req.platform.to_string(),
@@ -172,11 +179,17 @@ pub async fn auth_exchange_handler(
         &session_id,
         apk_hash,
         &jwt_cfg,
-    )
-    .map_err(|e| {
-        tracing::error!(error = %e, "Failed to mint refresh JWT");
-        AppError::InternalError
-    })?;
+    ) {
+        Ok(t) => {
+            JWT_OPERATIONS_TOTAL.with_label_values(&["mint_refresh", "ok"]).inc();
+            t
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to mint refresh JWT");
+            JWT_OPERATIONS_TOTAL.with_label_values(&["mint_refresh", "err"]).inc();
+            return Err(AppError::InternalError);
+        }
+    };
 
     // ── 8. Produce SystemStartupEvent to Kafka ────────────────────────────────
     let startup_event = SystemStartupEvent {

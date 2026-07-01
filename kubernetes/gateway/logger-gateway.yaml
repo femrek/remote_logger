@@ -51,6 +51,13 @@ spec:
     metadata:
       labels:
         app: logger-gateway
+      annotations:
+        # Standard Prometheus pod scrape annotations.
+        # Any prometheus.io/scrape-compatible scraper (Prometheus Operator,
+        # victoria-metrics-agent, etc.) will pick these up automatically.
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "9090"
+        prometheus.io/path:   "/metrics"
     spec:
       containers:
         - name: logger-gateway

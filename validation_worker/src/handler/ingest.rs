@@ -28,7 +28,9 @@ use axum::{
 use crate::{
     app::{AppError, AppState},
     domain::{KafkaPayload, ServerLog},
+    metrics::{REQUEST_DURATION_SECONDS, REQUESTS_TOTAL},
 };
+use std::time::Instant;
 
 // ── Request handler ───────────────────────────────────────────────────────────
 
@@ -38,6 +40,8 @@ pub async fn ingest_handler(
     headers: HeaderMap,
     payload: Result<Json<ServerLog>, axum::extract::rejection::JsonRejection>,
 ) -> Result<impl IntoResponse, AppError> {
+    let start = Instant::now();
+
     // ── 1. Header extraction — REQUIRED (gateway always injects these) ─────────
     let tenant_id = headers
         .get("x-tenant-id")
@@ -70,6 +74,9 @@ pub async fn ingest_handler(
         Ok(parsed) => parsed,
         Err(err) => {
             tracing::warn!(error = %err, "Failed to parse ServerLog JSON body");
+            let elapsed = start.elapsed().as_secs_f64();
+            REQUESTS_TOTAL.with_label_values(&[&app_id, "400"]).inc();
+            REQUEST_DURATION_SECONDS.with_label_values(&[&app_id]).observe(elapsed);
             return Err(AppError::BadRequest(format!("Invalid ServerLog body: {err}")));
         }
     };
@@ -86,18 +93,26 @@ pub async fn ingest_handler(
         Ok(s) => s,
         Err(err) => {
             tracing::error!(error = %err, "Failed to serialise KafkaPayload");
+            let elapsed = start.elapsed().as_secs_f64();
+            REQUESTS_TOTAL.with_label_values(&[&app_id, "500"]).inc();
+            REQUEST_DURATION_SECONDS.with_label_values(&[&app_id]).observe(elapsed);
             return Err(AppError::InternalError);
         }
     };
 
     // ── 4. Zero-data-loss delivery: await broker ACK ──────────────────────────
+    let elapsed = start.elapsed().as_secs_f64();
     match state.sink.send(&state.kafka_topic, &tenant_id, &serialised).await {
         Ok(()) => {
             tracing::info!(tenant_id = %tenant_id, "Message delivered to Kafka");
+            REQUESTS_TOTAL.with_label_values(&[&app_id, "200"]).inc();
+            REQUEST_DURATION_SECONDS.with_label_values(&[&app_id]).observe(elapsed);
             Ok(axum::http::StatusCode::OK)
         }
         Err(e) => {
             tracing::error!(tenant_id = %tenant_id, error = %e, "Kafka delivery failed");
+            REQUESTS_TOTAL.with_label_values(&[&app_id, "503"]).inc();
+            REQUEST_DURATION_SECONDS.with_label_values(&[&app_id]).observe(elapsed);
             Err(AppError::ServiceUnavailable)
         }
     }

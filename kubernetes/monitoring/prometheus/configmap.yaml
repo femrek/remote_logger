@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+  labels:
+    app: prometheus
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval:     15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+
+      # ── Logger Gateway (Pingora) ────────────────────────────────────────────
+      # Scrape the dedicated ClusterIP metrics service (port 9090).
+      # The logger-gateway-metrics Service already exists in logger-backend.
+      - job_name: 'gateway'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: ['logger-backend']
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: logger-gateway-metrics
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: service
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+
+      # ── Validation Workers (Axum) ───────────────────────────────────────────
+      # Discover pods by annotation and scrape each replica individually.
+      - job_name: 'validation_worker'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: ['logger-backend']
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: validation-worker
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: service
+
+      # ── Kafka Exporter ──────────────────────────────────────────────────────
+      - job_name: 'kafka'
+        static_configs:
+          - targets: ['kafka-exporter.monitoring.svc.cluster.local:9308']
+            labels:
+              service: 'kafka'
+
+      # ── OpenSearch Exporter ─────────────────────────────────────────────────
+      - job_name: 'opensearch'
+        static_configs:
+          - targets: ['opensearch-exporter.monitoring.svc.cluster.local:9114']
+            labels:
+              service: 'opensearch'
+
+      # ── Fluent Bit ──────────────────────────────────────────────────────────
+      # Built-in HTTP metrics on port 2020; scrape all fluent-bit pods.
+      - job_name: 'fluent_bit'
+        metrics_path: /api/v1/metrics/prometheus
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: ['logger-backend']
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: fluent-bit
+          - source_labels: [__address__]
+            action: replace
+            regex: ([^:]+)(?::\d+)?
+            replacement: $1:2020
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod

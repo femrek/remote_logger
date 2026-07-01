@@ -11,6 +11,7 @@ pub mod config;
 pub mod domain;
 pub mod handler;
 pub mod kafka;
+pub mod metrics;
 
 // ── Flat re-exports (preserves the existing public API) ───────────────────────
 

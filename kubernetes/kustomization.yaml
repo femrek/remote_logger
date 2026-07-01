@@ -2,12 +2,26 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
+  # ── Core application namespace & config ───────────────────────────────────────
   - namespace.yaml
   - config/secrets.yaml
   - config/configmaps.yaml
+  # ── Application services ──────────────────────────────────────────────────────
   - broker/kafka.yaml
   - opensearch/opensearch.yaml
   - fluent-bit/fluent-bit.yaml
   - validation-worker/validation-worker.yaml
   - gateway/logger-gateway.yaml
   - kafka-ui/kafka-ui.yaml
+  # ── Monitoring stack ──────────────────────────────────────────────────────────
+  - monitoring/namespace.yaml
+  - monitoring/prometheus/rbac.yaml
+  - monitoring/prometheus/configmap.yaml
+  - monitoring/prometheus/deployment.yaml
+  - monitoring/grafana/secret.yaml
+  - monitoring/grafana/configmap.yaml
+  - monitoring/grafana/dashboards-configmap.yaml
+  - monitoring/grafana/deployment.yaml
+  - monitoring/kafka-exporter/deployment.yaml
+  - monitoring/opensearch-exporter/deployment.yaml
+

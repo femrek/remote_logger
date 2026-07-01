@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: monitoring
+  labels:
+    app: grafana
+data:
+  # The dashboard JSON is shared from the docker/monitoring/ path at build time.
+  # In a CI/CD pipeline, generate this ConfigMap with:
+  #   kubectl create configmap grafana-dashboards \
+  #     --from-file=logger-backend.json=docker/monitoring/grafana/dashboards/logger-backend.json \
+  #     -n monitoring --dry-run=client -o yaml > kubernetes/monitoring/grafana/dashboards-configmap.yaml
+  #
+  # For local development, the dashboard file is mounted from the Docker Compose
+  # volume. For Kubernetes, apply this manifest after generating it from the JSON.
+  #
+  # Placeholder — replace with the actual dashboard JSON by running the command above.
+  logger-backend.json: |
+    {}

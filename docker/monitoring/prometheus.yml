@@ -1,0 +1,51 @@
+global:
+  scrape_interval:     15s  # How often to scrape targets by default.
+  evaluation_interval: 15s  # How often to evaluate alerting rules.
+
+scrape_configs:
+
+  # ── Logger Gateway (Pingora) ─────────────────────────────────────────────────
+  # Custom Prometheus metrics: requests, latency, JWT outcomes, body size,
+  # envelope errors. Also includes default process metrics (CPU, memory, FDs).
+  - job_name: 'gateway'
+    static_configs:
+      - targets: ['logger_gateway:9090']
+        labels:
+          service: 'logger_gateway'
+
+  # ── Validation Workers (Axum) ────────────────────────────────────────────────
+  # Custom worker metrics: requests, latency, Kafka produce rate/latency,
+  # JWT minting outcomes. Docker DNS resolves to all replica IPs round-robin.
+  - job_name: 'validation_worker'
+    static_configs:
+      - targets: ['validation_worker:9091']
+        labels:
+          service: 'validation_worker'
+
+  # ── Kafka Broker (via kafka-exporter) ────────────────────────────────────────
+  # Broker metrics: messages in/sec, consumer group lag, partition offsets,
+  # topic message counts.
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka-exporter:9308']
+        labels:
+          service: 'kafka'
+
+  # ── OpenSearch (via elasticsearch-exporter) ──────────────────────────────────
+  # Cluster health, indexing rate, search rate, JVM heap, active shards.
+  # The elasticsearch-exporter is compatible with OpenSearch's REST API.
+  - job_name: 'opensearch'
+    static_configs:
+      - targets: ['opensearch-exporter:9114']
+        labels:
+          service: 'opensearch'
+
+  # ── Fluent Bit ───────────────────────────────────────────────────────────────
+  # Built-in HTTP metrics server (HTTP_Server On, HTTP_Port 2020 in fluent-bit.conf).
+  # Provides: input records/sec, output bytes/sec, retry count, filter stats.
+  - job_name: 'fluent_bit'
+    metrics_path: /api/v1/metrics/prometheus
+    static_configs:
+      - targets: ['fluent-bit:2020']
+        labels:
+          service: 'fluent_bit'

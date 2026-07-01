@@ -49,6 +49,11 @@ spec:
     metadata:
       labels:
         app: validation-worker
+      annotations:
+        # Standard Prometheus pod scrape annotations.
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "9091"
+        prometheus.io/path:   "/metrics"
     spec:
       containers:
         - name: validation-worker
@@ -57,6 +62,8 @@ spec:
           ports:
             - containerPort: 8000
               name: http
+            - containerPort: 9091
+              name: metrics
           env:
             - name: KAFKA_BROKERS
               value: "broker:9094"
@@ -81,6 +88,8 @@ spec:
               value: "/app/config/channels.yaml"
             - name: RUST_LOG
               value: "info,validation_worker=debug"
+            - name: METRICS_PORT
+              value: "9091"
           readinessProbe:
             tcpSocket:
               port: 8000
@@ -106,3 +115,22 @@ spec:
         - name: config
           configMap:
             name: validation-worker-config
+
+---
+# Separate internal-only ClusterIP service for Prometheus metrics scraping.
+# The metrics endpoint should NOT be exposed via the regular service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: validation-worker-metrics
+  namespace: logger-backend
+  labels:
+    app: validation-worker
+spec:
+  type: ClusterIP
+  selector:
+    app: validation-worker
+  ports:
+    - name: metrics
+      port: 9091
+      targetPort: 9091

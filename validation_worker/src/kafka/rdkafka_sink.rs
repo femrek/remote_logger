@@ -4,9 +4,10 @@ use rdkafka::{
     producer::{FutureProducer, FutureRecord},
     ClientConfig,
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::sink::{BoxFuture, KafkaSink, KafkaSinkError};
+use crate::metrics::{KAFKA_PRODUCE_DURATION_SECONDS, KAFKA_PRODUCE_TOTAL};
 
 // ── Production Kafka sink ─────────────────────────────────────────────────────
 
@@ -38,12 +39,26 @@ impl KafkaSink for RdkafkaSink {
         payload: &'a str,
     ) -> BoxFuture<'a, Result<(), KafkaSinkError>> {
         Box::pin(async move {
+            let start = Instant::now();
             let record = FutureRecord::to(topic).key(key).payload(payload);
-            self.producer
+            let result = self
+                .producer
                 .send(record, Duration::from_secs(5))
                 .await
                 .map(|_| ())
-                .map_err(|(e, _)| KafkaSinkError(e.to_string()))
+                .map_err(|(e, _)| KafkaSinkError(e.to_string()));
+
+            let elapsed = start.elapsed().as_secs_f64();
+            let result_label = if result.is_ok() { "ok" } else { "err" };
+
+            KAFKA_PRODUCE_TOTAL
+                .with_label_values(&[topic, result_label])
+                .inc();
+            KAFKA_PRODUCE_DURATION_SECONDS
+                .with_label_values(&[topic])
+                .observe(elapsed);
+
+            result
         })
     }
 }

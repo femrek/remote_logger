@@ -3,6 +3,7 @@ services:
     image: ghcr.io/femrek/logger_gateway:latest
     ports:
       - "8080:8080"
+      - "127.0.0.1:9090:9090"  # Prometheus metrics (internal only)
     volumes:
       - ./workers.txt:/docker/workers.txt:ro
       - ./gateway.yaml:/app/config/gateway.yaml:ro
@@ -32,6 +33,7 @@ services:
       - JWT_ISSUER=${JWT_ISSUER:-logger-gateway}
       - WORKER_CONFIG=${WORKER_CONFIG:-/app/config/channels.yaml}
       - RUST_LOG=${RUST_LOG:-info,validation_worker=debug}
+      - METRICS_PORT=9091
     networks:
       - logger_network
     depends_on:
@@ -110,9 +112,76 @@ services:
     networks:
       - logger_network
 
+  # ── Monitoring stack ──────────────────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: logging_backend_prometheus
+    ports:
+      - "127.0.0.1:9091:9090"  # host:9091 → container:9090 (avoids conflict with gateway)
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    networks:
+      - logger_network
+    depends_on:
+      - logger_gateway
+      - validation_worker
+      - kafka-exporter
+      - opensearch-exporter
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: logging_backend_grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+    networks:
+      - logger_network
+    depends_on:
+      - prometheus
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: logging_backend_kafka_exporter
+    command:
+      - '--kafka.server=broker:9094'
+    networks:
+      - logger_network
+    depends_on:
+      broker:
+        condition: service_healthy
+
+  opensearch-exporter:
+    image: quay.io/prometheuscommunity/elasticsearch-exporter:v1.7.0
+    container_name: logging_backend_opensearch_exporter
+    command:
+      - '--es.uri=http://opensearch:9200'
+      - '--es.all'
+      - '--es.indices'
+      - '--es.cluster_settings'
+    networks:
+      - logger_network
+    depends_on:
+      - opensearch
+
 networks:
   logger_network:
     driver: bridge
 
 volumes:
   opensearch-data:
+  prometheus-data:
+  grafana-data:
