@@ -201,9 +201,6 @@ channels:
     path_prefix: "/v1/logs/example-app-dev"
     app_id: "dev.femrek.exampleapp.dev"
     validate_attestation: false   # skip attestation in dev
-    headers:
-      X-Channel-Id: "example-app-dev"
-      X-Environment: "local-dev"
 ```
 
 **JWT settings** (`gateway.jwt`):

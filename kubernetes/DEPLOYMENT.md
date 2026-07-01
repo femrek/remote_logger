@@ -151,10 +151,6 @@ channels:
   - id: "my-app-prod"
     path_prefix: "/v1/logs/my-app-prod"    # URL prefix clients POST to
     app_id: "com.example.myapp"
-    headers:
-      X-Channel-Id: "my-app-prod"
-      X-Environment: "production"
-      X-Kafka-Topic: "mobile-logs-prod"    # Kafka topic logs land in
 ```
 
 ### `validation-worker-config` → `channels.yaml` section

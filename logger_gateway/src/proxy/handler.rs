@@ -62,7 +62,7 @@ pub struct RequestContext {
     pub channel_id: String,
     /// Tenant id from JWT claims (ingest path).
     pub tenant_id: String,
-    /// App id from JWT claims (ingest path).
+    /// Application bundle identifier (e.g., `"dev.femrek.exampleapp"`).
     pub app_id: Option<String>,
 
     // ── Request classification ───────────────────────────────────────────────
@@ -324,25 +324,7 @@ impl ProxyHttp for LogGateway {
         }
 
         // ── Ingest path ───────────────────────────────────────────────────────
-        // Collect all config-sourced header pairs as owned Strings while holding
-        // the ArcSwap guard, then drop the guard before any insert_header calls.
-        //
-        // Why: `IntoCaseHeaderName` in pingora-http 0.8 is only implemented for
-        // `String` and `&'static str` — not for arbitrary `&str`. Collecting
-        // owned Strings lets us avoid the `'static` bound on dynamic header names.
-        let channel_headers: Vec<(String, String)> = {
-            let cfg = self.config.load();
-            let ch_cfg = cfg
-                .find_channel_by_id(&ctx.channel_id)
-                .expect("channel exists; was validated in request_filter");
-            ch_cfg
-                .headers
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect()
-            // cfg guard dropped here
-        };
-
+        
         // Security: strip the client-facing auth header — it MUST NOT leak
         // to the internal validation-worker service.
         upstream_request.remove_header("authorization");
@@ -351,12 +333,6 @@ impl ProxyHttp for LogGateway {
         upstream_request.insert_header("x-tenant-id", ctx.tenant_id.as_str())?;
         if let Some(app_id) = &ctx.app_id {
             upstream_request.insert_header("x-app-id", app_id.as_str())?;
-        }
-
-        // Inject channel-specific headers from config (topic, environment, …).
-        // `key` is an owned `String` which satisfies `IntoCaseHeaderName`.
-        for (key, value) in channel_headers {
-            upstream_request.insert_header(key, value.as_str())?;
         }
 
         Ok(())

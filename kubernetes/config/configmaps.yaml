@@ -26,18 +26,10 @@ data:
       - id: "example-app-prod"
         path_prefix: "/v1/logs/example-app-prod"
         app_id: "dev.femrek.exampleapp"
-        headers:
-          X-Channel-Id: "example-app-prod"
-          X-Environment: "production"
-          X-Kafka-Topic: "mobile-logs-prod"
 
       - id: "example-app-dev"
         path_prefix: "/v1/logs/example-app-dev"
         app_id: "dev.femrek.exampleapp.dev"
-        headers:
-          X-Channel-Id: "example-app-dev"
-          X-Environment: "local-dev"
-          X-Kafka-Topic: "mobile-logs-dev"
 
   workers.txt: |
     validation-worker-0.validation-worker-service.logger-backend.svc.cluster.local:8000

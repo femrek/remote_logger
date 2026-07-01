@@ -148,8 +148,4 @@ pub struct ChannelConfig {
 
     /// Application bundle identifier (e.g., `"dev.femrek.exampleapp"`).
     pub app_id: String,
-
-    /// Key-value pairs injected as HTTP headers into every upstream request.
-    #[serde(default)]
-    pub headers: HashMap<String, String>,
 }

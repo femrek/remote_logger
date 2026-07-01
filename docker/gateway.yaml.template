@@ -37,17 +37,8 @@ channels:
     # true  → validate Google Play Integrity / Apple App Attest token at /auth/exchange
     # false → skip attestation (useful for CI, internal tools, dev environments)
     validate_attestation: true
-    # Extra headers injected into every upstream request for this channel.
-    headers:
-      X-Channel-Id: "example-app-prod"
-      X-Environment: "production"
-      X-Kafka-Topic: "mobile-logs-prod"
 
   - id: "example-app-dev"
     path_prefix: "/v1/logs/example-app-dev"
     app_id: "dev.femrek.exampleapp.dev"
     validate_attestation: false    # no attestation in dev
-    headers:
-      X-Channel-Id: "example-app-dev"
-      X-Environment: "local-dev"
-      X-Kafka-Topic: "mobile-logs-dev"

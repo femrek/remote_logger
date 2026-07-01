@@ -37,16 +37,7 @@ channels:
     # Requests whose path starts with this prefix are routed to this channel.
     path_prefix: "/v1/logs/example-app-prod"
     app_id: "dev.femrek.exampleapp"
-    # Extra headers injected into every upstream ingest request for this channel.
-    headers:
-      X-Channel-Id: "example-app-prod"
-      X-Environment: "production"
-      X-Kafka-Topic: "mobile-logs-prod"
 
   - id: "example-app-dev"
     path_prefix: "/v1/logs/example-app-dev"
     app_id: "dev.femrek.exampleapp.dev"
-    headers:
-      X-Channel-Id: "example-app-dev"
-      X-Environment: "local-dev"
-      X-Kafka-Topic: "mobile-logs-dev"
