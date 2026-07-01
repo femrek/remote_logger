@@ -123,14 +123,16 @@ mod tests {
         JwtConfig {
             secret: Some("test-secret-do-not-use-in-prod".to_owned()),
             secret_env: None,
-            ttl_seconds: 60,
             issuer: "logger-gateway".to_owned(),
         }
     }
 
     fn make_test_token(cfg: &JwtConfig, token_type: &str) -> String {
         use jsonwebtoken::{encode, EncodingKey};
-        let now = 1_000_000usize;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as usize;
         let claims = GatewayClaims {
             sub: "example-app-prod".to_owned(),
             tid: "example_tenant".to_owned(),

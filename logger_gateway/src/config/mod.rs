@@ -5,4 +5,4 @@ pub mod schema;
 // The full module tree is pub, so callers can also use
 // `config::schema::BackendConfig`, `config::loader::load_config`, etc.
 pub use loader::{SharedConfig, bootstrap, spawn_watcher};
-pub use schema::{GatewayConfig, JwtConfig};
+pub use schema::JwtConfig;

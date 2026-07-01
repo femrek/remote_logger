@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use std::collections::HashMap;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Top-level config
@@ -19,11 +18,6 @@ impl GatewayConfig {
         self.channels
             .iter()
             .find(|ch| path.starts_with(&ch.path_prefix))
-    }
-
-    /// Find a channel by its unique `id`.
-    pub fn find_channel_by_id(&self, id: &str) -> Option<&ChannelConfig> {
-        self.channels.iter().find(|ch| ch.id == id)
     }
 }
 
@@ -83,19 +77,11 @@ pub struct JwtConfig {
     #[serde(default)]
     pub secret_env: Option<String>,
 
-    /// Session token lifetime in seconds (used only as a config reference;
-    /// TTLs are now baked into the tokens by the validation worker).
-    #[serde(default = "default_ttl_seconds")]
-    pub ttl_seconds: u64,
-
     /// Value of the `iss` (issuer) claim. Default: `"logger-gateway"`.
     #[serde(default = "default_issuer")]
     pub issuer: String,
 }
 
-fn default_ttl_seconds() -> u64 {
-    900
-}
 fn default_issuer() -> String {
     "logger-gateway".to_string()
 }

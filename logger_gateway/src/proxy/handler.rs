@@ -39,7 +39,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use pingora::http::{RequestHeader, ResponseHeader, StatusCode};
 use pingora::proxy::{ProxyHttp, Session};
 use pingora::upstreams::peer::HttpPeer;
