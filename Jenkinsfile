@@ -7,6 +7,9 @@ pipeline {
         
         // env.TAG_NAME is automatically populated by Jenkins when a tag is built
         IMAGE_TAG = "${env.TAG_NAME}" 
+        
+        // Enable Docker BuildKit for advanced Dockerfile features like --mount
+        DOCKER_BUILDKIT = '1'
     }
 
     stages {
