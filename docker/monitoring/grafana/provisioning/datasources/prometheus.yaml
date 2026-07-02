@@ -3,6 +3,7 @@ apiVersion: 1
 datasources:
   - name: Prometheus
     type: prometheus
+    uid: prometheus        # Fixed UID — must match the uid in the dashboard JSON
     access: proxy
     url: http://prometheus:9090
     isDefault: true
