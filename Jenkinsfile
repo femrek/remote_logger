@@ -60,8 +60,8 @@ pipeline {
     post {
         always {
             // Clean up the local images to save disk space on the Jenkins agent
-            sh "docker rmi ${DOCKER_REGISTRY}/logger_gateway:${IMAGE_TAG} || true"
-            sh "docker rmi ${DOCKER_REGISTRY}/validation_worker:${IMAGE_TAG} || true"
+            sh "docker rmi ${env.DOCKER_REGISTRY}/logger_gateway:${env.IMAGE_TAG} || true"
+            sh "docker rmi ${env.DOCKER_REGISTRY}/validation_worker:${env.IMAGE_TAG} || true"
         }
     }
 }
