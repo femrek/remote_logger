@@ -20,7 +20,7 @@ fetch_new_token() {
       "tenant_id": "example_tenant",
       "device_uuid": "a809b022-7934-4b53-90d2-bf7cb95a947d",
       "device_metadata": {
-        "timestamp": "2026-06-23T15:00:00Z",
+        "timestamp": "'"$(date -u +'%Y-%m-%dT%H:%M:%SZ')"'",
         "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
         "sessionId": "3f338d38-9588-46d4-83b6-96d5395a12ef",
         "os": "Android",
@@ -65,7 +65,7 @@ send_logs() {
     -H "Authorization: Bearer ${token_to_use}" \
     -H "Content-Type: application/json" \
     -d '{
-      "timestamp": "2026-06-23T15:00:00Z",
+      "timestamp": "'"$(date -u +'%Y-%m-%dT%H:%M:%SZ')"'",
       "loggerName": "AppDatabase",
       "message": "Database connection established successfully.",
       "level": "INFO",
