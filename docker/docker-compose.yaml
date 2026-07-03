@@ -68,6 +68,8 @@ services:
     image: fluent/fluent-bit:latest
     volumes:
       - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+    environment:
+      - OPENSEARCH_ADMIN_PASSWORD=${OPENSEARCH_ADMIN_PASSWORD}
     depends_on:
       - broker
       - opensearch
@@ -78,7 +80,9 @@ services:
     image: opensearchproject/opensearch:latest
     environment:
       - discovery.type=single-node
-      - DISABLE_SECURITY_PLUGIN=true
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_ADMIN_PASSWORD}
+      - plugins.security.ssl.http.enabled=false
+      - plugins.security.ssl.transport.enabled=true
       - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
     ports:
       - "9200:9200"
@@ -87,7 +91,7 @@ services:
     volumes:
       - opensearch-data:/usr/share/opensearch/data
     healthcheck:
-      test: ["CMD", "curl", "-s", "-f", "http://localhost:9200/"]
+      test: ["CMD", "curl", "-u", "admin:${OPENSEARCH_ADMIN_PASSWORD}", "-s", "-f", "http://localhost:9200/"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -99,7 +103,8 @@ services:
       - "5601:5601"
     environment:
       - 'OPENSEARCH_HOSTS=["http://opensearch:9200"]'
-      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+      - OPENSEARCH_USERNAME=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_ADMIN_PASSWORD}
     networks:
       - logger_network
     depends_on:
@@ -174,7 +179,7 @@ services:
     image: quay.io/prometheuscommunity/elasticsearch-exporter:v1.7.0
     container_name: logging_backend_opensearch_exporter
     command:
-      - '--es.uri=http://opensearch:9200'
+      - '--es.uri=http://admin:${OPENSEARCH_ADMIN_PASSWORD}@opensearch:9200'
       - '--es.all'
       - '--es.indices'
     networks:

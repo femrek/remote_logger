@@ -160,6 +160,12 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     let opensearch_url = std::env::var("OPENSEARCH_URL")
         .unwrap_or_else(|_| "http://localhost:9200".to_string());
 
+    use base64::Engine as _;
+    let opensearch_auth = format!(
+        "Basic {}",
+        base64::engine::general_purpose::STANDARD.encode("admin:StrongPassword123!")
+    );
+
     let channel = std::env::var("LOG_CHANNEL")
         .unwrap_or_else(|_| "example-app-dev".to_string());
 
@@ -201,7 +207,10 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     // Drop impl runs `docker compose down -v` for guaranteed cleanup.
     let _stack = DockerComposeHandle::up(
         &compose_files,
-        &[("GATEWAY_JWT_SECRET", &jwt_secret)],
+        &[
+            ("GATEWAY_JWT_SECRET", &jwt_secret),
+            ("OPENSEARCH_ADMIN_PASSWORD", "StrongPassword123!"),
+        ],
     );
 
     // ── 3. Wait for dependent services ───────────────────────────────────────
@@ -226,7 +235,11 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     let opensearch_api_start = Instant::now();
     let mut opensearch_ready = false;
     while opensearch_api_start.elapsed() < Duration::from_secs(60) {
-        if ureq::get(&opensearch_url).call().is_ok() {
+        if ureq::get(&opensearch_url)
+            .set("Authorization", &opensearch_auth)
+            .call()
+            .is_ok()
+        {
             opensearch_ready = true;
             break;
         }
@@ -328,7 +341,10 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     let search_start = Instant::now();
 
     while search_start.elapsed() < Duration::from_secs(30) {
-        if let Ok(resp) = ureq::get(&search_url).call() {
+        if let Ok(resp) = ureq::get(&search_url)
+            .set("Authorization", &opensearch_auth)
+            .call()
+        {
             if let Ok(json) = resp.into_json::<serde_json::Value>() {
                 search_response = json;
                 total_hits = search_response["hits"]["total"]["value"].as_u64().unwrap_or(0);
