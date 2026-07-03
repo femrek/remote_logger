@@ -95,6 +95,9 @@ while getopts "n:t:c:u:s:h" opt; do
   esac
 done
 
+# Strip trailing slash from GATEWAY_URL if present
+GATEWAY_URL="${GATEWAY_URL%/}"
+
 # ── Token acquisition ───────────────────────────────────────────────────────────
 get_token() {
   local response

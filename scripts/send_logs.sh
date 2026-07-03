@@ -3,9 +3,59 @@
 # Exit immediately if a command exits with a non-zero status
 set -euo pipefail
 
+# Default values
 TOKEN_FILE=".token"
 GATEWAY_URL="http://localhost:8080"
 CHANNEL="example-app-dev"
+MESSAGE="Database connection established successfully."
+LEVEL="INFO"
+ZONE="main"
+
+# Function to display usage information
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [OPTIONS]
+
+Send a single test log to the Remote Logger Backend.
+
+OPTIONS:
+  -u <url>         Gateway base URL (default: ${GATEWAY_URL})
+  -c <channel>     Channel slug to target (default: ${CHANNEL})
+  -f <token_file>  Token file path (default: ${TOKEN_FILE})
+  -m <message>     Message to log (default: "${MESSAGE}")
+  -l <level>       Log level (default: ${LEVEL})
+  -z <zone>        Log zone (default: ${ZONE})
+  -h, --help       Show this help message and exit
+
+EXAMPLES:
+  $(basename "$0")
+  $(basename "$0") -u http://localhost:8080 -c my-channel -m "Hello world" -l DEBUG
+EOF
+}
+
+# Handle --help before getopts (getopts does not support long flags)
+for arg in "$@"; do
+  case "$arg" in
+    --help) usage; exit 0 ;;
+  esac
+done
+
+# Arg parsing
+while getopts "u:c:f:m:l:z:h" opt; do
+  case $opt in
+    u) GATEWAY_URL="$OPTARG" ;;
+    c) CHANNEL="$OPTARG" ;;
+    f) TOKEN_FILE="$OPTARG" ;;
+    m) MESSAGE="$OPTARG" ;;
+    l) LEVEL="$OPTARG" ;;
+    z) ZONE="$OPTARG" ;;
+    h) usage; exit 0 ;;
+    *) echo "Unknown option. Run '$(basename "$0") --help' for usage." >&2; exit 1 ;;
+  esac
+done
+
+# Strip trailing slash from GATEWAY_URL if present
+GATEWAY_URL="${GATEWAY_URL%/}"
 
 # Function to get a new token
 fetch_new_token() {
@@ -67,9 +117,9 @@ send_logs() {
     -d '{
       "timestamp": "'"$(date -u +'%Y-%m-%dT%H:%M:%SZ')"'",
       "loggerName": "AppDatabase",
-      "message": "Database connection established successfully.",
-      "level": "INFO",
-      "zone": "main",
+      "message": "'"${MESSAGE}"'",
+      "level": "'"${LEVEL}"'",
+      "zone": "'"${ZONE}"'",
       "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
       "sessionId": "3f338d38-9588-46d4-83b6-96d5395a12ef"
     }')
