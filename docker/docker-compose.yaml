@@ -1,6 +1,7 @@
 services:
   logger_gateway:
     image: ghcr.io/femrek/logger_gateway:latest
+    container_name: logger_gateway
     volumes:
       - ./workers.txt:/docker/workers.txt:ro
       - ./gateway.yaml:/app/config/gateway.yaml:ro
@@ -16,6 +17,7 @@ services:
 
   validation_worker_1:
     image: ghcr.io/femrek/validation_worker:latest
+    container_name: logger_validation_worker_1
     volumes:
       - ./channels.yaml:/app/config/channels.yaml:ro
     environment:
@@ -37,6 +39,7 @@ services:
 
   validation_worker_2:
     image: ghcr.io/femrek/validation_worker:latest
+    container_name: logger_validation_worker_2
     volumes:
       - ./channels.yaml:/app/config/channels.yaml:ro
     environment:
@@ -58,7 +61,7 @@ services:
 
   broker:
     image: apache/kafka:4.3.0
-    container_name: logging_backend_broker
+    container_name: logger_backend_broker
     environment:
       KAFKA_NODE_ID: 0
       KAFKA_PROCESS_ROLES: controller,broker
@@ -82,6 +85,7 @@ services:
 
   fluent-bit:
     image: fluent/fluent-bit:latest
+    container_name: logger_backend_fluent_bit
     volumes:
       - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
     environment:
@@ -94,6 +98,7 @@ services:
 
   opensearch:
     image: opensearchproject/opensearch:latest
+    container_name: logger_backend_opensearch
     environment:
       - discovery.type=single-node
       - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_ADMIN_PASSWORD}
@@ -113,6 +118,7 @@ services:
 
   opensearch-dashboards:
     image: opensearchproject/opensearch-dashboards:latest
+    container_name: logger_backend_opensearch_dashboards
     environment:
       - 'OPENSEARCH_HOSTS=["http://opensearch:9200"]'
       - OPENSEARCH_USERNAME=admin
@@ -123,8 +129,8 @@ services:
       - opensearch
 
   kafka-ui:
-    container_name: kafka-ui
     image: provectuslabs/kafka-ui:latest
+    container_name: logger_backend_kafka_ui
     depends_on:
       - broker
     environment:
@@ -137,7 +143,7 @@ services:
 
   prometheus:
     image: prom/prometheus:v2.52.0
-    container_name: logging_backend_prometheus
+    container_name: logger_backend_prometheus
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
@@ -157,7 +163,7 @@ services:
 
   grafana:
     image: grafana/grafana:11.0.0
-    container_name: logging_backend_grafana
+    container_name: logger_backend_grafana
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
@@ -173,7 +179,7 @@ services:
 
   kafka-exporter:
     image: danielqsj/kafka-exporter:latest
-    container_name: logging_backend_kafka_exporter
+    container_name: logger_backend_kafka_exporter
     command:
       - '--kafka.server=broker:9094'
     networks:
@@ -184,7 +190,7 @@ services:
 
   opensearch-exporter:
     image: quay.io/prometheuscommunity/elasticsearch-exporter:v1.7.0
-    container_name: logging_backend_opensearch_exporter
+    container_name: logger_backend_opensearch_exporter
     command:
       - '--es.uri=http://admin:${OPENSEARCH_ADMIN_PASSWORD}@opensearch:9200'
       - '--es.all'
