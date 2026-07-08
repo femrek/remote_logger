@@ -211,7 +211,7 @@ the full load concurrently. Results show success count, duration, and ~throughpu
 | OpenSearch Dashboards | http://localhost:5601 | — |
 | Kafka UI | http://localhost:1234 | — |
 | OpenSearch REST | http://localhost:9200/mobile-logs-*/_search | — |
-| Gateway metrics (raw) | http://localhost:9090/metrics | — |
+| Gateway metrics (raw) | http://localhost:9095/metrics | — |
 | Worker metrics (raw) | http://localhost:9091/metrics | — |
 
 > **Grafana** opens directly to the pre-built **Logger Backend — Full Stack** dashboard.

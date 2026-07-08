@@ -18,7 +18,7 @@ scrape_configs:
   # JWT minting outcomes. Docker DNS resolves to all replica IPs round-robin.
   - job_name: 'validation_worker'
     static_configs:
-      - targets: ['validation_worker:9091']
+      - targets: ['validation_worker_1:9091', 'validation_worker_2:9091']
         labels:
           service: 'validation_worker'
 

@@ -3,6 +3,9 @@ services:
     build:
       context: ../logger_gateway
       dockerfile: docker/Dockerfile
+    ports:
+      - "8080:8080"
+      - "127.0.0.1:9095:9090"  # Prometheus metrics (mapped to 9095 to avoid conflict with IDE plugin)
     volumes:
       - ../logger_gateway:/usr/src/logger_gateway
     develop:
@@ -14,7 +17,7 @@ services:
         - path: ../logger_gateway/Cargo.lock
           action: rebuild
 
-  validation_worker:
+  validation_worker_1:
     build:
       context: ../validation_worker
     volumes:
@@ -27,3 +30,37 @@ services:
           action: rebuild
         - path: ../validation_worker/Cargo.lock
           action: rebuild
+
+  validation_worker_2:
+    build:
+      context: ../validation_worker
+    volumes:
+      - ../validation_worker:/usr/src/validation_worker
+    develop:
+      watch:
+        - path: ../validation_worker/src
+          action: rebuild
+        - path: ../validation_worker/Cargo.toml
+          action: rebuild
+        - path: ../validation_worker/Cargo.lock
+          action: rebuild
+
+  opensearch:
+    ports:
+      - "9200:9200"
+
+  opensearch-dashboards:
+    ports:
+      - "5601:5601"
+
+  kafka-ui:
+    ports:
+      - "127.0.0.1:1234:8080"
+
+  prometheus:
+    ports:
+      - "127.0.0.1:9091:9090"  # host:9091 → container:9090 (avoids conflict with gateway)
+
+  grafana:
+    ports:
+      - "3000:3000"

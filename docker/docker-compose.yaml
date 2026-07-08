@@ -1,9 +1,6 @@
 services:
   logger_gateway:
     image: ghcr.io/femrek/logger_gateway:latest
-    ports:
-      - "8080:8080"
-      - "127.0.0.1:9090:9090"  # Prometheus metrics (internal only)
     volumes:
       - ./workers.txt:/docker/workers.txt:ro
       - ./gateway.yaml:/app/config/gateway.yaml:ro
@@ -14,12 +11,32 @@ services:
     networks:
       - logger_network
     depends_on:
-      - validation_worker
+      - validation_worker_1
+      - validation_worker_2
 
-  validation_worker:
+  validation_worker_1:
     image: ghcr.io/femrek/validation_worker:latest
-    deploy:
-      replicas: 2
+    volumes:
+      - ./channels.yaml:/app/config/channels.yaml:ro
+    environment:
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-broker:9094}
+      - PORT=${PORT:-8000}
+      - KAFKA_TOPIC=${KAFKA_TOPIC:-mobile-logs}
+      - KAFKA_METADATA_TOPIC=${KAFKA_METADATA_TOPIC:-device-metadata}
+      - GATEWAY_JWT_SECRET=${GATEWAY_JWT_SECRET}
+      - ACCESS_JWT_TTL_SECONDS=${ACCESS_JWT_TTL_SECONDS:-900}
+      - REFRESH_JWT_TTL_SECONDS=${REFRESH_JWT_TTL_SECONDS:-604800}
+      - JWT_ISSUER=${JWT_ISSUER:-logger-gateway}
+      - WORKER_CONFIG=${WORKER_CONFIG:-/app/config/channels.yaml}
+      - RUST_LOG=${RUST_LOG:-info,validation_worker=debug}
+      - METRICS_PORT=9091
+    networks:
+      - logger_network
+    depends_on:
+      - broker
+
+  validation_worker_2:
+    image: ghcr.io/femrek/validation_worker:latest
     volumes:
       - ./channels.yaml:/app/config/channels.yaml:ro
     environment:
@@ -42,7 +59,6 @@ services:
   broker:
     image: apache/kafka:4.3.0
     container_name: logging_backend_broker
-    hostname: broker
     environment:
       KAFKA_NODE_ID: 0
       KAFKA_PROCESS_ROLES: controller,broker
@@ -84,8 +100,6 @@ services:
       - plugins.security.ssl.http.enabled=false
       - plugins.security.ssl.transport.enabled=true
       - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
-    ports:
-      - "9200:9200"
     networks:
       - logger_network
     volumes:
@@ -99,8 +113,6 @@ services:
 
   opensearch-dashboards:
     image: opensearchproject/opensearch-dashboards:latest
-    ports:
-      - "5601:5601"
     environment:
       - 'OPENSEARCH_HOSTS=["http://opensearch:9200"]'
       - OPENSEARCH_USERNAME=admin
@@ -113,8 +125,6 @@ services:
   kafka-ui:
     container_name: kafka-ui
     image: provectuslabs/kafka-ui:latest
-    ports:
-      - "127.0.0.1:1234:8080"
     depends_on:
       - broker
     environment:
@@ -128,8 +138,6 @@ services:
   prometheus:
     image: prom/prometheus:v2.52.0
     container_name: logging_backend_prometheus
-    ports:
-      - "127.0.0.1:9091:9090"  # host:9091 → container:9090 (avoids conflict with gateway)
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
@@ -142,15 +150,14 @@ services:
       - logger_network
     depends_on:
       - logger_gateway
-      - validation_worker
+      - validation_worker_1
+      - validation_worker_2
       - kafka-exporter
       - opensearch-exporter
 
   grafana:
     image: grafana/grafana:11.0.0
     container_name: logging_backend_grafana
-    ports:
-      - "3000:3000"
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
