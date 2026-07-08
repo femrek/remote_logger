@@ -1,0 +1,7 @@
+{
+  "auths": {
+    "ghcr.io": {
+      "auth": "YOUR_BASE64_ENCODED_USERNAME_AND_PERSONAL_ACCESS_TOKEN"
+    }
+  }
+}

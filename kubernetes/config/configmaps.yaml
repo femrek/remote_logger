@@ -95,6 +95,8 @@ data:
         Match         *
         Host          opensearch
         Port          9200
+        HTTP_User     admin
+        HTTP_Passwd   ${OPENSEARCH_ADMIN_PASSWORD}
         Logstash_Format     On
         Logstash_Prefix_Key  log_index_prefix
         Suppress_Type_Name On

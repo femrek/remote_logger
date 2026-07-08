@@ -59,10 +59,12 @@ spec:
         prometheus.io/port:   "9090"
         prometheus.io/path:   "/metrics"
     spec:
+      imagePullSecrets:
+        - name: ghcr-registry-key
       containers:
         - name: logger-gateway
           image: ghcr.io/femrek/logger_gateway:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
               name: http

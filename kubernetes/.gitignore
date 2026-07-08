@@ -1,0 +1,7 @@
+# Secret configuration files (containing credentials)
+config/secrets.env
+opensearch/opensearch.env
+opensearch/htpasswd
+monitoring/opensearch.env
+monitoring/grafana/grafana.env
+config/docker-config.json

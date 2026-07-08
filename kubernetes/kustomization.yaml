@@ -4,7 +4,6 @@ kind: Kustomization
 resources:
   # ── Core application namespace & config ───────────────────────────────────────
   - namespace.yaml
-  - config/secrets.yaml
   - config/configmaps.yaml
   # ── Application services ──────────────────────────────────────────────────────
   - broker/kafka.yaml
@@ -18,10 +17,43 @@ resources:
   - monitoring/prometheus/rbac.yaml
   - monitoring/prometheus/configmap.yaml
   - monitoring/prometheus/deployment.yaml
-  - monitoring/grafana/secret.yaml
   - monitoring/grafana/configmap.yaml
-  - monitoring/grafana/dashboards-configmap.yaml
   - monitoring/grafana/deployment.yaml
   - monitoring/kafka-exporter/deployment.yaml
   - monitoring/opensearch-exporter/deployment.yaml
 
+configMapGenerator:
+  - name: grafana-dashboards
+    namespace: monitoring
+    files:
+      - logger-backend.json=monitoring/grafana/dashboards/logger-backend.json
+
+secretGenerator:
+  - name: logger-secrets
+    namespace: logger-backend
+    envs:
+      - config/secrets.env
+  - name: opensearch-secret
+    namespace: logger-backend
+    envs:
+      - opensearch/opensearch.env
+  - name: dashboards-auth
+    namespace: logger-backend
+    files:
+      - htpasswd=opensearch/htpasswd
+  - name: opensearch-secret
+    namespace: monitoring
+    envs:
+      - monitoring/opensearch.env
+  - name: grafana-secret
+    namespace: monitoring
+    envs:
+      - monitoring/grafana/grafana.env
+  - name: ghcr-registry-key
+    namespace: logger-backend
+    type: kubernetes.io/dockerconfigjson
+    files:
+      - .dockerconfigjson=config/docker-config.json
+
+generatorOptions:
+  disableNameSuffixHash: true

@@ -39,12 +39,19 @@ spec:
             - containerPort: 9200
               name: http
           env:
-            - name: DISABLE_SECURITY_PLUGIN
+            - name: discovery.type
+              value: "single-node"
+            - name: plugins.security.ssl.http.enabled
+              value: "false"
+            - name: plugins.security.ssl.transport.enabled
               value: "true"
-            # discovery.type cannot be set as a Kubernetes env var (dot is invalid).
-            # Pass it as a JVM system property via OPENSEARCH_JAVA_OPTS instead.
+            - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opensearch-secret
+                  key: OPENSEARCH_ADMIN_PASSWORD
             - name: OPENSEARCH_JAVA_OPTS
-              value: "-Xms512m -Xmx512m -Ddiscovery.type=single-node"
+              value: "-Xms512m -Xmx512m"
           volumeMounts:
             - name: opensearch-data
               mountPath: /usr/share/opensearch/data
@@ -71,10 +78,12 @@ metadata:
   labels:
     app: opensearch-dashboards
 spec:
+  type: NodePort
   ports:
     - name: http
       port: 5601
       targetPort: 5601
+      nodePort: 30561
   selector:
     app: opensearch-dashboards
 
@@ -105,5 +114,10 @@ spec:
           env:
             - name: OPENSEARCH_HOSTS
               value: '["http://opensearch:9200"]'
-            - name: DISABLE_SECURITY_DASHBOARDS_PLUGIN
-              value: "true"
+            - name: OPENSEARCH_USERNAME
+              value: "admin"
+            - name: OPENSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opensearch-secret
+                  key: OPENSEARCH_ADMIN_PASSWORD

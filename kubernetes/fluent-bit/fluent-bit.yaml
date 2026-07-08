@@ -37,6 +37,12 @@ spec:
           ports:
             - containerPort: 2020
               name: http
+          env:
+            - name: OPENSEARCH_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opensearch-secret
+                  key: OPENSEARCH_ADMIN_PASSWORD
           volumeMounts:
             - name: config
               mountPath: /fluent-bit/etc/

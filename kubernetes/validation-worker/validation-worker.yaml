@@ -55,10 +55,12 @@ spec:
         prometheus.io/port:   "9091"
         prometheus.io/path:   "/metrics"
     spec:
+      imagePullSecrets:
+        - name: ghcr-registry-key
       containers:
         - name: validation-worker
           image: ghcr.io/femrek/validation_worker:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
               name: http

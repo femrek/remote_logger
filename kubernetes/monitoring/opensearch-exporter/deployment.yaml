@@ -21,10 +21,16 @@ spec:
           # REST API (_cluster/health, _stats, _nodes/stats, etc.).
           image: quay.io/prometheuscommunity/elasticsearch-exporter:v1.7.0
           args:
-            - '--es.uri=http://opensearch.logger-backend.svc.cluster.local:9200'
+            - '--es.uri=http://admin:$(OPENSEARCH_ADMIN_PASSWORD)@opensearch.logger-backend.svc.cluster.local:9200'
             - '--es.all'
             - '--es.indices'
-            - '--es.cluster_settings'
+            - '--collector.clustersettings'
+          env:
+            - name: OPENSEARCH_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opensearch-secret
+                  key: OPENSEARCH_ADMIN_PASSWORD
           ports:
             - containerPort: 9114
               name: metrics

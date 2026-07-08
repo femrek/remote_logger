@@ -54,7 +54,7 @@ spec:
             - name: KAFKA_LISTENERS
               value: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_BROKER://0.0.0.0:9094"
             - name: KAFKA_ADVERTISED_LISTENERS
-              value: "PLAINTEXT://localhost:9092,PLAINTEXT_BROKER://broker:9094"
+              value: "PLAINTEXT://localhost:9092,PLAINTEXT_BROKER://broker.logger-backend.svc.cluster.local:9094"
             - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
               value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_BROKER:PLAINTEXT"
             - name: KAFKA_CONTROLLER_QUORUM_VOTERS
