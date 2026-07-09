@@ -204,11 +204,11 @@ This lightweight helper exchanges a mock attestation token for a JWT, warms up, 
 
 *Option B: Advanced k6 Step-by-Step Stress Test (Dockerized)*
 ```bash
-# Run step-by-step limits test against localhost
+# Run step-by-step stress test against local stack (joins default compose network automatically)
 bash load_tests/run_k6.sh
 
-# Target remote dev deployment
-GATEWAY_URL="http://<DEV_IP>:8080" bash load_tests/run_k6.sh
+# Target remote dev deployment (bypasses local network joining)
+bash load_tests/run_k6.sh -n "" -u "http://<DEV_IP>:8080"
 ```
 See [load_tests/README.md](file:///Users/femrek/projects/exclusive/remote_logger_backend/load_tests/README.md) for full k6 details, configuration flags, and testing strategy.
 
