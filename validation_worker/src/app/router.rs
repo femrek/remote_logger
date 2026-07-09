@@ -9,7 +9,10 @@ use std::sync::Arc;
 use axum::{routing::post, Router};
 
 use super::state::AppState;
-use crate::handler::{auth::auth_exchange_handler, ingest::ingest_handler};
+use crate::handler::{
+    auth::auth_exchange_handler,
+    ingest::{batch_ingest_handler, ingest_handler},
+};
 
 // ── Router builder ────────────────────────────────────────────────────────────
 
@@ -23,5 +26,6 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // Clients post raw ServerLog JSON; x-tenant-id/x-app-id injected by gateway.
         .route("/ingest", post(ingest_handler))
         .route("/v1/logs/:channel", post(ingest_handler))
+        .route("/v1/logs/:channel/batch", post(batch_ingest_handler))
         .with_state(state)
 }

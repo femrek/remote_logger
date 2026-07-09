@@ -10,13 +10,15 @@ CHANNEL="example-app-dev"
 MESSAGE="Database connection established successfully."
 LEVEL="INFO"
 ZONE="main"
+BULK=false
+BULK_COUNT=1
 
 # Function to display usage information
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
-Send a single test log to the Remote Logger Backend.
+Send a single or bulk test logs to the Remote Logger Backend.
 
 OPTIONS:
   -u <url>         Gateway base URL (default: ${GATEWAY_URL})
@@ -25,23 +27,39 @@ OPTIONS:
   -m <message>     Message to log (default: "${MESSAGE}")
   -l <level>       Log level (default: ${LEVEL})
   -z <zone>        Log zone (default: ${ZONE})
+  -b [count]       Send bulk request (optional count, default: 1)
+  --bulk [count]   Send bulk request (optional count, default: 1)
   -h, --help       Show this help message and exit
 
 EXAMPLES:
   $(basename "$0")
   $(basename "$0") -u http://localhost:8080 -c my-channel -m "Hello world" -l DEBUG
+  $(basename "$0") -b 5 -m "Bulk log test"
 EOF
 }
 
-# Handle --help before getopts (getopts does not support long flags)
-for arg in "$@"; do
-  case "$arg" in
+# Translate long options to short options and handle help
+new_args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     --help) usage; exit 0 ;;
+    --bulk)
+      new_args+=("-b")
+      if [[ $# -gt 1 && "$2" =~ ^[0-9]+$ ]]; then
+        new_args+=("$2")
+        shift
+      fi
+      ;;
+    *)
+      new_args+=("$1")
+      ;;
   esac
+  shift
 done
+set -- "${new_args[@]}"
 
 # Arg parsing
-while getopts "u:c:f:m:l:z:h" opt; do
+while getopts "u:c:f:m:l:z:hb" opt; do
   case $opt in
     u) GATEWAY_URL="$OPTARG" ;;
     c) CHANNEL="$OPTARG" ;;
@@ -49,6 +67,16 @@ while getopts "u:c:f:m:l:z:h" opt; do
     m) MESSAGE="$OPTARG" ;;
     l) LEVEL="$OPTARG" ;;
     z) ZONE="$OPTARG" ;;
+    b)
+      BULK=true
+      if [ $OPTIND -le $# ]; then
+        next_val="${!OPTIND}"
+        if [[ "$next_val" =~ ^[0-9]+$ ]]; then
+          BULK_COUNT="$next_val"
+          OPTIND=$((OPTIND + 1))
+        fi
+      fi
+      ;;
     h) usage; exit 0 ;;
     *) echo "Unknown option. Run '$(basename "$0") --help' for usage." >&2; exit 1 ;;
   esac
@@ -111,10 +139,41 @@ send_logs() {
   response_file=$(mktemp)
   
   local http_code
-  http_code=$(curl -s -o "${response_file}" -w "%{http_code}" -X POST "${GATEWAY_URL}/v1/logs/${CHANNEL}" \
-    -H "Authorization: Bearer ${token_to_use}" \
-    -H "Content-Type: application/json" \
-    -d '{
+  local url
+  local data
+  
+  if [ "${BULK}" = "true" ]; then
+    url="${GATEWAY_URL}/v1/logs/${CHANNEL}/batch"
+    echo "Bulk mode enabled. Sending ${BULK_COUNT} log entries to ${url}..." >&2
+    
+    local timestamp
+    timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+    local entry
+    entry='{
+      "timestamp": "'"${timestamp}"'",
+      "loggerName": "AppDatabase",
+      "message": "'"${MESSAGE}"'",
+      "level": "'"${LEVEL}"'",
+      "zone": "'"${ZONE}"'",
+      "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
+      "sessionId": "3f338d38-9588-46d4-83b6-96d5395a12ef"
+    }'
+    
+    local payload="["
+    local i
+    for ((i = 0; i < BULK_COUNT; i++)); do
+      if [ $i -gt 0 ]; then
+        payload="${payload},"
+      fi
+      payload="${payload}${entry}"
+    done
+    payload="${payload}]"
+    data="${payload}"
+    echo "Payload: ${data}" >&2
+  else
+    url="${GATEWAY_URL}/v1/logs/${CHANNEL}"
+    echo "Single mode enabled. Sending log entry to ${url}..." >&2
+    data='{
       "timestamp": "'"$(date -u +'%Y-%m-%dT%H:%M:%SZ')"'",
       "loggerName": "AppDatabase",
       "message": "'"${MESSAGE}"'",
@@ -122,7 +181,13 @@ send_logs() {
       "zone": "'"${ZONE}"'",
       "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
       "sessionId": "3f338d38-9588-46d4-83b6-96d5395a12ef"
-    }')
+    }'
+  fi
+  
+  http_code=$(curl -s -o "${response_file}" -w "%{http_code}" -X POST "${url}" \
+    -H "Authorization: Bearer ${token_to_use}" \
+    -H "Content-Type: application/json" \
+    -d "${data}")
     
   local response_body
   response_body=$(cat "${response_file}")

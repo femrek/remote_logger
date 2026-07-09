@@ -118,6 +118,96 @@ pub async fn ingest_handler(
     }
 }
 
+/// `POST /v1/logs/:channel/log/batch` handler.
+pub async fn batch_ingest_handler(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    payload: Result<Json<Vec<ServerLog>>, axum::extract::rejection::JsonRejection>,
+) -> Result<impl IntoResponse, AppError> {
+    let start = Instant::now();
+
+    // ── 1. Header extraction — REQUIRED (gateway always injects these) ─────────
+    let tenant_id = headers
+        .get("x-tenant-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            tracing::warn!("Missing x-tenant-id header — request did not pass through gateway JWT validation");
+            AppError::Unauthorized
+        })?
+        .to_string();
+
+    let app_id = headers
+        .get("x-app-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            tracing::warn!("Missing x-app-id header — request did not pass through gateway JWT validation");
+            AppError::Unauthorized
+        })?
+        .to_string();
+
+    tracing::info!(
+        tenant_id = %tenant_id,
+        app_id = %app_id,
+        "Received batch ingest request"
+    );
+
+    // ── 2. Parse raw Vec<ServerLog> body ──────────────────────────────────────
+    let Json(log_payloads) = match payload {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            tracing::warn!(error = %err, "Failed to parse batch ServerLog JSON body");
+            let elapsed = start.elapsed().as_secs_f64();
+            REQUESTS_TOTAL.with_label_values(&[&app_id, "400"]).inc();
+            REQUEST_DURATION_SECONDS.with_label_values(&[&app_id]).observe(elapsed);
+            return Err(AppError::BadRequest(format!("Invalid batch ServerLog body: {err}")));
+        }
+    };
+
+    if log_payloads.is_empty() {
+        let elapsed = start.elapsed().as_secs_f64();
+        REQUESTS_TOTAL.with_label_values(&[&app_id, "200"]).inc();
+        REQUEST_DURATION_SECONDS.with_label_values(&[&app_id]).observe(elapsed);
+        return Ok(axum::http::StatusCode::OK);
+    }
+
+    // ── 3. Assemble and deliver each log ──────────────────────────────────────
+    for log_payload in log_payloads {
+        let kafka_payload = KafkaPayload {
+            tenant_id: tenant_id.clone(),
+            app_id: app_id.clone(),
+            log_index_prefix: format!("mobile-logs-{}", app_id),
+            log: log_payload,
+        };
+
+        let serialised = match serde_json::to_string(&kafka_payload) {
+            Ok(s) => s,
+            Err(err) => {
+                tracing::error!(error = %err, "Failed to serialise KafkaPayload in batch");
+                let elapsed = start.elapsed().as_secs_f64();
+                REQUESTS_TOTAL.with_label_values(&[&app_id, "500"]).inc();
+                REQUEST_DURATION_SECONDS.with_label_values(&[&app_id]).observe(elapsed);
+                return Err(AppError::InternalError);
+            }
+        };
+
+        if let Err(e) = state.sink.send(&state.kafka_topic, &tenant_id, &serialised).await {
+            tracing::error!(tenant_id = %tenant_id, error = %e, "Kafka delivery failed in batch");
+            let elapsed = start.elapsed().as_secs_f64();
+            REQUESTS_TOTAL.with_label_values(&[&app_id, "503"]).inc();
+            REQUEST_DURATION_SECONDS.with_label_values(&[&app_id]).observe(elapsed);
+            return Err(AppError::ServiceUnavailable);
+        }
+    }
+
+    let elapsed = start.elapsed().as_secs_f64();
+    REQUESTS_TOTAL.with_label_values(&[&app_id, "200"]).inc();
+    REQUEST_DURATION_SECONDS.with_label_values(&[&app_id]).observe(elapsed);
+    Ok(axum::http::StatusCode::OK)
+}
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tier 1: Unit Tests
 //
@@ -399,5 +489,59 @@ mod tests {
         )
         .await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_batch_logs_returns_200() {
+        let body = serde_json::json!([
+            valid_server_log(),
+            valid_server_log(),
+        ]);
+        let resp = post_json_with_headers(
+            test_app(),
+            "/v1/logs/example-app-dev/batch",
+            body,
+            &[
+                ("x-tenant-id", "example_tenant"),
+                ("x-app-id", "dev.femrek.exampleapp.dev"),
+            ],
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_empty_batch_logs_returns_200() {
+        let body = serde_json::json!([]);
+        let resp = post_json_with_headers(
+            test_app(),
+            "/v1/logs/example-app-dev/batch",
+            body,
+            &[
+                ("x-tenant-id", "example_tenant"),
+                ("x-app-id", "dev.femrek.exampleapp.dev"),
+            ],
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_invalid_batch_json_returns_400() {
+        let app = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/logs/example-app-dev/batch")
+                    .header("content-type", "application/json")
+                    .header("x-tenant-id", "example_tenant")
+                    .header("x-app-id", "dev.femrek.exampleapp.dev")
+                    .body(Body::from("not-json"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 }
