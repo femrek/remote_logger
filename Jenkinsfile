@@ -48,7 +48,7 @@ pipeline {
             steps {
                 script {
                     // Provide the Jenkins credential ID 'github-credentials' matching your GHCR config
-                    docker.withRegistry('https://ghcr.io', 'github-credentials') {
+                    docker.withRegistry('https://ghcr.io', 'github-general-pat') {
                         gatewayImage.push()
                         gatewayImage.push('latest')
                         
