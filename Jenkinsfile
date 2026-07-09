@@ -64,7 +64,7 @@ pipeline {
             steps {
                 // Fetch the target server address from the KV engine
                 withVault(vaultSecrets: [[
-                    path: 'secret/data/jenkins/deploy_config',
+                    path: 'secret/jenkins/deploy_config',
                     secretValues: [[envVar: 'DEPLOY_TARGET', vaultKey: 'target']]
                 ]]) {
                     // Generate the ephemeral SSH key using the SSH engine
