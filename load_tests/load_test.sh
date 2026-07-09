@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# scripts/load_test.sh
+# load_tests/load_test.sh
 #
 # Simple load tester for the Remote Logger Backend.
 # Sends concurrent log requests to generate real traffic visible in Grafana.
 #
 # Usage:
-#   bash scripts/load_test.sh [OPTIONS]
+#   bash load_tests/load_test.sh [OPTIONS]
 #
 # Options:
 #   -n <number>   Total number of requests to send (default: 200)
@@ -19,9 +19,9 @@
 #   - Optional: jq (for prettier output)
 #
 # Examples:
-#   bash scripts/load_test.sh                   # 200 requests, 10 concurrent
-#   bash scripts/load_test.sh -n 1000 -c 20    # 1000 requests, 20 concurrent
-#   bash scripts/load_test.sh -n 50 -c 5 -s example-app-prod
+#   bash load_tests/load_test.sh                   # 200 requests, 10 concurrent
+#   bash load_tests/load_test.sh -n 1000 -c 20    # 1000 requests, 20 concurrent
+#   bash load_tests/load_test.sh -n 50 -c 5 -s example-app-prod
 
 set -euo pipefail
 
@@ -219,7 +219,7 @@ case \$(( IDX % 5 )) in
   0) LEVEL="INFO"   ;;
   1) LEVEL="DEBUG"  ;;
   2) LEVEL="WARN"   ;;
-  3) LEVEL="ERROR"  ;;
+  3) LEVEL="ERROR"   ;;
   4) LEVEL="SEVERE" ;;
 esac
 

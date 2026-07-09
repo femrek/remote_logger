@@ -191,16 +191,26 @@ bash scripts/send_logs.sh
 ```
 
 **Load test** (generates real traffic visible in Grafana):
+
+*Option A: Lightweight Bash Tool*
 ```bash
 # 200 requests, 10 concurrent — default
-bash scripts/load_test.sh
+bash load_tests/load_test.sh
 
 # Custom: 1000 requests, 20 concurrent
-bash scripts/load_test.sh -n 1000 -c 20
+bash load_tests/load_test.sh -n 1000 -c 20
 ```
+This lightweight helper exchanges a mock attestation token for a JWT, warms up, and fires traffic concurrently.
 
-The script exchanges an attestation token for a JWT, warms up with one request, then fires
-the full load concurrently. Results show success count, duration, and ~throughput.
+*Option B: Advanced k6 Step-by-Step Stress Test (Dockerized)*
+```bash
+# Run step-by-step limits test against localhost
+bash load_tests/run_k6.sh
+
+# Target remote dev deployment
+GATEWAY_URL="http://<DEV_IP>:8080" bash load_tests/run_k6.sh
+```
+See [load_tests/README.md](file:///Users/femrek/projects/exclusive/remote_logger_backend/load_tests/README.md) for full k6 details, configuration flags, and testing strategy.
 
 ### 4. Inspect results
 
