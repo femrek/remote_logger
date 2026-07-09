@@ -58,6 +58,49 @@ pipeline {
                 }
             }
         }
+
+        stage('Trigger Deployment') {
+            when { buildingTag() }
+            steps {
+                // Fetch the target server address from the KV engine
+                withVault(vaultSecrets: [[
+                    path: 'secret/data/jenkins/deploy_config',
+                    secretValues: [[envVar: 'DEPLOY_TARGET', vaultKey: 'target']]
+                ]]) {
+                    // Generate the ephemeral SSH key using the SSH engine
+                    withVault(vaultSecrets: [[
+                        engineVersion: 2, 
+                        path: 'ssh/issue/jenkins-deploy', 
+                        secretValues: [
+                            [envVar: 'SSH_CERT', vaultKey: 'signed_key'],
+                            [envVar: 'SSH_KEY',  vaultKey: 'private_key']
+                        ]
+                    ]]) {
+                        script {
+                            echo "Deploying to production target via Vault-signed SSH..."
+                            
+                            writeFile file: 'vault_ssh_key', text: env.SSH_KEY
+                            writeFile file: 'vault_ssh_key-cert.pub', text: env.SSH_CERT
+                            sh 'chmod 600 vault_ssh_key'
+                            
+                            // Use the DEPLOY_TARGET variable instead of a hardcoded string
+                            sh '''
+                                cp docker/deploy.sh.template docker/deploy.sh
+                                ssh -i vault_ssh_key -o StrictHostKeyChecking=no ${DEPLOY_TARGET} "mkdir -p ~/app/deployment"
+                                scp -i vault_ssh_key -o StrictHostKeyChecking=no -r docker/* ${DEPLOY_TARGET}:~/app/deployment/
+                                ssh -i vault_ssh_key -o StrictHostKeyChecking=no ${DEPLOY_TARGET} "
+                                    cd ~/app/deployment && \\
+                                    chmod +x deploy.sh && \\
+                                    ./deploy.sh
+                                "
+                            '''
+                            
+                            sh 'rm -f vault_ssh_key vault_ssh_key-cert.pub docker/deploy.sh'
+                        }
+                    }
+                }
+            }
+        }
     }
     
     post {

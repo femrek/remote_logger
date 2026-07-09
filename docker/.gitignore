@@ -1,2 +1,3 @@
 .env
 gateway.yaml
+deploy.sh
