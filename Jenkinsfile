@@ -79,7 +79,13 @@ pipeline {
                                 VAULT_TOKEN=$(curl -s --request POST --data '{"role_id":"'"${ROLE_ID}"'","secret_id":"'"${SECRET_ID}"'"}' https://vault.femrek.dev/v1/auth/approle/login | jq -r .auth.client_token)
                                 
                                 # Request the ephemeral SSH credentials (POST)
-                                curl -s --header "X-Vault-Token: ${VAULT_TOKEN}" --request POST https://vault.femrek.dev/v1/ssh/issue/jenkins-deploy > ephemeral_keys.json
+                                curl -s --header "X-Vault-Token: ${VAULT_TOKEN}" --header "Content-Type: application/json" --request POST --data "{}" https://vault.femrek.dev/v1/ssh/issue/jenkins-deploy > ephemeral_keys.json
+                                
+                                if ! jq -e '.data.private_key' ephemeral_keys.json >/dev/null; then
+                                    echo "Error: Vault failed to return SSH keys. Response:"
+                                    cat ephemeral_keys.json
+                                    exit 1
+                                fi
                                 
                                 # Extract and format the keys
                                 jq -r .data.private_key ephemeral_keys.json > vault_ssh_key
