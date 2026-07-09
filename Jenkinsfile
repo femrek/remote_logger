@@ -62,29 +62,35 @@ pipeline {
         stage('Trigger Deployment') {
             when { buildingTag() }
             steps {
-                // Fetch the target server address from the KV engine
+                // 1. Fetch the target from Vault KV (This plugin step works perfectly for KV!)
                 withVault(vaultSecrets: [[
-                    path: 'secret/jenkins/deploy_config',
+                    engineVersion: 2,
+                    path: 'secret/jenkins/deploy_config', 
                     secretValues: [[envVar: 'DEPLOY_TARGET', vaultKey: 'target']]
                 ]]) {
-                    // Generate the ephemeral SSH key using the SSH engine
-                    withVault(vaultSecrets: [[
-                        engineVersion: 2, 
-                        path: 'ssh/issue/jenkins-deploy', 
-                        secretValues: [
-                            [envVar: 'SSH_CERT', vaultKey: 'signed_key'],
-                            [envVar: 'SSH_KEY',  vaultKey: 'private_key']
-                        ]
-                    ]]) {
+                    // 2. Fetch the raw AppRole credentials to authenticate our manual POST request
+                    withCredentials([usernamePassword(credentialsId: 'vault-approle-raw', passwordVariable: 'SECRET_ID', usernameVariable: 'ROLE_ID')]) {
                         script {
-                            echo "Deploying to production target via Vault-signed SSH..."
+                            echo "Authenticating to Vault and minting ephemeral SSH keys via REST API..."
                             
-                            writeFile file: 'vault_ssh_key', text: env.SSH_KEY
-                            writeFile file: 'vault_ssh_key-cert.pub', text: env.SSH_CERT
-                            sh 'chmod 600 vault_ssh_key'
-                            
-                            // Use the DEPLOY_TARGET variable instead of a hardcoded string
+                            // 3. Use curl and jq to handle the POST requests natively
                             sh '''
+                                # Login to Vault via AppRole and extract the token
+                                VAULT_TOKEN=$(curl -s --request POST --data '{"role_id":"'"${ROLE_ID}"'","secret_id":"'"${SECRET_ID}"'"}' https://vault.femrek.dev/v1/auth/approle/login | jq -r .auth.client_token)
+                                
+                                # Request the ephemeral SSH credentials (POST)
+                                curl -s --header "X-Vault-Token: ${VAULT_TOKEN}" --request POST https://vault.femrek.dev/v1/ssh/issue/jenkins-deploy > ephemeral_keys.json
+                                
+                                # Extract and format the keys
+                                jq -r .data.private_key ephemeral_keys.json > vault_ssh_key
+                                jq -r .data.signed_key ephemeral_keys.json > vault_ssh_key-cert.pub
+                                
+                                # Lock down the private key
+                                chmod 600 vault_ssh_key
+                                
+                                echo "Deploying to production target via Vault-signed SSH..."
+                                
+                                # Execute the deployment
                                 cp docker/deploy.sh.template docker/deploy.sh
                                 ssh -i vault_ssh_key -o StrictHostKeyChecking=no ${DEPLOY_TARGET} "mkdir -p ~/app/deployment"
                                 scp -i vault_ssh_key -o StrictHostKeyChecking=no -r docker/* ${DEPLOY_TARGET}:~/app/deployment/
@@ -93,9 +99,10 @@ pipeline {
                                     chmod +x deploy.sh && \\
                                     ./deploy.sh
                                 "
+                                
+                                # Clean up workspace
+                                rm -f vault_ssh_key vault_ssh_key-cert.pub ephemeral_keys.json docker/deploy.sh
                             '''
-                            
-                            sh 'rm -f vault_ssh_key vault_ssh_key-cert.pub docker/deploy.sh'
                         }
                     }
                 }
