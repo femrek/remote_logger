@@ -13,12 +13,78 @@ pipeline {
     }
 
     stages {
+        stage('CI Pipeline') {
+            agent {
+                docker {
+                    image 'rust:1.82-bookworm'
+                    args '-v /var/run/docker.sock:/var/run/docker.sock'
+                }
+            }
+            environment {
+                CARGO_HOME = "${WORKSPACE}/.cargo"
+            }
+            stages {
+                stage('Setup Dependencies') {
+                    steps {
+                        script {
+                            echo 'Installing build and runtime dependencies (cmake, docker-cli, docker-compose-plugin)...'
+                            sh '''
+                                apt-get update && apt-get install -y cmake lsb-release curl gpg
+                                install -m 0755 -d /etc/apt/keyrings
+                                curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+                                chmod a+r /etc/apt/keyrings/docker.gpg
+                                echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+                                apt-get update && apt-get install -y docker-ce-cli docker-compose-plugin
+                            '''
+                        }
+                    }
+                }
+
+                stage('Test logger_gateway') {
+                    steps {
+                        script {
+                            echo 'Running logger_gateway unit tests...'
+                            sh 'cd logger_gateway && cargo test'
+                        }
+                    }
+                }
+
+                stage('Test validation_worker') {
+                    steps {
+                        script {
+                            echo 'Running validation_worker unit and integration tests...'
+                            sh 'cd validation_worker && cargo test'
+                        }
+                    }
+                }
+
+                stage('Test E2E Pipeline') {
+                    steps {
+                        script {
+                            echo 'Running End-to-End full stack integration tests...'
+                            withEnv(['GATEWAY_JWT_SECRET=ci_default_secret_for_e2e_testing_32_chars_long']) {
+                                sh 'cd e2e && cargo test'
+                            }
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    script {
+                        echo 'Cleaning up any leftover docker-compose containers or volumes...'
+                        sh 'docker compose -f docker/docker-compose.yaml -f docker/docker-compose.dev.yaml down -v --remove-orphans || true'
+                    }
+                }
+            }
+        }
+
         stage('Verify Tag') {
+            when {
+                buildingTag()
+            }
             steps {
                 script {
-                    if (!env.TAG_NAME) {
-                        error('This build is not a tag. Aborting pipeline.')
-                    }
                     echo "Building Docker images for tag: ${env.TAG_NAME}"
                 }
             }
@@ -26,7 +92,7 @@ pipeline {
 
         stage('Build Docker Images') {
             when {
-                buildingTag() // Ensures this stage only runs for tags
+                buildingTag()
             }
             steps {
                 script {
@@ -62,9 +128,13 @@ pipeline {
     
     post {
         always {
-            // Clean up the local images to save disk space on the Jenkins agent
-            sh "docker rmi ${env.DOCKER_REGISTRY}/logger_gateway:${env.IMAGE_TAG} || true"
-            sh "docker rmi ${env.DOCKER_REGISTRY}/validation_worker:${env.IMAGE_TAG} || true"
+            script {
+                // Only clean up images if a tag was built and images were generated
+                if (env.TAG_NAME) {
+                    sh "docker rmi ${env.DOCKER_REGISTRY}/logger_gateway:${env.IMAGE_TAG} || true"
+                    sh "docker rmi ${env.DOCKER_REGISTRY}/validation_worker:${env.IMAGE_TAG} || true"
+                }
+            }
         }
     }
 }
