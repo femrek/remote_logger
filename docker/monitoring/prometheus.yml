@@ -22,10 +22,12 @@ scrape_configs:
       - server: 'consul:8500'
         services: ['validation_worker']
     relabel_configs:
-      - source_labels: [__meta_consul_service_port]
+      - source_labels: [__meta_consul_service_address]
         action: replace
-        target_label: __metrics_path__
-        replacement: '/metrics'
+        target_label: __address__
+        replacement: '${1}:9091'
+      - target_label: service
+        replacement: 'validation_worker'
 
   # ── Kafka Broker (via kafka-exporter) ────────────────────────────────────────
   # Broker metrics: messages in/sec, consumer group lag, partition offsets,
