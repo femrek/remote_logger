@@ -3,3 +3,5 @@
 **/*.rs.bk
 .token
 docker/.env
+.cargo/
+
