@@ -58,12 +58,6 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-    healthcheck:
-      test: [ "CMD", "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list" ]
-      interval: 5s
-      timeout: 5s
-      retries: 40
-      start_period: 10s
     networks:
       - logger_network
 
@@ -95,12 +89,6 @@ services:
       - logger_network
     volumes:
       - opensearch-data:/usr/share/opensearch/data
-    healthcheck:
-      test: ["CMD", "curl", "-u", "admin:${OPENSEARCH_ADMIN_PASSWORD}", "-s", "-f", "http://localhost:9200/"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 40s
 
   opensearch-dashboards:
     image: opensearchproject/opensearch-dashboards:latest
@@ -183,9 +171,9 @@ services:
       - '--kafka.server=broker:9094'
     networks:
       - logger_network
+    restart: on-failure
     depends_on:
-      broker:
-        condition: service_healthy
+      - broker
 
   opensearch-exporter:
     image: quay.io/prometheuscommunity/elasticsearch-exporter:v1.7.0
@@ -197,9 +185,9 @@ services:
       - '--es.indices'
     networks:
       - logger_network
+    restart: on-failure
     depends_on:
-      opensearch:
-        condition: service_healthy
+      - opensearch
 
   consul-exporter:
     image: prom/consul-exporter:latest

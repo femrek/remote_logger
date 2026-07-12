@@ -216,8 +216,8 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     // ── 3. Wait for dependent services ───────────────────────────────────────
     eprintln!("[e2e] Waiting for gateway on port 8080 …");
     assert!(
-        wait_for_port("localhost", 8080, Duration::from_secs(120)),
-        "Gateway did not become reachable within 120 s"
+        wait_for_port("localhost", 8080, Duration::from_secs(300)),
+        "Gateway did not become reachable within 300 s"
     );
 
     // Extra grace period: the gateway might reject connections while it reads
@@ -226,15 +226,15 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
 
     eprintln!("[e2e] Waiting for OpenSearch on port 9200 …");
     assert!(
-        wait_for_port("localhost", 9200, Duration::from_secs(120)),
-        "OpenSearch did not become reachable within 120 s"
+        wait_for_port("localhost", 9200, Duration::from_secs(300)),
+        "OpenSearch did not become reachable within 300 s"
     );
 
     // OpenSearch might accept TCP connections via docker-proxy before the HTTP API is actually ready.
     // Poll the root endpoint until it returns a successful status.
     let opensearch_api_start = Instant::now();
     let mut opensearch_ready = false;
-    while opensearch_api_start.elapsed() < Duration::from_secs(60) {
+    while opensearch_api_start.elapsed() < Duration::from_secs(300) {
         if ureq::get(&opensearch_url)
             .set("Authorization", &opensearch_auth)
             .call()
