@@ -34,9 +34,9 @@ struct Cli {
     #[arg(short, long, default_value = "config/gateway.yaml")]
     config: String,
 
-    /// Path to the JSON or text file containing the list of worker backends.
-    #[arg(short = 'w', long, env = "WORKERS_FILE", default_value = "config/workers_list.json")]
-    workers: String,
+    /// Consul HTTP API address for dynamic service discovery.
+    #[arg(short = 'c', long, env = "CONSUL_HTTP_ADDR", default_value = "http://localhost:8500")]
+    consul: String,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -129,8 +129,8 @@ fn main() -> anyhow::Result<()> {
     server.bootstrap();
 
     // ── Service Discovery ─────────────────────────────────────────────────────
-    let lb = load_initial_workers(&cli.workers)
-        .with_context(|| format!("Loading initial workers from '{}'", cli.workers))?;
+    let lb = load_initial_workers(&cli.consul)
+        .with_context(|| format!("Initializing Consul load balancer for '{}'", cli.consul))?;
     let discovery = Arc::new(ServiceDiscovery::new(lb));
 
     // ── Proxy service ─────────────────────────────────────────────────────────
@@ -176,14 +176,14 @@ fn main() -> anyhow::Result<()> {
 
     // ── Background: discovery watcher ─────────────────────────────────────────
     struct DiscoveryWatcherService {
-        path: String,
+        consul_addr: String,
         discovery: Arc<ServiceDiscovery>,
     }
 
     #[async_trait]
     impl BackgroundService for DiscoveryWatcherService {
         async fn start(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
-            if let Err(e) = spawn_discovery_watcher(self.path.clone(), self.discovery.clone()).await {
+            if let Err(e) = spawn_discovery_watcher(self.consul_addr.clone(), self.discovery.clone()).await {
                 tracing::error!("Failed to start discovery watcher: {e}");
             }
             let _ = shutdown.changed().await;
@@ -193,7 +193,7 @@ fn main() -> anyhow::Result<()> {
     server.add_service(background_service(
         "discovery-watcher",
         DiscoveryWatcherService {
-            path: cli.workers.clone(),
+            consul_addr: cli.consul.clone(),
             discovery,
         },
     ));

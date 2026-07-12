@@ -1,0 +1,84 @@
+# Example Override: External Network Attachment & Port Forwards
+#
+# Use this template to attach your docker-compose services to an existing external network
+# (e.g., if you are running behind a proxy like Cloudflare Tunnels, Traefik, or Nginx Proxy Manager),
+# and to selectively expose service ports to your host machine.
+#
+# To use:
+# 1. Copy this file: cp docker-compose-network.yaml.template docker-compose-network.yaml
+# 2. Update the network name 'example-network' to match your actual external network name.
+# 3. Ensure your .env file to include this file in the COMPOSE_FILE variable:
+#    COMPOSE_FILE=docker-compose.yaml:docker-compose-network.yaml
+#
+services:
+  logger_gateway:
+    networks:
+      - example-network
+    ports:
+      - "8080:8080"  # Ingest API gateway
+
+  validation_worker:
+    networks:
+      - example-network
+
+  broker:
+    networks:
+      - example-network
+    ports:
+      - "9092:9092"  # Local Kafka client access (if needed)
+
+  fluent-bit:
+    networks:
+      - example-network
+
+  opensearch:
+    networks:
+      - example-network
+
+  opensearch-dashboards:
+    networks:
+      - example-network
+    ports:
+      - "5601:5601"  # OpenSearch dashboards
+
+  kafka-ui:
+    networks:
+      - example-network
+    ports:
+      - "8081:8080"  # Kafka UI (mapped to 8081 to avoid gateway conflict)
+
+  consul:
+    networks:
+      - example-network
+    ports:
+      - "8500:8500"  # Consul UI and HTTP API
+
+  # ── Monitoring stack ──────────────────────────────────────────────────────────
+
+  prometheus:
+    networks:
+      - example-network
+    ports:
+      - "9090:9090"  # Prometheus UI
+
+  grafana:
+    networks:
+      - example-network
+    ports:
+      - "3000:3000"  # Grafana UI
+
+  kafka-exporter:
+    networks:
+      - example-network
+
+  opensearch-exporter:
+    networks:
+      - example-network
+
+  consul-exporter:
+    networks:
+      - example-network
+
+networks:
+  example-network:
+    external: true

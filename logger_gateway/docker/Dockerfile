@@ -12,9 +12,9 @@ COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
 # Build for release with BuildKit cache mounts
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/usr/src/logger_gateway/target \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=gateway_registry \
+    --mount=type=cache,target=/usr/local/cargo/git,id=gateway_git \
+    --mount=type=cache,target=/usr/src/logger_gateway/target,id=gateway_target \
     cargo build --release && \
     cp target/release/logger_gateway /usr/local/bin/logger_gateway
 

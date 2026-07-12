@@ -22,6 +22,8 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // ── Auth ──────────────────────────────────────────────────────────────
         // Hardware attestation + JWT minting. Proxied here by Pingora.
         .route("/auth/exchange", post(auth_exchange_handler))
+        // ── Health Check ──────────────────────────────────────────────────────
+        .route("/health", axum::routing::get(|| async { axum::http::StatusCode::OK }))
         // ── Log ingestion ─────────────────────────────────────────────────────
         // Clients post raw ServerLog JSON; x-tenant-id/x-app-id injected by gateway.
         .route("/ingest", post(ingest_handler))

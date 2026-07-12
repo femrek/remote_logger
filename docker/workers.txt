@@ -1,2 +1,0 @@
-validation_worker_1:8000
-validation_worker_2:8000

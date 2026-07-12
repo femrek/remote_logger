@@ -2,22 +2,23 @@ services:
   logger_gateway:
     image: ghcr.io/femrek/logger_gateway:latest
     container_name: logger_gateway
+    hostname: logger_gateway
     volumes:
-      - ./workers.txt:/docker/workers.txt:ro
       - ./gateway.yaml:/app/config/gateway.yaml:ro
     environment:
-      - WORKERS_FILE=/docker/workers.txt
+      - CONSUL_HTTP_ADDR=http://consul:8500
       - RUST_LOG=${RUST_LOG:-info,logger_gateway=debug}
       - GATEWAY_JWT_SECRET=${GATEWAY_JWT_SECRET}
     networks:
       - logger_network
     depends_on:
-      - validation_worker_1
-      - validation_worker_2
+      - validation_worker
+      - consul
 
-  validation_worker_1:
+  validation_worker:
     image: ghcr.io/femrek/validation_worker:latest
-    container_name: logger_validation_worker_1
+    deploy:
+      replicas: 2
     volumes:
       - ./channels.yaml:/app/config/channels.yaml:ro
     environment:
@@ -32,36 +33,19 @@ services:
       - WORKER_CONFIG=${WORKER_CONFIG:-/app/config/channels.yaml}
       - RUST_LOG=${RUST_LOG:-info,validation_worker=debug}
       - METRICS_PORT=9091
+      - CONSUL_HTTP_ADDR=http://consul:8500
+      - ADVERTISED_IP=auto
+      - NODE_ID=auto
     networks:
       - logger_network
     depends_on:
       - broker
-
-  validation_worker_2:
-    image: ghcr.io/femrek/validation_worker:latest
-    container_name: logger_validation_worker_2
-    volumes:
-      - ./channels.yaml:/app/config/channels.yaml:ro
-    environment:
-      - KAFKA_BROKERS=${KAFKA_BROKERS:-broker:9094}
-      - PORT=${PORT:-8000}
-      - KAFKA_TOPIC=${KAFKA_TOPIC:-mobile-logs}
-      - KAFKA_METADATA_TOPIC=${KAFKA_METADATA_TOPIC:-device-metadata}
-      - GATEWAY_JWT_SECRET=${GATEWAY_JWT_SECRET}
-      - ACCESS_JWT_TTL_SECONDS=${ACCESS_JWT_TTL_SECONDS:-900}
-      - REFRESH_JWT_TTL_SECONDS=${REFRESH_JWT_TTL_SECONDS:-604800}
-      - JWT_ISSUER=${JWT_ISSUER:-logger-gateway}
-      - WORKER_CONFIG=${WORKER_CONFIG:-/app/config/channels.yaml}
-      - RUST_LOG=${RUST_LOG:-info,validation_worker=debug}
-      - METRICS_PORT=9091
-    networks:
-      - logger_network
-    depends_on:
-      - broker
+      - consul
 
   broker:
     image: apache/kafka:4.3.0
     container_name: logger_backend_broker
+    hostname: logger_broker
     environment:
       KAFKA_NODE_ID: 0
       KAFKA_PROCESS_ROLES: controller,broker
@@ -86,6 +70,7 @@ services:
   fluent-bit:
     image: fluent/fluent-bit:latest
     container_name: logger_backend_fluent_bit
+    hostname: logger_fluentbit
     volumes:
       - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
     environment:
@@ -99,6 +84,7 @@ services:
   opensearch:
     image: opensearchproject/opensearch:latest
     container_name: logger_backend_opensearch
+    hostname: logger_opensearch
     environment:
       - discovery.type=single-node
       - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_ADMIN_PASSWORD}
@@ -119,6 +105,7 @@ services:
   opensearch-dashboards:
     image: opensearchproject/opensearch-dashboards:latest
     container_name: logger_backend_opensearch_dashboards
+    hostname: logger_opensearch_dashboard
     environment:
       - 'OPENSEARCH_HOSTS=["http://opensearch:9200"]'
       - OPENSEARCH_USERNAME=admin
@@ -131,6 +118,7 @@ services:
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: logger_backend_kafka_ui
+    hostname: logger_kafka_ui
     depends_on:
       - broker
     environment:
@@ -139,11 +127,20 @@ services:
     networks:
       - logger_network
 
+  consul:
+    image: hashicorp/consul:1.15
+    container_name: logger_backend_consul
+    hostname: logger_consul
+    command: agent -server -ui -node=server-1 -bootstrap-expect=1 -client=0.0.0.0
+    networks:
+      - logger_network
+
   # ── Monitoring stack ──────────────────────────────────────────────────────────
 
   prometheus:
     image: prom/prometheus:v2.52.0
     container_name: logger_backend_prometheus
+    hostname: logger_prometheus
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
@@ -156,14 +153,15 @@ services:
       - logger_network
     depends_on:
       - logger_gateway
-      - validation_worker_1
-      - validation_worker_2
+      - validation_worker
       - kafka-exporter
       - opensearch-exporter
+      - consul-exporter
 
   grafana:
     image: grafana/grafana:11.0.0
     container_name: logger_backend_grafana
+    hostname: logger_grafana
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
@@ -180,6 +178,7 @@ services:
   kafka-exporter:
     image: danielqsj/kafka-exporter:latest
     container_name: logger_backend_kafka_exporter
+    hostname: logger_kafka_exporter
     command:
       - '--kafka.server=broker:9094'
     networks:
@@ -191,6 +190,7 @@ services:
   opensearch-exporter:
     image: quay.io/prometheuscommunity/elasticsearch-exporter:v1.7.0
     container_name: logger_backend_opensearch_exporter
+    hostname: logger_exporter
     command:
       - '--es.uri=http://admin:${OPENSEARCH_ADMIN_PASSWORD}@opensearch:9200'
       - '--es.all'
@@ -200,6 +200,17 @@ services:
     depends_on:
       opensearch:
         condition: service_healthy
+
+  consul-exporter:
+    image: prom/consul-exporter:latest
+    container_name: logger_backend_consul_exporter
+    hostname: logger_consul_exporter
+    command:
+      - '--consul.server=consul:8500'
+    networks:
+      - logger_network
+    depends_on:
+      - consul
 
 networks:
   logger_network:
