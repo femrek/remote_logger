@@ -1,7 +1,6 @@
 services:
   logger_gateway:
     image: ghcr.io/femrek/logger_gateway:latest
-    container_name: logger_gateway
     hostname: logger_gateway
     volumes:
       - ./gateway.yaml:/app/config/gateway.yaml:ro
@@ -44,7 +43,6 @@ services:
 
   broker:
     image: apache/kafka:4.3.0
-    container_name: logger_backend_broker
     hostname: logger_broker
     environment:
       KAFKA_NODE_ID: 0
@@ -63,7 +61,6 @@ services:
 
   fluent-bit:
     image: fluent/fluent-bit:latest
-    container_name: logger_backend_fluent_bit
     hostname: logger_fluentbit
     volumes:
       - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
@@ -77,7 +74,6 @@ services:
 
   opensearch:
     image: opensearchproject/opensearch:latest
-    container_name: logger_backend_opensearch
     hostname: logger_opensearch
     environment:
       - discovery.type=single-node
@@ -92,7 +88,6 @@ services:
 
   opensearch-dashboards:
     image: opensearchproject/opensearch-dashboards:latest
-    container_name: logger_backend_opensearch_dashboards
     hostname: logger_opensearch_dashboard
     environment:
       - 'OPENSEARCH_HOSTS=["http://opensearch:9200"]'
@@ -105,7 +100,6 @@ services:
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
-    container_name: logger_backend_kafka_ui
     hostname: logger_kafka_ui
     depends_on:
       - broker
@@ -117,7 +111,6 @@ services:
 
   consul:
     image: hashicorp/consul:1.15
-    container_name: logger_backend_consul
     hostname: logger_consul
     command: agent -server -ui -node=server-1 -bootstrap-expect=1 -client=0.0.0.0
     networks:
@@ -127,7 +120,6 @@ services:
 
   prometheus:
     image: prom/prometheus:v2.52.0
-    container_name: logger_backend_prometheus
     hostname: logger_prometheus
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -148,7 +140,6 @@ services:
 
   grafana:
     image: grafana/grafana:11.0.0
-    container_name: logger_backend_grafana
     hostname: logger_grafana
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -165,7 +156,6 @@ services:
 
   kafka-exporter:
     image: danielqsj/kafka-exporter:latest
-    container_name: logger_backend_kafka_exporter
     hostname: logger_kafka_exporter
     command:
       - '--kafka.server=broker:9094'
@@ -177,7 +167,6 @@ services:
 
   opensearch-exporter:
     image: quay.io/prometheuscommunity/elasticsearch-exporter:v1.7.0
-    container_name: logger_backend_opensearch_exporter
     hostname: logger_exporter
     command:
       - '--es.uri=http://admin:${OPENSEARCH_ADMIN_PASSWORD}@opensearch:9200'
@@ -191,7 +180,6 @@ services:
 
   consul-exporter:
     image: prom/consul-exporter:latest
-    container_name: logger_backend_consul_exporter
     hostname: logger_consul_exporter
     command:
       - '--consul.server=consul:8500'
