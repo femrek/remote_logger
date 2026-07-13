@@ -22,7 +22,7 @@ pipeline {
                 dockerfile {
                     filename 'Dockerfile.ci'
                     // Run as root inside the container to guarantee permissions to access /var/run/docker.sock
-                    args '-u root -v /var/run/docker.sock:/var/run/docker.sock'
+                    args '-u root -v /var/run/docker.sock:/var/run/docker.sock --network host'
                 }
             }
             environment {
