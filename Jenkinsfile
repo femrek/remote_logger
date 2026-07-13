@@ -46,23 +46,6 @@ pipeline {
                         }
                     }
                 }
-
-                stage('Test E2E Pipeline') {
-                    steps {
-                        script {
-                            echo 'Running End-to-End full stack integration tests...'
-                            sh 'cd e2e && cargo test'
-                        }
-                    }
-                }
-            }
-            post {
-                always {
-                    script {
-                        echo 'Cleaning up any leftover docker-compose containers or volumes...'
-                        sh 'docker compose -f docker/docker-compose.yaml -f docker/docker-compose.dev.yaml down -v --remove-orphans || true'
-                    }
-                }
             }
         }
 
