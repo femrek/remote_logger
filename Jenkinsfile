@@ -10,6 +10,10 @@ pipeline {
         
         // Enable Docker BuildKit for advanced Dockerfile features like --mount
         DOCKER_BUILDKIT = '1'
+
+        // Suppress docker-compose warnings during validation and teardown
+        OPENSEARCH_ADMIN_PASSWORD = 'StrongPassword123!'
+        GATEWAY_JWT_SECRET = 'ci_default_secret_for_e2e_testing_32_chars_long'
     }
 
     stages {
@@ -47,9 +51,7 @@ pipeline {
                     steps {
                         script {
                             echo 'Running End-to-End full stack integration tests...'
-                            withEnv(['GATEWAY_JWT_SECRET=ci_default_secret_for_e2e_testing_32_chars_long']) {
-                                sh 'cd e2e && cargo test'
-                            }
+                            sh 'cd e2e && cargo test'
                         }
                     }
                 }
