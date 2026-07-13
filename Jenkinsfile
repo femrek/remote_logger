@@ -10,17 +10,13 @@ pipeline {
         
         // Enable Docker BuildKit for advanced Dockerfile features like --mount
         DOCKER_BUILDKIT = '1'
-
-        // Suppress docker-compose warnings during validation and teardown
-        OPENSEARCH_ADMIN_PASSWORD = 'StrongPassword123!'
-        GATEWAY_JWT_SECRET = 'ci_default_secret_for_e2e_testing_32_chars_long'
     }
 
     stages {
         stage('CI Pipeline') {
             agent {
-                dockerfile {
-                    filename 'Dockerfile.ci'
+                docker {
+                    image 'rust:bookworm'
                     // Run as root inside the container to guarantee permissions to access /var/run/docker.sock
                     args '-u root -v /var/run/docker.sock:/var/run/docker.sock --network host'
                 }
@@ -29,6 +25,15 @@ pipeline {
                 CARGO_HOME = "${WORKSPACE}/.cargo"
             }
             stages {
+                stage('Setup') {
+                    steps {
+                        script {
+                            echo 'Installing cmake for rdkafka-sys build...'
+                            sh 'apt-get update && apt-get install -y cmake'
+                        }
+                    }
+                }
+
                 stage('Test logger_gateway') {
                     steps {
                         script {
