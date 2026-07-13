@@ -15,31 +15,16 @@ pipeline {
     stages {
         stage('CI Pipeline') {
             agent {
-                docker {
-                    image 'rust:1.82-bookworm'
-                    args '-v /var/run/docker.sock:/var/run/docker.sock'
+                dockerfile {
+                    filename 'Dockerfile.ci'
+                    // Run as root inside the container to guarantee permissions to access /var/run/docker.sock
+                    args '-u root -v /var/run/docker.sock:/var/run/docker.sock'
                 }
             }
             environment {
                 CARGO_HOME = "${WORKSPACE}/.cargo"
             }
             stages {
-                stage('Setup Dependencies') {
-                    steps {
-                        script {
-                            echo 'Installing build and runtime dependencies (cmake, docker-cli, docker-compose-plugin)...'
-                            sh '''
-                                apt-get update && apt-get install -y cmake lsb-release curl gpg
-                                install -m 0755 -d /etc/apt/keyrings
-                                curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-                                chmod a+r /etc/apt/keyrings/docker.gpg
-                                echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-                                apt-get update && apt-get install -y docker-ce-cli docker-compose-plugin
-                            '''
-                        }
-                    }
-                }
-
                 stage('Test logger_gateway') {
                     steps {
                         script {
