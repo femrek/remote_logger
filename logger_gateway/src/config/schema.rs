@@ -107,15 +107,6 @@ pub struct TlsConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct JwtConfig {
-    /// Inline public key. **Development only** — prefer `public_key_env`.
-    #[serde(default)]
-    pub public_key: Option<String>,
-
-    /// Name of the environment variable that holds the public key.
-    /// Takes priority over `public_key` when both are set.
-    #[serde(default)]
-    pub public_key_env: Option<String>,
-
     /// Value of the `iss` (issuer) claim. Default: `"logger-gateway"`.
     #[serde(default = "default_issuer")]
     pub issuer: String,
@@ -129,8 +120,6 @@ pub struct JwtConfig {
 impl Default for JwtConfig {
     fn default() -> Self {
         Self {
-            public_key: None,
-            public_key_env: Some("GATEWAY_PUBLIC_KEY".to_string()),
             issuer: default_issuer(),
             ttl_seconds: default_ttl_seconds(),
         }
@@ -146,29 +135,17 @@ fn default_ttl_seconds() -> u64 {
 }
 
 impl JwtConfig {
-    /// Resolve the public key, preferring the env-var form over the inline value.
+    /// Resolve the public key from the hardcoded environment variable `GATEWAY_PUBLIC_KEY`.
     ///
     /// # Errors
-    /// Returns an error if neither `public_key` nor `public_key_env` is configured, or
-    /// if the named environment variable is not set at runtime.
+    /// Returns an error if the environment variable is not set at runtime.
     pub fn resolved_public_key(&self) -> anyhow::Result<String> {
-        if let Some(env_name) = &self.public_key_env {
-            std::env::var(env_name).map_err(|_| {
-                anyhow::anyhow!(
-                    "JWT public key env var '{}' is not set. \
-                     Set it with: export {}=<public_key>",
-                    env_name,
-                    env_name
-                )
-            })
-        } else if let Some(public_key) = &self.public_key {
-            Ok(public_key.clone())
-        } else {
-            Err(anyhow::anyhow!(
-                "No JWT public key configured. \
-                 Add `jwt.public_key` (dev) or `jwt.public_key_env` (production) to Consul KV key gateway/config/global"
-            ))
-        }
+        std::env::var("GATEWAY_PUBLIC_KEY").map_err(|_| {
+            anyhow::anyhow!(
+                "JWT public key env var 'GATEWAY_PUBLIC_KEY' is not set. \
+                 Set it with: export GATEWAY_PUBLIC_KEY=<public_key>"
+            )
+        })
     }
 }
 

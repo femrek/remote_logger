@@ -27,12 +27,9 @@ const channelsList  = $('channels-list');
 const noChannels    = $('no-channels');
 const toast         = $('toast');
 
-// Global form fields
 const gIssuer    = $('g-issuer');
 const gTtl       = $('g-ttl');
-const gKeyEnv    = $('g-key-env');
 const gMaxBody   = $('g-max-body');
-const gPublicKey = $('g-public-key');
 
 /* ── Toast ──────────────────────────────────────────────────────────────── */
 let toastTimer;
@@ -146,9 +143,7 @@ function applyConfig(data) {
   const g = data.global;
   gIssuer.value    = g.jwt.issuer     || '';
   gTtl.value       = g.jwt.ttl_seconds || 900;
-  gKeyEnv.value    = g.jwt.public_key_env || '';
   gMaxBody.value   = g.max_body_bytes  || 2097152;
-  gPublicKey.value = g.jwt.public_key  || '';
 
   consulIndex.textContent = `idx: ${data.global_modify_index}`;
 
@@ -244,7 +239,7 @@ function updateEmptyState() {
 }
 
 /* ── Dirty tracking ──────────────────────────────────────────────────────── */
-[gIssuer, gTtl, gKeyEnv, gMaxBody, gPublicKey].forEach(el =>
+[gIssuer, gTtl, gMaxBody].forEach(el =>
   el.addEventListener('input', markDirty)
 );
 
@@ -307,8 +302,6 @@ function buildSavePayload() {
       jwt: {
         issuer:         gIssuer.value.trim()    || 'logger-gateway',
         ttl_seconds:    parseInt(gTtl.value)    || 900,
-        public_key_env: gKeyEnv.value.trim()    || null,
-        public_key:     gPublicKey.value.trim() || null,
       },
       max_body_bytes: parseInt(gMaxBody.value) || 2097152,
     },

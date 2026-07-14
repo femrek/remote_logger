@@ -131,10 +131,12 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
 -----END PUBLIC KEY-----";
 
     fn test_cfg() -> JwtConfig {
+        unsafe {
+            std::env::set_var("GATEWAY_PUBLIC_KEY", TEST_PUBLIC_KEY_PEM);
+        }
         JwtConfig {
-            public_key: Some(TEST_PUBLIC_KEY_PEM.to_owned()),
-            public_key_env: None,
-            issuer: "logger-gateway".to_owned(),
+            issuer: "logger-gateway".to_string(),
+            ttl_seconds: 900,
         }
     }
 
@@ -190,14 +192,14 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
     fn wrong_secret_is_rejected() {
         let cfg = test_cfg();
         let token = make_test_token(&cfg, "access");
-        let bad_cfg = JwtConfig {
-            public_key: Some("-----BEGIN PUBLIC KEY-----\n\
+        unsafe {
+            std::env::set_var("GATEWAY_PUBLIC_KEY", "-----BEGIN PUBLIC KEY-----\n\
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE14cM3v8/JkZ2oFpx7WqL/kX6Z7S9\n\
 u8m2g9b/qszcku8bm+8JJ8wNLKIOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqn\n\
------END PUBLIC KEY-----".to_owned()),
-            ..test_cfg()
-        };
-        assert!(validate_jwt(&token, &bad_cfg).is_err());
+-----END PUBLIC KEY-----");
+        }
+        
+        assert!(validate_jwt(&token, &cfg).is_err());
     }
 
     #[test]

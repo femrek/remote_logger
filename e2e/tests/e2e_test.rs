@@ -178,6 +178,9 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     let jwt_public_key = std::env::var("GATEWAY_PUBLIC_KEY")
         .unwrap_or_else(|_| TEST_PUBLIC_KEY_PEM.to_string());
 
+    let admin_token = std::env::var("GATEWAY_ADMIN_TOKEN")
+        .unwrap_or_else(|_| "admin-secret-token".to_string());
+
     let gateway_url = std::env::var("GATEWAY_URL")
         .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
@@ -187,7 +190,7 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     use base64::Engine as _;
     let opensearch_auth = format!(
         "Basic {}",
-        base64::engine::general_purpose::STANDARD.encode("admin:StrongPassword123!")
+        base64::engine::general_purpose::STANDARD.encode("admin:Ax2ZlVoT4nH2FANX")
     );
 
     let channel = std::env::var("LOG_CHANNEL")
@@ -235,7 +238,7 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
             ("GATEWAY_PRIVATE_KEY", &jwt_private_key),
             ("GATEWAY_PUBLIC_KEY", &jwt_public_key),
             ("GATEWAY_ADMIN_TOKEN", &admin_token),
-            ("OPENSEARCH_ADMIN_PASSWORD", "StrongPassword123!"),
+            ("OPENSEARCH_ADMIN_PASSWORD", "Ax2ZlVoT4nH2FANX"),
         ],
     );
 
@@ -291,18 +294,23 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     // Poll the root endpoint until it returns a successful status.
     let opensearch_api_start = Instant::now();
     let mut opensearch_ready = false;
+    let mut last_err_msg = String::new();
     while opensearch_api_start.elapsed() < Duration::from_secs(300) {
-        if ureq::get(&opensearch_url)
+        match ureq::get(&opensearch_url)
             .set("Authorization", &opensearch_auth)
             .call()
-            .is_ok()
         {
-            opensearch_ready = true;
-            break;
+            Ok(_) => {
+                opensearch_ready = true;
+                break;
+            }
+            Err(e) => {
+                last_err_msg = format!("{:?}", e);
+            }
         }
         std::thread::sleep(Duration::from_secs(2));
     }
-    assert!(opensearch_ready, "OpenSearch HTTP API did not become ready in time");
+    assert!(opensearch_ready, "OpenSearch HTTP API did not become ready in time. Last error: {}", last_err_msg);
 
     // ── 4. Obtain a gateway JWT via /auth/exchange ────────────────────────────
     //

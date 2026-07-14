@@ -38,10 +38,6 @@ pub struct AppState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JwtConfig {
-    #[serde(default)]
-    pub public_key: Option<String>,
-    #[serde(default)]
-    pub public_key_env: Option<String>,
     #[serde(default = "default_issuer")]
     pub issuer: String,
     #[serde(default = "default_ttl_seconds")]
@@ -201,8 +197,6 @@ async fn get_config(
 
     let global = global.unwrap_or_else(|| GlobalConfig {
         jwt: JwtConfig {
-            public_key: None,
-            public_key_env: Some("GATEWAY_PUBLIC_KEY".to_string()),
             issuer: default_issuer(),
             ttl_seconds: default_ttl_seconds(),
         },

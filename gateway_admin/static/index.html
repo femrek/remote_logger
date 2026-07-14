@@ -96,16 +96,8 @@
             <input id="g-ttl" type="number" min="60" max="86400" placeholder="900" />
           </div>
           <div class="field-group">
-            <label for="g-key-env">Public Key Env Var <span class="hint">preferred</span></label>
-            <input id="g-key-env" type="text" placeholder="GATEWAY_PUBLIC_KEY" class="mono" />
-          </div>
-          <div class="field-group">
             <label for="g-max-body">Max Body Bytes <span class="hint">request size limit</span></label>
             <input id="g-max-body" type="number" min="1024" placeholder="2097152" />
-          </div>
-          <div class="field-group col-span-2">
-            <label for="g-public-key">Inline Public Key <span class="hint">dev only — use env var in production</span></label>
-            <textarea id="g-public-key" rows="4" placeholder="-----BEGIN PUBLIC KEY-----&#10;...&#10;-----END PUBLIC KEY-----" class="mono"></textarea>
           </div>
         </div>
       </div>
