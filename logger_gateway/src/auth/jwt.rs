@@ -118,6 +118,11 @@ fn _hs256_header() -> Header {
 mod tests {
     use super::*;
     use crate::config::JwtConfig;
+    use lazy_static::lazy_static;
+
+    lazy_static! {
+        static ref TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    }
 
     const TEST_PRIVATE_KEY_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/xzSZ8vFrWHzZjcl\n\
@@ -168,6 +173,7 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
 
     #[test]
     fn access_token_validates_ok() {
+        let _guard = TEST_LOCK.lock().unwrap();
         let cfg = test_cfg();
         let token = make_test_token(&cfg, "access");
         let claims = validate_jwt(&token, &cfg).unwrap();
@@ -180,6 +186,7 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
 
     #[test]
     fn refresh_token_is_rejected() {
+        let _guard = TEST_LOCK.lock().unwrap();
         let cfg = test_cfg();
         let token = make_test_token(&cfg, "refresh");
         assert!(matches!(
@@ -190,6 +197,7 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
 
     #[test]
     fn wrong_secret_is_rejected() {
+        let _guard = TEST_LOCK.lock().unwrap();
         let cfg = test_cfg();
         let token = make_test_token(&cfg, "access");
         unsafe {
