@@ -68,14 +68,14 @@ pub struct TlsConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct JwtConfig {
-    /// Inline signing secret. **Development only** — prefer `secret_env`.
+    /// Inline public key. **Development only** — prefer `public_key_env`.
     #[serde(default)]
-    pub secret: Option<String>,
+    pub public_key: Option<String>,
 
-    /// Name of the environment variable that holds the signing secret.
-    /// Takes priority over `secret` when both are set.
+    /// Name of the environment variable that holds the public key.
+    /// Takes priority over `public_key` when both are set.
     #[serde(default)]
-    pub secret_env: Option<String>,
+    pub public_key_env: Option<String>,
 
     /// Value of the `iss` (issuer) claim. Default: `"logger-gateway"`.
     #[serde(default = "default_issuer")]
@@ -87,27 +87,27 @@ fn default_issuer() -> String {
 }
 
 impl JwtConfig {
-    /// Resolve the signing secret, preferring the env-var form over the inline value.
+    /// Resolve the public key, preferring the env-var form over the inline value.
     ///
     /// # Errors
-    /// Returns an error if neither `secret` nor `secret_env` is configured, or
+    /// Returns an error if neither `public_key` nor `public_key_env` is configured, or
     /// if the named environment variable is not set at runtime.
-    pub fn resolved_secret(&self) -> anyhow::Result<String> {
-        if let Some(env_name) = &self.secret_env {
+    pub fn resolved_public_key(&self) -> anyhow::Result<String> {
+        if let Some(env_name) = &self.public_key_env {
             std::env::var(env_name).map_err(|_| {
                 anyhow::anyhow!(
-                    "JWT secret env var '{}' is not set. \
-                     Set it with: export {}=<secret>",
+                    "JWT public key env var '{}' is not set. \
+                     Set it with: export {}=<public_key>",
                     env_name,
                     env_name
                 )
             })
-        } else if let Some(secret) = &self.secret {
-            Ok(secret.clone())
+        } else if let Some(public_key) = &self.public_key {
+            Ok(public_key.clone())
         } else {
             Err(anyhow::anyhow!(
-                "No JWT secret configured. \
-                 Add `jwt.secret` (dev) or `jwt.secret_env` (production) to gateway.yaml"
+                "No JWT public key configured. \
+                 Add `jwt.public_key` (dev) or `jwt.public_key_env` (production) to gateway.yaml"
             ))
         }
     }

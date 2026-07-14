@@ -47,8 +47,8 @@ async fn main() {
     let kafka_brokers   = env_or("KAFKA_BROKERS",           "localhost:9092");
     let kafka_topic     = env_or("KAFKA_TOPIC",             "mobile-logs");
     let metadata_topic  = env_or("KAFKA_METADATA_TOPIC",    "device-metadata");
-    let jwt_secret      = std::env::var("GATEWAY_JWT_SECRET")
-        .expect("GATEWAY_JWT_SECRET env var must be set");
+    let jwt_private_key = std::env::var("GATEWAY_PRIVATE_KEY")
+        .expect("GATEWAY_PRIVATE_KEY env var must be set");
     let access_ttl      = env_u64("ACCESS_JWT_TTL_SECONDS",  900);
     let refresh_ttl     = env_u64("REFRESH_JWT_TTL_SECONDS", 604_800);
     let jwt_issuer      = env_or("JWT_ISSUER",              "logger-gateway");
@@ -112,7 +112,7 @@ async fn main() {
         metadata_topic,
         verifier,
         worker_config,
-        jwt_secret,
+        jwt_private_key,
         access_ttl_seconds: access_ttl,
         refresh_ttl_seconds: refresh_ttl,
         jwt_issuer,

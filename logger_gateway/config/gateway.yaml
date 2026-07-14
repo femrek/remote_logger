@@ -13,8 +13,8 @@ gateway:
   # The gateway ONLY validates JWTs on ingest routes — it never mints them.
   # Minting lives in the Axum validation workers (see channels.yaml there).
   jwt:
-    # secret:      "change-me-in-development"   ← inline, dev-only
-    secret_env:  "GATEWAY_JWT_SECRET"          # overrides `secret` when set
+    # public_key:  "..."
+    public_key_env:  "GATEWAY_PUBLIC_KEY"          # overrides `public_key` when set
     ttl_seconds: 900                           # 15-minute access window (reference only)
     issuer:      "logger-gateway"
 

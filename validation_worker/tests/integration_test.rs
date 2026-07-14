@@ -30,6 +30,12 @@ use validation_worker::{
 };
 use arc_swap::ArcSwap;
 
+const TEST_PRIVATE_KEY_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/xzSZ8vFrWHzZjcl\n\
+zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
+5j5Vg2CEiQw2ZjYa1Wc4oCmcnqn6ruhdwE6qciYSDARvzdwN0w2nW8iq\n\
+-----END PRIVATE KEY-----";
+
 // ── Helper ────────────────────────────────────────────────────────────────────
 
 /// The external client port exposed by the Confluent Kafka testcontainer module.
@@ -118,7 +124,7 @@ async fn integration_valid_payload_returns_200_and_reaches_kafka() {
         metadata_topic: "device-metadata".to_string(),
         verifier: Arc::new(NoopVerifier),
         worker_config: Arc::new(ArcSwap::from_pointee(WorkerConfig { channels: vec![] })),
-        jwt_secret: "test_secret".to_string(),
+        jwt_private_key: TEST_PRIVATE_KEY_PEM.to_string(),
         access_ttl_seconds: 900,
         refresh_ttl_seconds: 604800,
         jwt_issuer: "test".to_string(),
@@ -276,7 +282,7 @@ async fn integration_invalid_payloads_return_400() {
         metadata_topic: "device-metadata".to_string(),
         verifier: Arc::new(NoopVerifier),
         worker_config: Arc::new(ArcSwap::from_pointee(WorkerConfig { channels: vec![] })),
-        jwt_secret: "test_secret".to_string(),
+        jwt_private_key: TEST_PRIVATE_KEY_PEM.to_string(),
         access_ttl_seconds: 900,
         refresh_ttl_seconds: 604800,
         jwt_issuer: "test".to_string(),

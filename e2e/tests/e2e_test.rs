@@ -34,6 +34,17 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+const TEST_PRIVATE_KEY_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/xzSZ8vFrWHzZjcl\n\
+zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
+5j5Vg2CEiQw2ZjYa1Wc4oCmcnqn6ruhdwE6qciYSDARvzdwN0w2nW8iq\n\
+-----END PRIVATE KEY-----";
+
+const TEST_PUBLIC_KEY_PEM: &str = "-----BEGIN PUBLIC KEY-----\n\
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElCR0ys2PS/qszcku8bm+8JJ8wNLK\n\
+IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
+-----END PUBLIC KEY-----";
+
 // ─── DockerComposeHandle — RAII stack lifecycle ────────────────────────────────
 
 /// Brings the compose stack up on construction and tears it down (volumes
@@ -74,6 +85,17 @@ impl DockerComposeHandle {
 
 impl Drop for DockerComposeHandle {
     fn drop(&mut self) {
+        eprintln!("[e2e] Fetching docker compose logs …");
+        let mut logs_cmd = Command::new("docker");
+        logs_cmd.arg("compose");
+        for file in &self.compose_files {
+            logs_cmd.args(["-f", file]);
+        }
+        logs_cmd.arg("logs");
+        if let Ok(mut child) = logs_cmd.spawn() {
+            let _ = child.wait();
+        }
+
         eprintln!("[e2e] docker compose down -v (teardown) …");
         let mut cmd = Command::new("docker");
         cmd.arg("compose");
@@ -151,8 +173,10 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
         return;
     }
 
-    let jwt_secret = std::env::var("GATEWAY_JWT_SECRET")
-        .expect("GATEWAY_JWT_SECRET must be set in env or e2e/.env.test");
+    let jwt_private_key = std::env::var("GATEWAY_PRIVATE_KEY")
+        .unwrap_or_else(|_| TEST_PRIVATE_KEY_PEM.to_string());
+    let jwt_public_key = std::env::var("GATEWAY_PUBLIC_KEY")
+        .unwrap_or_else(|_| TEST_PUBLIC_KEY_PEM.to_string());
 
     let gateway_url = std::env::var("GATEWAY_URL")
         .unwrap_or_else(|_| "http://localhost:8080".to_string());
@@ -208,7 +232,8 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     let _stack = DockerComposeHandle::up(
         &compose_files,
         &[
-            ("GATEWAY_JWT_SECRET", &jwt_secret),
+            ("GATEWAY_PRIVATE_KEY", &jwt_private_key),
+            ("GATEWAY_PUBLIC_KEY", &jwt_public_key),
             ("OPENSEARCH_ADMIN_PASSWORD", "StrongPassword123!"),
         ],
     );
@@ -304,11 +329,18 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
         "deviceUUID": "e2e-test-device-0001"
     });
 
-    let log_response = ureq::post(&format!("{gateway_url}/v1/logs/{channel}"))
+    let log_response = match ureq::post(&format!("{gateway_url}/v1/logs/{channel}"))
         .set("Content-Type", "application/json")
         .set("Authorization", &format!("Bearer {jwt}"))
         .send_json(log_body)
-        .expect("Log POST HTTP request failed");
+    {
+        Ok(resp) => resp,
+        Err(ureq::Error::Status(code, resp)) => {
+            let body = resp.into_string().unwrap_or_default();
+            panic!("Log POST HTTP request failed with code {code}. Response body: {body}");
+        }
+        Err(e) => panic!("Log POST HTTP request failed: {e:?}"),
+    };
 
     assert_eq!(
         log_response.status(),

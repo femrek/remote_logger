@@ -258,6 +258,12 @@ mod tests {
                 require_apple_key_hash: false,
             }],
         }));
+        const TEST_PRIVATE_KEY_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/xzSZ8vFrWHzZjcl\n\
+zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
+5j5Vg2CEiQw2ZjYa1Wc4oCmcnqn6ruhdwE6qciYSDARvzdwN0w2nW8iq\n\
+-----END PRIVATE KEY-----";
+
         let state = Arc::new(AppState {
             sink: Arc::new(NoopSink),
             kafka_topic: "test-topic".to_string(),
@@ -267,7 +273,7 @@ mod tests {
                 ios: Box::new(NoopVerifier),
             }),
             worker_config,
-            jwt_secret: "test-secret".to_string(),
+            jwt_private_key: TEST_PRIVATE_KEY_PEM.to_string(),
             access_ttl_seconds: 900,
             refresh_ttl_seconds: 604_800,
             jwt_issuer: "logger-gateway".to_string(),

@@ -47,8 +47,8 @@ pub struct GatewayClaims {
 pub enum JwtError {
     #[error("JWT validation failed: {0}")]
     Validation(#[from] jsonwebtoken::errors::Error),
-    #[error("Could not resolve JWT secret: {0}")]
-    SecretResolution(String),
+    #[error("Could not resolve JWT public key: {0}")]
+    PublicKeyResolution(String),
     #[error("Token type is not 'access'")]
     WrongTokenType,
 }
@@ -60,7 +60,7 @@ pub enum JwtError {
 /// Validate a `Bearer` JWT from an ingest request and return the decoded claims.
 ///
 /// Checks performed:
-/// - Signature (HS256, with the resolved secret)
+/// - Signature (ES256, with the resolved public key)
 /// - Expiry (`exp`)
 /// - Issuer (`iss` must match `cfg.issuer`)
 /// - Token type must be `"access"`
@@ -69,17 +69,17 @@ pub enum JwtError {
 /// happened once at `/auth/exchange` on the validation worker and is encoded
 /// in the signed token.
 pub fn validate_jwt(token: &str, cfg: &JwtConfig) -> Result<GatewayClaims, JwtError> {
-    let secret = cfg
-        .resolved_secret()
-        .map_err(|e| JwtError::SecretResolution(e.to_string()))?;
+    let public_key = cfg
+        .resolved_public_key()
+        .map_err(|e| JwtError::PublicKeyResolution(e.to_string()))?;
 
-    let mut validation = Validation::new(Algorithm::HS256);
+    let mut validation = Validation::new(Algorithm::ES256);
     validation.set_issuer(&[&cfg.issuer]);
     // exp is validated automatically by the `jsonwebtoken` crate.
 
     let TokenData { claims, .. } = decode::<GatewayClaims>(
         token,
-        &DecodingKey::from_secret(secret.as_bytes()),
+        &DecodingKey::from_ec_pem(public_key.as_bytes())?,
         &validation,
     )?;
 
@@ -119,10 +119,21 @@ mod tests {
     use super::*;
     use crate::config::JwtConfig;
 
+    const TEST_PRIVATE_KEY_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/xzSZ8vFrWHzZjcl\n\
+zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
+5j5Vg2CEiQw2ZjYa1Wc4oCmcnqn6ruhdwE6qciYSDARvzdwN0w2nW8iq\n\
+-----END PRIVATE KEY-----";
+
+    const TEST_PUBLIC_KEY_PEM: &str = "-----BEGIN PUBLIC KEY-----\n\
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElCR0ys2PS/qszcku8bm+8JJ8wNLK\n\
+IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
+-----END PUBLIC KEY-----";
+
     fn test_cfg() -> JwtConfig {
         JwtConfig {
-            secret: Some("test-secret-do-not-use-in-prod".to_owned()),
-            secret_env: None,
+            public_key: Some(TEST_PUBLIC_KEY_PEM.to_owned()),
+            public_key_env: None,
             issuer: "logger-gateway".to_owned(),
         }
     }
@@ -145,11 +156,10 @@ mod tests {
             iat: now,
             iss: cfg.issuer.clone(),
         };
-        let secret = cfg.resolved_secret().unwrap();
         encode(
-            &Header::new(Algorithm::HS256),
+            &Header::new(Algorithm::ES256),
             &claims,
-            &EncodingKey::from_secret(secret.as_bytes()),
+            &EncodingKey::from_ec_pem(TEST_PRIVATE_KEY_PEM.as_bytes()).unwrap(),
         )
         .unwrap()
     }
@@ -181,7 +191,10 @@ mod tests {
         let cfg = test_cfg();
         let token = make_test_token(&cfg, "access");
         let bad_cfg = JwtConfig {
-            secret: Some("wrong-secret".to_owned()),
+            public_key: Some("-----BEGIN PUBLIC KEY-----\n\
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE14cM3v8/JkZ2oFpx7WqL/kX6Z7S9\n\
+u8m2g9b/qszcku8bm+8JJ8wNLKIOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqn\n\
+-----END PUBLIC KEY-----".to_owned()),
             ..test_cfg()
         };
         assert!(validate_jwt(&token, &bad_cfg).is_err());

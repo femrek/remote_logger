@@ -144,7 +144,7 @@ pub async fn auth_exchange_handler(
     };
 
     let jwt_cfg = JwtConfig {
-        secret: &state.jwt_secret,
+        private_key: &state.jwt_private_key,
         access_ttl_seconds: state.access_ttl_seconds,
         refresh_ttl_seconds: state.refresh_ttl_seconds,
         issuer: &state.jwt_issuer,
@@ -275,6 +275,12 @@ mod tests {
         }
     }
 
+    const TEST_PRIVATE_KEY_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/xzSZ8vFrWHzZjcl\n\
+zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
+5j5Vg2CEiQw2ZjYa1Wc4oCmcnqn6ruhdwE6qciYSDARvzdwN0w2nW8iq\n\
+-----END PRIVATE KEY-----";
+
     fn make_state(channels: Vec<WorkerChannelConfig>) -> Arc<AppState> {
         let worker_config = Arc::new(ArcSwap::from_pointee(WorkerConfig { channels }));
         Arc::new(AppState {
@@ -286,7 +292,7 @@ mod tests {
                 ios: Box::new(NoopVerifier),
             }),
             worker_config,
-            jwt_secret: "test-secret".to_string(),
+            jwt_private_key: TEST_PRIVATE_KEY_PEM.to_string(),
             access_ttl_seconds: 900,
             refresh_ttl_seconds: 604_800,
             jwt_issuer: "logger-gateway".to_string(),

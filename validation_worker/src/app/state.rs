@@ -32,9 +32,8 @@ pub struct AppState {
     /// Hot-reloadable worker channel configuration (attestation policy).
     pub worker_config: SharedWorkerConfig,
 
-    /// HS256 signing secret — shared with the Pingora gateway via
-    /// `GATEWAY_JWT_SECRET` env var. Both sides must use the same value.
-    pub jwt_secret: String,
+    /// ECDSA private key in PEM format used for JWT signing.
+    pub jwt_private_key: String,
 
     /// Access token lifetime in seconds (default 900 = 15 min).
     pub access_ttl_seconds: u64,

@@ -24,7 +24,7 @@ use thiserror::Error;
 
 /// JWT configuration resolved from the `AppState` (originally from env vars).
 pub struct JwtConfig<'a> {
-    pub secret: &'a str,
+    pub private_key: &'a str,
     pub access_ttl_seconds: u64,
     pub refresh_ttl_seconds: u64,
     pub issuer: &'a str,
@@ -81,7 +81,7 @@ pub enum JwtError {
 // Minting — access token
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Mint a short-lived HS256 **access** token.
+/// Mint a short-lived ES256 **access** token.
 ///
 /// The gateway's `validate_jwt` checks that `token_type == "access"`, so
 /// refresh tokens are automatically rejected on ingest routes.
@@ -108,10 +108,11 @@ pub fn issue_access_jwt(
         iat: now,
         iss: cfg.issuer.to_owned(),
     };
+    let encoding_key = EncodingKey::from_ec_pem(cfg.private_key.as_bytes())?;
     encode(
-        &Header::new(Algorithm::HS256),
+        &Header::new(Algorithm::ES256),
         &claims,
-        &EncodingKey::from_secret(cfg.secret.as_bytes()),
+        &encoding_key,
     )
     .map_err(JwtError::Encoding)
 }
@@ -120,7 +121,7 @@ pub fn issue_access_jwt(
 // Minting — refresh token
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Mint a long-lived HS256 **refresh** token.
+/// Mint a long-lived ES256 **refresh** token.
 ///
 /// When `apk_hash` is `Some`, the hash is embedded in the JWT claims so any
 /// worker replica can statelessly verify that subsequent refresh requests come
@@ -151,10 +152,11 @@ pub fn issue_refresh_jwt(
         iat: now,
         iss: cfg.issuer.to_owned(),
     };
+    let encoding_key = EncodingKey::from_ec_pem(cfg.private_key.as_bytes())?;
     encode(
-        &Header::new(Algorithm::HS256),
+        &Header::new(Algorithm::ES256),
         &claims,
-        &EncodingKey::from_secret(cfg.secret.as_bytes()),
+        &encoding_key,
     )
     .map_err(JwtError::Encoding)
 }
@@ -175,9 +177,20 @@ mod tests {
     use super::*;
     use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 
+    const TEST_PRIVATE_KEY_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/xzSZ8vFrWHzZjcl\n\
+zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
+5j5Vg2CEiQw2ZjYa1Wc4oCmcnqn6ruhdwE6qciYSDARvzdwN0w2nW8iq\n\
+-----END PRIVATE KEY-----";
+
+    const TEST_PUBLIC_KEY_PEM: &str = "-----BEGIN PUBLIC KEY-----\n\
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElCR0ys2PS/qszcku8bm+8JJ8wNLK\n\
+IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
+-----END PUBLIC KEY-----";
+
     fn test_cfg() -> JwtConfig<'static> {
         JwtConfig {
-            secret: "test-secret-do-not-use-in-prod",
+            private_key: TEST_PRIVATE_KEY_PEM,
             access_ttl_seconds: 900,
             refresh_ttl_seconds: 604_800,
             issuer: "logger-gateway",
@@ -191,11 +204,11 @@ mod tests {
             issue_access_jwt("ch-1", "tenant-1", "android", "app-1", "dev-uuid", "sess-uuid", &cfg)
                 .unwrap();
 
-        let mut v = Validation::new(Algorithm::HS256);
+        let mut v = Validation::new(Algorithm::ES256);
         v.set_issuer(&["logger-gateway"]);
         let data = decode::<WorkerClaims>(
             &token,
-            &DecodingKey::from_secret(cfg.secret.as_bytes()),
+            &DecodingKey::from_ec_pem(TEST_PUBLIC_KEY_PEM.as_bytes()).unwrap(),
             &v,
         )
         .unwrap();
@@ -219,11 +232,11 @@ mod tests {
         )
         .unwrap();
 
-        let mut v = Validation::new(Algorithm::HS256);
+        let mut v = Validation::new(Algorithm::ES256);
         v.set_issuer(&["logger-gateway"]);
         let data = decode::<WorkerClaims>(
             &token,
-            &DecodingKey::from_secret(cfg.secret.as_bytes()),
+            &DecodingKey::from_ec_pem(TEST_PUBLIC_KEY_PEM.as_bytes()).unwrap(),
             &v,
         )
         .unwrap();
@@ -237,11 +250,11 @@ mod tests {
         let token =
             issue_refresh_jwt("ch-1", "t", "android", "a", "d", "s", None, &cfg).unwrap();
 
-        let mut v = Validation::new(Algorithm::HS256);
+        let mut v = Validation::new(Algorithm::ES256);
         v.set_issuer(&["logger-gateway"]);
         let data = decode::<WorkerClaims>(
             &token,
-            &DecodingKey::from_secret(cfg.secret.as_bytes()),
+            &DecodingKey::from_ec_pem(TEST_PUBLIC_KEY_PEM.as_bytes()).unwrap(),
             &v,
         )
         .unwrap();
