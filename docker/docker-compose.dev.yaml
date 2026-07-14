@@ -17,6 +17,20 @@ services:
         - path: ../logger_gateway/Cargo.lock
           action: rebuild
 
+  gateway_admin:
+    ports:
+      - "8082:8082"
+    volumes:
+      - ../gateway_admin:/usr/src/gateway_admin
+    develop:
+      watch:
+        - path: ../gateway_admin/src
+          action: rebuild
+        - path: ../gateway_admin/Cargo.toml
+          action: rebuild
+        - path: ../gateway_admin/Cargo.lock
+          action: rebuild
+
   validation_worker:
     build:
       context: ../validation_worker

@@ -17,6 +17,12 @@ services:
     ports:
       - "8080:8080"  # Ingest API gateway
 
+  gateway_admin:
+    networks:
+      - example-network
+    ports:
+      - "8082:8082"  # Gateway Admin UI/API
+
   validation_worker:
     networks:
       - example-network
