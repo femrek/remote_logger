@@ -175,7 +175,7 @@ impl ProxyHttp for LogGateway {
         Self::CTX: Send + Sync,
     {
         let cfg = self.config.load();
-        ctx.max_body_bytes = cfg.gateway.max_body_bytes;
+        ctx.max_body_bytes = cfg.global.max_body_bytes;
 
         let path = session.req_header().uri.path().to_owned();
 
@@ -216,7 +216,7 @@ impl ProxyHttp for LogGateway {
             }
         };
 
-        match validate_jwt(token, &cfg.gateway.jwt) {
+        match validate_jwt(token, &cfg.global.jwt) {
             Ok(claims) => {
                 JWT_VALIDATIONS_TOTAL
                     .with_label_values(&[&ctx.channel_id, "ok"])

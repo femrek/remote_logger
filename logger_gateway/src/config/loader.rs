@@ -1,9 +1,7 @@
-use super::schema::GatewayConfig;
+use super::schema::{ChannelConfig, GatewayConfig, GlobalConfig};
 use anyhow::Context;
 use arc_swap::ArcSwap;
-use notify::{Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use std::{path::Path, sync::Arc};
-use tokio::sync::mpsc;
+use std::sync::Arc;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -17,94 +15,232 @@ use tokio::sync::mpsc;
 pub type SharedConfig = Arc<ArcSwap<GatewayConfig>>;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Load
+// Consul KV structures
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Parse and validate the YAML config file at `path`.
-pub fn load_config(path: &str) -> anyhow::Result<GatewayConfig> {
-    let raw = std::fs::read_to_string(path)
-        .with_context(|| format!("reading config file '{path}'"))?;
-    serde_yaml::from_str(&raw)
-        .with_context(|| format!("parsing YAML in '{path}'"))
+/// A single Consul KV entry as returned by the `/v1/kv/?recurse` endpoint.
+#[derive(serde::Deserialize, Debug)]
+#[allow(dead_code)]
+struct ConsulKvEntry {
+    #[serde(rename = "Key")]
+    key: String,
+    /// Base64-encoded value.
+    #[serde(rename = "Value")]
+    value: Option<String>,
+    #[serde(rename = "ModifyIndex")]
+    modify_index: u64,
 }
 
-/// Load the initial config and wrap it in a `SharedConfig`.
+// ─────────────────────────────────────────────────────────────────────────────
+// Parse
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Parse the raw Consul KV list response into a [`GatewayConfig`].
+///
+/// Expected keys:
+/// - `gateway/config/global`          → JSON [`GlobalConfig`]
+/// - `gateway/config/channels/<id>`   → JSON [`ChannelConfig`]
+///
+/// If the prefix is entirely absent from Consul, a default config with an
+/// empty channels list is returned and a warning is logged. The gateway
+/// **never writes** to Consul KV — seeding the initial config is the
+/// responsibility of `gateway_admin`.
+fn parse_kv_entries(entries: Vec<ConsulKvEntry>) -> anyhow::Result<GatewayConfig> {
+    let mut global: Option<GlobalConfig> = None;
+    let mut channels: Vec<ChannelConfig> = Vec::new();
+
+    for entry in entries {
+        let raw_value = match &entry.value {
+            Some(v) => v.clone(),
+            None => continue,
+        };
+
+        // Consul stores values as base64 — decode first.
+        let decoded = base64_decode(&raw_value)
+            .with_context(|| format!("base64-decoding Consul KV value for key '{}'", entry.key))?;
+
+        if entry.key == "gateway/config/global" {
+            global = Some(
+                serde_json::from_slice(&decoded)
+                    .with_context(|| "parsing gateway/config/global as JSON GlobalConfig")?,
+            );
+        } else if entry.key.starts_with("gateway/config/channels/") {
+            let ch: ChannelConfig = serde_json::from_slice(&decoded).with_context(|| {
+                format!("parsing '{}' as JSON ChannelConfig", entry.key)
+            })?;
+            channels.push(ch);
+        }
+    }
+
+    let global = match global {
+        Some(g) => g,
+        None => {
+            tracing::warn!(
+                "Consul KV key 'gateway/config/global' is missing. \
+                 Using built-in defaults. Start gateway_admin to seed the config."
+            );
+            GlobalConfig {
+                jwt: Default::default(),
+                max_body_bytes: 2 * 1024 * 1024,
+            }
+        }
+    };
+
+    if channels.is_empty() {
+        tracing::warn!(
+            "No channels found under 'gateway/config/channels/'. \
+             The gateway will reject all ingest requests until channels are configured via gateway_admin."
+        );
+    }
+
+    Ok(GatewayConfig { global, channels })
+}
+
+fn base64_decode(s: &str) -> anyhow::Result<Vec<u8>> {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD
+        .decode(s)
+        .context("base64 decode failed")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Load (initial, blocking)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Fetch the current config from Consul KV and return it as a [`GatewayConfig`].
+///
+/// This is a one-shot synchronous-style async call — used once at startup.
+/// The watcher (`spawn_kv_watcher`) takes over for hot-reloading afterwards.
+pub async fn load_config_from_consul(consul_addr: &str) -> anyhow::Result<GatewayConfig> {
+    let client = reqwest::Client::new();
+    let url = format!("{}/v1/kv/gateway/config/?recurse=true", consul_addr);
+
+    let res = client
+        .get(&url)
+        .send()
+        .await
+        .context("connecting to Consul KV")?;
+
+    if res.status() == reqwest::StatusCode::NOT_FOUND {
+        tracing::warn!(
+            "Consul KV prefix 'gateway/config/' not found. \
+             Starting with empty config — use gateway_admin to seed the config."
+        );
+        return Ok(GatewayConfig {
+            global: GlobalConfig {
+                jwt: Default::default(),
+                max_body_bytes: 2 * 1024 * 1024,
+            },
+            channels: vec![],
+        });
+    }
+
+    let entries: Vec<ConsulKvEntry> = res
+        .json()
+        .await
+        .context("parsing Consul KV list response")?;
+
+    parse_kv_entries(entries)
+}
+
+/// Load the initial config from Consul KV and wrap it in a [`SharedConfig`].
 ///
 /// This is the single call that should happen at process startup before the
 /// Pingora server starts accepting connections.
-pub fn bootstrap(path: &str) -> anyhow::Result<SharedConfig> {
-    let cfg = load_config(path)?;
+pub async fn bootstrap(consul_addr: &str) -> anyhow::Result<SharedConfig> {
+    let cfg = load_config_from_consul(consul_addr).await?;
     Ok(Arc::new(ArcSwap::from_pointee(cfg)))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Hot-reload watcher
+// Hot-reload watcher (Consul KV blocking query)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Spawn a background Tokio task that watches `config_path` for write events
-/// and atomically hot-reloads the routing table.
+/// Spawn a background Tokio task that watches the `gateway/config/` prefix in
+/// Consul KV using HTTP blocking queries and atomically hot-reloads the config.
 ///
 /// ## Safety properties
 /// - A failed reload logs the error and **leaves the current live config
 ///   untouched** — the gateway continues serving with the last-known-good config.
 /// - The `ArcSwap::store` call is atomic; no Pingora worker ever sees a
 ///   partially-updated config.
+/// - The gateway is strictly **read-only** with respect to Consul KV.
 ///
 /// ## Usage
 /// Call this from inside a Pingora `BackgroundService::start` so it runs
 /// within Pingora's Tokio runtime.
-pub async fn spawn_watcher(config_path: String, shared: SharedConfig) -> anyhow::Result<()> {
-    let (tx, mut rx) = mpsc::channel::<notify::Result<Event>>(32);
-
-    // `RecommendedWatcher` picks the best OS backend (kqueue on macOS, inotify
-    // on Linux). The closure bridges synchronous notify callbacks to an async
-    // Tokio channel via `blocking_send`.
-    let mut watcher = RecommendedWatcher::new(
-        move |res| {
-            let _ = tx.blocking_send(res);
-        },
-        NotifyConfig::default(),
-    )
-    .context("creating filesystem watcher")?;
-
-    watcher
-        .watch(Path::new(&config_path), RecursiveMode::NonRecursive)
-        .with_context(|| format!("watching '{config_path}'"))?;
-
+pub async fn spawn_kv_watcher(consul_addr: String, shared: SharedConfig) -> anyhow::Result<()> {
     tokio::spawn(async move {
-        // Keep the watcher alive for the lifetime of this task.
-        let _watcher = watcher;
+        let client = reqwest::Client::builder()
+            // The blocking query blocks for up to 30s server-side — give it
+            // a generous client-side timeout.
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .expect("building reqwest client for KV watcher");
 
-        while let Some(res) = rx.recv().await {
-            match res {
-                Ok(event) if matches!(event.kind, EventKind::Modify(_)) => {
-                    match load_config(&config_path) {
-                        Ok(new_cfg) => {
-                            shared.store(Arc::new(new_cfg));
-                            tracing::info!(
-                                path = %config_path,
-                                "Gateway config hot-reloaded — zero connections dropped"
+        let base_url = format!("{}/v1/kv/gateway/config/?recurse=true", consul_addr);
+        let mut last_index: u64 = 0;
+
+        loop {
+            // Consul blocking query: blocks until the modify-index changes or
+            // `wait` expires, whichever comes first.
+            let url = format!("{}&index={}&wait=30s", base_url, last_index);
+
+            match client.get(&url).send().await {
+                Ok(res) => {
+                    // Extract the new X-Consul-Index header first.
+                    let new_index = res
+                        .headers()
+                        .get("X-Consul-Index")
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .unwrap_or(last_index);
+
+                    // Only reload if the index actually advanced.
+                    if new_index > last_index {
+                        last_index = new_index;
+
+                        if res.status() == reqwest::StatusCode::NOT_FOUND {
+                            tracing::warn!(
+                                "Consul KV prefix 'gateway/config/' was deleted — keeping current config live"
                             );
+                            continue;
                         }
-                        Err(e) => {
-                            // IMPORTANT: do NOT swap on error — keep serving
-                            // with the current config.
-                            tracing::error!(
-                                path = %config_path,
-                                error = %e,
-                                "Config reload failed — keeping current config live"
-                            );
+
+                        match res.json::<Vec<ConsulKvEntry>>().await {
+                            Ok(entries) => match parse_kv_entries(entries) {
+                                Ok(new_cfg) => {
+                                    shared.store(Arc::new(new_cfg));
+                                    tracing::info!(
+                                        consul_index = last_index,
+                                        "Gateway config hot-reloaded from Consul KV — zero connections dropped"
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        error = %e,
+                                        "Config parse failed — keeping current config live"
+                                    );
+                                }
+                            },
+                            Err(e) => {
+                                tracing::error!(
+                                    error = %e,
+                                    "Failed to parse Consul KV response — keeping current config live"
+                                );
+                            }
                         }
                     }
                 }
-                Ok(_) => {} // access/metadata events — ignore
                 Err(e) => {
-                    tracing::warn!(error = %e, "Filesystem watcher error");
+                    tracing::error!(
+                        error = %e,
+                        "Consul KV watcher request failed — retrying in 5s"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 }
             }
         }
-
-        tracing::warn!("Config file watcher task exited");
     });
 
     Ok(())

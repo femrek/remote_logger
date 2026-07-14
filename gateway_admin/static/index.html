@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gateway Admin — Remote Logger</title>
+  <meta name="description" content="Manage logger_gateway routing channels and JWT configuration via Consul KV." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<!-- ── Auth overlay ─────────────────────────────────────────────────────── -->
+<div id="auth-overlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+  <div class="overlay-card glass">
+    <div class="brand">
+      <span class="brand-icon">⬡</span>
+      <h1 id="auth-title">Gateway Admin</h1>
+    </div>
+    <p class="subtitle">Enter your Bearer token to continue</p>
+    <form id="auth-form" autocomplete="off">
+      <div class="field-group">
+        <label for="token-input">Admin Token</label>
+        <input
+          id="token-input"
+          type="password"
+          placeholder="••••••••••••••••"
+          autocomplete="current-password"
+          required
+        />
+      </div>
+      <button type="submit" class="btn btn-primary">
+        <span>Authenticate</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </button>
+      <p id="auth-error" class="error-msg hidden"></p>
+    </form>
+  </div>
+</div>
+
+<!-- ── Main app ──────────────────────────────────────────────────────────── -->
+<div id="app" class="hidden">
+
+  <!-- Header -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand small">
+        <span class="brand-icon">⬡</span>
+        <span class="brand-label">Gateway Admin</span>
+        <span class="badge" id="status-badge">Connected</span>
+      </div>
+      <div class="topbar-actions">
+        <span id="consul-index" class="mono dim"></span>
+        <button id="reload-btn" class="btn btn-ghost" title="Reload config from Consul">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Reload
+        </button>
+        <button id="logout-btn" class="btn btn-ghost dim" title="Clear token and logout">Logout</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="content">
+
+    <!-- ── Save bar ────────────────────────────────────────────────────── -->
+    <div id="save-bar" class="save-bar hidden">
+      <span class="save-bar-msg">You have unsaved changes</span>
+      <div class="save-bar-actions">
+        <button id="discard-btn" class="btn btn-ghost">Discard</button>
+        <button id="save-btn" class="btn btn-primary">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Save to Consul
+        </button>
+      </div>
+    </div>
+
+    <!-- ── Toast ────────────────────────────────────────────────────────── -->
+    <div id="toast" class="toast hidden" role="alert"></div>
+
+    <!-- ── Global Settings ─────────────────────────────────────────────── -->
+    <section class="card glass" id="global-section">
+      <div class="card-header">
+        <h2>Global Settings</h2>
+        <p class="card-subtitle">JWT validation and request body limits</p>
+      </div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="field-group">
+            <label for="g-issuer">JWT Issuer <span class="hint">iss claim</span></label>
+            <input id="g-issuer" type="text" placeholder="logger-gateway" />
+          </div>
+          <div class="field-group">
+            <label for="g-ttl">Token TTL <span class="hint">seconds (reference only)</span></label>
+            <input id="g-ttl" type="number" min="60" max="86400" placeholder="900" />
+          </div>
+          <div class="field-group">
+            <label for="g-key-env">Public Key Env Var <span class="hint">preferred</span></label>
+            <input id="g-key-env" type="text" placeholder="GATEWAY_PUBLIC_KEY" class="mono" />
+          </div>
+          <div class="field-group">
+            <label for="g-max-body">Max Body Bytes <span class="hint">request size limit</span></label>
+            <input id="g-max-body" type="number" min="1024" placeholder="2097152" />
+          </div>
+          <div class="field-group col-span-2">
+            <label for="g-public-key">Inline Public Key <span class="hint">dev only — use env var in production</span></label>
+            <textarea id="g-public-key" rows="4" placeholder="-----BEGIN PUBLIC KEY-----&#10;...&#10;-----END PUBLIC KEY-----" class="mono"></textarea>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Channels ────────────────────────────────────────────────────── -->
+    <section class="card glass" id="channels-section">
+      <div class="card-header">
+        <div>
+          <h2>Routing Channels</h2>
+          <p class="card-subtitle">Per-application path routing and JWT app-id binding</p>
+        </div>
+        <button id="add-channel-btn" class="btn btn-accent">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Channel
+        </button>
+      </div>
+      <div class="card-body">
+        <div id="channels-list" class="channels-list">
+          <!-- Channels rendered here by app.js -->
+        </div>
+        <p id="no-channels" class="empty-state hidden">
+          No channels configured. Click <strong>Add Channel</strong> to create one.
+        </p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

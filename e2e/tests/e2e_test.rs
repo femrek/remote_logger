@@ -238,6 +238,37 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
         ],
     );
 
+    // ── 2.5. Seed Consul KV configuration ────────────────────────────────────
+    eprintln!("[e2e] Waiting for Consul on port 8500 …");
+    assert!(
+        wait_for_port("localhost", 8500, Duration::from_secs(120)),
+        "Consul did not become reachable within 120 s"
+    );
+
+    eprintln!("[e2e] Seeding Consul KV gateway config …");
+    let consul_url = "http://localhost:8500";
+    let global_config = serde_json::json!({
+        "jwt": {
+            "public_key_env": "GATEWAY_PUBLIC_KEY",
+            "issuer": "logger-gateway",
+            "ttl_seconds": 900
+        },
+        "max_body_bytes": 2097152
+    });
+    let channel_config = serde_json::json!({
+        "id": "example-app-dev",
+        "path_prefix": "/v1/logs/example-app-dev",
+        "app_id": "dev.femrek.exampleapp.dev"
+    });
+
+    ureq::put(&format!("{consul_url}/v1/kv/gateway/config/global"))
+        .send_json(global_config)
+        .expect("Failed to seed global config in Consul");
+
+    ureq::put(&format!("{consul_url}/v1/kv/gateway/config/channels/example-app-dev"))
+        .send_json(channel_config)
+        .expect("Failed to seed channel config in Consul");
+
     // ── 3. Wait for dependent services ───────────────────────────────────────
     eprintln!("[e2e] Waiting for gateway on port 8080 …");
     assert!(

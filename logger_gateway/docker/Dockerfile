@@ -43,4 +43,3 @@ USER appuser
 
 # Set entrypoint to run the gateway binary
 ENTRYPOINT ["/app/logger_gateway"]
-CMD ["--config", "/app/config/gateway.yaml"]
