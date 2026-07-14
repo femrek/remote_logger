@@ -234,6 +234,7 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
         &[
             ("GATEWAY_PRIVATE_KEY", &jwt_private_key),
             ("GATEWAY_PUBLIC_KEY", &jwt_public_key),
+            ("GATEWAY_ADMIN_TOKEN", &admin_token),
             ("OPENSEARCH_ADMIN_PASSWORD", "StrongPassword123!"),
         ],
     );
