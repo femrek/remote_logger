@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consul-exporter
+  namespace: monitoring
+  labels:
+    app: consul-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: consul-exporter
+  template:
+    metadata:
+      labels:
+        app: consul-exporter
+    spec:
+      containers:
+        - name: consul-exporter
+          image: prom/consul-exporter:latest
+          args:
+            - '--consul.server=consul.logger-backend.svc.cluster.local:8500'
+          ports:
+            - containerPort: 9107
+              name: metrics
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9107
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: consul-exporter
+  namespace: monitoring
+  labels:
+    app: consul-exporter
+spec:
+  type: ClusterIP
+  selector:
+    app: consul-exporter
+  ports:
+    - name: metrics
+      port: 9107
+      targetPort: 9107

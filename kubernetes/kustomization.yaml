@@ -12,6 +12,7 @@ resources:
   - validation-worker/validation-worker.yaml
   - gateway/logger-gateway.yaml
   - kafka-ui/kafka-ui.yaml
+  - consul/consul.yaml
   # ── Monitoring stack ──────────────────────────────────────────────────────────
   - monitoring/namespace.yaml
   - monitoring/prometheus/rbac.yaml
@@ -21,6 +22,7 @@ resources:
   - monitoring/grafana/deployment.yaml
   - monitoring/kafka-exporter/deployment.yaml
   - monitoring/opensearch-exporter/deployment.yaml
+  - monitoring/consul-exporter/deployment.yaml
 
 configMapGenerator:
   - name: grafana-dashboards

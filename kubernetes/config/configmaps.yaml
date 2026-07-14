@@ -31,10 +31,6 @@ data:
         path_prefix: "/v1/logs/example-app-dev"
         app_id: "dev.femrek.exampleapp.dev"
 
-  workers.txt: |
-    validation-worker-0.validation-worker-service.logger-backend.svc.cluster.local:8000
-    validation-worker-1.validation-worker-service.logger-backend.svc.cluster.local:8000
-
 ---
 apiVersion: v1
 kind: ConfigMap

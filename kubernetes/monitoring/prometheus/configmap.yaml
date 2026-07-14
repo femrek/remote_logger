@@ -95,3 +95,11 @@ data:
             target_label: __address__
           - source_labels: [__meta_kubernetes_pod_name]
             target_label: pod
+
+      # ── Consul Exporter ─────────────────────────────────────────────────────
+      - job_name: 'consul'
+        static_configs:
+          - targets: ['consul-exporter.monitoring.svc.cluster.local:9107']
+            labels:
+              service: 'consul'
+

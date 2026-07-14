@@ -11,13 +11,11 @@ spec:
     - name: http
       port: 8080
       targetPort: 8080
-      nodePort: 30080 # Static NodePort for easy access in minikube/kind if LoadBalancer isn't provisioned
+      nodePort: 30080
   selector:
     app: logger-gateway
 
 ---
-# Separate internal-only ClusterIP service for Prometheus metrics scraping.
-# The metrics endpoint should NOT be exposed externally via the LoadBalancer.
 apiVersion: v1
 kind: Service
 metadata:
@@ -52,9 +50,6 @@ spec:
       labels:
         app: logger-gateway
       annotations:
-        # Standard Prometheus pod scrape annotations.
-        # Any prometheus.io/scrape-compatible scraper (Prometheus Operator,
-        # victoria-metrics-agent, etc.) will pick these up automatically.
         prometheus.io/scrape: "true"
         prometheus.io/port:   "9090"
         prometheus.io/path:   "/metrics"
@@ -71,8 +66,8 @@ spec:
             - containerPort: 9090
               name: metrics
           env:
-            - name: WORKERS_FILE
-              value: "/docker/workers.txt"
+            - name: CONSUL_HTTP_ADDR
+              value: "http://consul.logger-backend.svc.cluster.local:8500"
             - name: RUST_LOG
               value: "info,logger_gateway=debug"
             - name: GATEWAY_JWT_SECRET
@@ -102,9 +97,6 @@ spec:
             - name: config-volume
               mountPath: /app/config/gateway.yaml
               subPath: gateway.yaml
-            - name: config-volume
-              mountPath: /docker/workers.txt
-              subPath: workers.txt
       volumes:
         - name: config-volume
           configMap:
