@@ -216,4 +216,20 @@ u8m2g9b/qszcku8bm+8JJ8wNLKIOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqn\n\
         assert_eq!(extract_bearer("Basic abc"), None);
         assert_eq!(extract_bearer(""), None);
     }
+
+    #[test]
+    fn validates_ok_with_raw_base64_public_key() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let raw_pub_key = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElCR0ys2PS/qszcku8bm+8JJ8wNLKIOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==";
+        unsafe {
+            std::env::set_var("GATEWAY_PUBLIC_KEY", raw_pub_key);
+        }
+        let cfg = JwtConfig {
+            issuer: "logger-gateway".to_string(),
+            ttl_seconds: 900,
+        };
+        let token = make_test_token(&cfg, "access");
+        let claims = validate_jwt(&token, &cfg).unwrap();
+        assert_eq!(claims.sub, "example-app-prod");
+    }
 }
