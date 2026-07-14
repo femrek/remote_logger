@@ -18,9 +18,7 @@ services:
         condition: service_healthy
 
   gateway_admin:
-    build:
-      context: ../gateway_admin
-      dockerfile: Dockerfile
+    image: ghcr.io/femrek/gateway_admin:latest
     hostname: logger_gateway_admin
     environment:
       - CONSUL_HTTP_ADDR=http://consul:8500

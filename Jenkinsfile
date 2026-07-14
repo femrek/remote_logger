@@ -78,6 +78,10 @@ pipeline {
                     // Build validation_worker from its context and Dockerfile
                     echo "Building validation_worker image..."
                     workerImage = docker.build("${DOCKER_REGISTRY}/validation_worker:${IMAGE_TAG}", "-f validation_worker/Dockerfile validation_worker")
+
+                    // Build gateway_admin from its context and Dockerfile
+                    echo "Building gateway_admin image..."
+                    adminImage = docker.build("${DOCKER_REGISTRY}/gateway_admin:${IMAGE_TAG}", "-f gateway_admin/Dockerfile gateway_admin")
                 }
             }
         }
@@ -95,6 +99,9 @@ pipeline {
                         
                         workerImage.push()
                         workerImage.push('latest') 
+
+                        adminImage.push()
+                        adminImage.push('latest')
                     }
                 }
             }
@@ -108,6 +115,7 @@ pipeline {
                 if (env.TAG_NAME) {
                     sh "docker rmi ${env.DOCKER_REGISTRY}/logger_gateway:${env.IMAGE_TAG} || true"
                     sh "docker rmi ${env.DOCKER_REGISTRY}/validation_worker:${env.IMAGE_TAG} || true"
+                    sh "docker rmi ${env.DOCKER_REGISTRY}/gateway_admin:${env.IMAGE_TAG} || true"
                 }
             }
         }

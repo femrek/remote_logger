@@ -18,6 +18,9 @@ services:
           action: rebuild
 
   gateway_admin:
+    build:
+      context: ../gateway_admin
+      dockerfile: Dockerfile
     ports:
       - "8082:8082"
     volumes:
