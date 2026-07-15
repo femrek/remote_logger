@@ -138,6 +138,8 @@ services:
       timeout: 2s
       retries: 10
       start_period: 2s
+    volumes:
+      - consul-data:/consul/data
     networks:
       - logger_network
 
@@ -222,3 +224,4 @@ volumes:
   opensearch-data:
   prometheus-data:
   grafana-data:
+  consul-data:
