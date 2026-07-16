@@ -98,12 +98,21 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Service Unavailable (e.g. Kafka delivery failed).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
           }
         }
       }
     },
-    },
-    "/v1/logs/{channel}/log": {
+    "/v1/logs/{channel}": {
       "post": {
         "summary": "Ingest single log record",
         "description": "Uploads a single log record. Requires Bearer JWT authentication.\n\nThe gateway enforces:\n- Bearer JWT token presence and signature validation.\n- The token subject (`sub` claim) must match the path's `{channel}` parameter.\n- The token application (`app` claim) must match the routing channel's allowed `app_id`.",
@@ -177,11 +186,41 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Service Unavailable (e.g. Kafka delivery failed).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request (e.g. invalid JSON body).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
           }
         }
       }
     },
-    "/v1/logs/{channel}/log/batch": {
+    "/v1/logs/{channel}/batch": {
       "post": {
         "summary": "Ingest a batch of log records",
         "description": "Uploads a JSON array of log records in a single payload. Requires Bearer JWT authentication.\n\nThe gateway enforces:\n- Bearer JWT token presence and signature validation.\n- The token subject (`sub` claim) must match the path's `{channel}` parameter.\n- The token application (`app` claim) must match the routing channel's allowed `app_id`.",
@@ -251,6 +290,36 @@
           },
           "413": {
             "description": "Payload Too Large (request body size exceeds limit).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable (e.g. Kafka delivery failed).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request (e.g. invalid JSON body).",
             "content": {
               "application/json": {
                 "schema": {
@@ -362,17 +431,18 @@
             "type": "string",
             "description": "Machine-readable gateway error classification code.",
             "enum": [
-              "MISSING_CHANNEL_HEADER",
-              "INVALID_REQUEST",
+              "BAD_REQUEST",
+              "UNAUTHORIZED",
               "ATTESTATION_FAILED",
+              "NOT_FOUND",
               "CHANNEL_NOT_FOUND",
-              "PAYLOAD_TOO_LARGE",
-              "INTERNAL_ERROR",
               "MISSING_AUTH",
               "JWT_INVALID",
               "JWT_CHANNEL_MISMATCH",
               "JWT_APP_MISMATCH",
-              "VALIDATION_ERROR"
+              "VALIDATION_ERROR",
+              "INTERNAL_ERROR",
+              "SERVICE_UNAVAILABLE"
             ],
             "example": "MISSING_AUTH"
           }
