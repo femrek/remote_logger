@@ -81,6 +81,11 @@ async fn main() -> anyhow::Result<()> {
     let consul = Arc::new(ConsulClient::new(&cli.consul));
     let token  = Arc::new(AdminToken::new(&cli.admin_token));
 
+    // ── Seed Consul KV configuration if empty ─────────────────────────────────
+    seed_consul_if_empty(&consul)
+        .await
+        .context("Seeding default Consul KV configuration")?;
+
     // ── Consul service registration ───────────────────────────────────────────
     consul
         .register_service(
@@ -134,4 +139,57 @@ fn resolve_advertised_ip() -> anyhow::Result<String> {
     socket.connect("8.8.8.8:80")?;
     let addr = socket.local_addr()?;
     Ok(addr.ip().to_string())
+}
+
+/// Query Consul KV at startup, and if the config prefix is empty, seed it with defaults.
+async fn seed_consul_if_empty(consul: &ConsulClient) -> anyhow::Result<()> {
+    tracing::info!("Checking if Consul KV configuration is empty...");
+    let entries = consul.get_prefix("gateway/config/").await?;
+    if entries.is_empty() {
+        tracing::info!("Consul configuration is empty. Seeding defaults...");
+
+        // 1. Seed global config
+        let global_config = routes::GlobalConfig {
+            jwt: routes::JwtConfig {
+                issuer: "logger-gateway".to_string(),
+                ttl_seconds: 900,
+            },
+            max_body_bytes: 2097152, // 2 MiB
+        };
+        let ok = consul.put_cas("gateway/config/global", &global_config, 0).await?;
+        if !ok {
+            tracing::warn!("Failed to seed global config (CAS conflict or already exists)");
+        } else {
+            tracing::info!("Successfully seeded gateway/config/global");
+        }
+
+        // 2. Seed example-app-dev channel
+        let dev_channel = routes::ChannelConfig {
+            id: "example-app-dev".to_string(),
+            path_prefix: "/v1/logs/example-app-dev".to_string(),
+            app_id: "dev.femrek.exampleapp.dev".to_string(),
+        };
+        let ok = consul.put_cas("gateway/config/channels/example-app-dev", &dev_channel, 0).await?;
+        if !ok {
+            tracing::warn!("Failed to seed dev channel (CAS conflict or already exists)");
+        } else {
+            tracing::info!("Successfully seeded gateway/config/channels/example-app-dev");
+        }
+
+        // 3. Seed example-app-prod channel
+        let prod_channel = routes::ChannelConfig {
+            id: "example-app-prod".to_string(),
+            path_prefix: "/v1/logs/example-app-prod".to_string(),
+            app_id: "dev.femrek.exampleapp".to_string(),
+        };
+        let ok = consul.put_cas("gateway/config/channels/example-app-prod", &prod_channel, 0).await?;
+        if !ok {
+            tracing::warn!("Failed to seed prod channel (CAS conflict or already exists)");
+        } else {
+            tracing::info!("Successfully seeded gateway/config/channels/example-app-prod");
+        }
+    } else {
+        tracing::info!("Consul configuration already has existing keys. Skipping seeding.");
+    }
+    Ok(())
 }
