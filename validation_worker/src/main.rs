@@ -161,19 +161,31 @@ async fn main() {
                 }
             });
             
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(3));
+            let mut first_success = true;
             loop {
                 match client.put(&format!("{}/v1/agent/service/register", consul_addr))
                     .json(&payload)
                     .send().await {
                     Ok(res) if res.status().is_success() => {
-                        tracing::info!("Successfully registered with Consul via reqwest at {}", consul_addr);
-                        break;
+                        if first_success {
+                            tracing::info!("Successfully registered with Consul via reqwest at {}", consul_addr);
+                            first_success = false;
+                        } else {
+                            tracing::debug!("Refreshed Consul registration at {}", consul_addr);
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                     }
-                    Ok(res) => tracing::warn!("Failed to register with Consul (status: {}), retrying in 3s...", res.status()),
-                    Err(err) => tracing::warn!("Reqwest error registering with Consul: {}, retrying in 3s...", err),
+                    Ok(res) => {
+                        tracing::warn!("Failed to register with Consul (status: {}), retrying in 3s...", res.status());
+                        first_success = true;
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    }
+                    Err(err) => {
+                        tracing::warn!("Reqwest error registering with Consul: {}, retrying in 3s...", err);
+                        first_success = true;
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    }
                 }
-                interval.tick().await;
             }
         }
     });

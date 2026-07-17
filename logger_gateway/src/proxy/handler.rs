@@ -289,7 +289,7 @@ impl ProxyHttp for LogGateway {
         // Round-robin selection. The key/hash parameters are ignored by RoundRobin.
         let backend = lb
             .select(b"", 256)
-            .ok_or_else(|| pingora::Error::new_str("No available backends in load balancer"))?;
+            .ok_or_else(|| pingora::Error::explain(pingora::ErrorType::HTTPStatus(503), "No available backends in load balancer"))?;
 
         // Internal workers are plain TCP without TLS/SNI.
         let peer = HttpPeer::new(backend.addr.clone(), false, String::new());
