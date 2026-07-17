@@ -1,22 +1,25 @@
-//! Worker channel configuration — attestation policy per application channel.
+//! Worker channel configuration — loaded from Consul KV, hot-reloaded via
+//! Consul blocking queries.
 //!
-//! This module is analogous to the gateway's `config` module but covers only
-//! worker-specific concerns: attestation flags, vendor IDs, and crypto policy.
-//! Path routing and JWT subject matching remain in the gateway's `gateway.yaml`.
+//! The unified channel schema lives at `gateway/config/channels/<id>` in Consul
+//! and is managed by `logger_admin`. Workers read the same keys as the gateway
+//! but deserialize the full schema including attestation-specific fields.
+//!
+//! ## Hot-reload
+//! `spawn_kv_watcher` runs a Consul blocking-query loop (identical in structure
+//! to the gateway's KV watcher). Config swaps are atomic via `ArcSwap::store`.
 
 use anyhow::Context;
 use arc_swap::ArcSwap;
-use notify::{Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
-use std::{path::Path, sync::Arc};
-use tokio::sync::mpsc;
+use std::sync::Arc;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Schema
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Top-level structure that maps 1-to-1 with `channels.yaml`.
-#[derive(Debug, Clone, Deserialize)]
+/// Top-level wrapper holding all channel configs loaded from Consul KV.
+#[derive(Debug, Clone)]
 pub struct WorkerConfig {
     pub channels: Vec<WorkerChannelConfig>,
 }
@@ -28,13 +31,13 @@ impl WorkerConfig {
     }
 }
 
-/// Attestation policy for one application channel.
+/// Unified channel config — stored at `gateway/config/channels/<id>` in Consul.
 ///
-/// The `id` and `app_id` fields mirror those in `gateway.yaml` — they are the
-/// link between the two config files. All other fields are worker-specific.
+/// The `id` and `app_id` fields are shared with the gateway.
+/// All other fields are worker-specific attestation policy.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkerChannelConfig {
-    /// Unique channel identifier — must match the gateway channel `id`.
+    /// Unique channel identifier — matches the JWT `sub` claim.
     pub id: String,
 
     /// Application bundle identifier — used as the `app` JWT claim and
@@ -56,12 +59,25 @@ pub struct WorkerChannelConfig {
 
     /// When `true`: iOS clients MUST supply `device_public_key` in the
     /// `/auth/exchange` body. The SHA-256 of the key is embedded in the
-    /// refresh JWT as the `apk_hash` claim, enabling stateless verification
-    /// of future token refreshes on any worker replica.
-    ///
-    /// When `false`: `device_public_key` is ignored and `apk_hash` is absent.
+    /// refresh JWT as the `apk_hash` claim.
     #[serde(default)]
     pub require_apple_key_hash: bool,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Consul KV structures
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize, Debug)]
+#[allow(dead_code)]
+struct ConsulKvEntry {
+    #[serde(rename = "Key")]
+    key: String,
+    /// Base64-encoded value.
+    #[serde(rename = "Value")]
+    value: Option<String>,
+    #[serde(rename = "ModifyIndex")]
+    modify_index: u64,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,83 +92,186 @@ pub struct WorkerChannelConfig {
 pub type SharedWorkerConfig = Arc<ArcSwap<WorkerConfig>>;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Load
+// Parse
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Parse and validate the YAML config file at `path`.
-pub fn load_config(path: &str) -> anyhow::Result<WorkerConfig> {
-    let raw = std::fs::read_to_string(path)
-        .with_context(|| format!("reading worker config file '{path}'"))?;
-    serde_yaml::from_str(&raw)
-        .with_context(|| format!("parsing YAML in '{path}'"))
+fn base64_decode(s: &str) -> anyhow::Result<Vec<u8>> {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD
+        .decode(s)
+        .context("base64 decode failed")
 }
 
-/// Load the initial config and wrap it in a `SharedWorkerConfig`.
+/// Parse the raw Consul KV list response into a [`WorkerConfig`].
+///
+/// Processes every `gateway/config/channels/<id>` key and deserializes it as
+/// a [`WorkerChannelConfig`]. Unknown keys are silently ignored.
+fn parse_kv_entries(entries: Vec<ConsulKvEntry>) -> anyhow::Result<WorkerConfig> {
+    let mut channels = Vec::new();
+
+    for entry in entries {
+        let raw_value = match &entry.value {
+            Some(v) => v.clone(),
+            None => continue,
+        };
+
+        if !entry.key.starts_with("gateway/config/channels/") {
+            continue;
+        }
+
+        let decoded = base64_decode(&raw_value)
+            .with_context(|| format!("base64-decoding Consul KV value for key '{}'", entry.key))?;
+
+        match serde_json::from_slice::<WorkerChannelConfig>(&decoded) {
+            Ok(ch) => channels.push(ch),
+            Err(e) => {
+                tracing::warn!(
+                    key = %entry.key,
+                    error = %e,
+                    "Skipping channel entry: failed to parse as WorkerChannelConfig"
+                );
+            }
+        }
+    }
+
+    if channels.is_empty() {
+        tracing::warn!(
+            "No channels found under 'gateway/config/channels/' in Consul KV. \
+             Use logger_admin to configure channels."
+        );
+    }
+
+    Ok(WorkerConfig { channels })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Load (initial, blocking)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Fetch the current channel config from Consul KV and return it as a [`WorkerConfig`].
+///
+/// One-shot async call used at startup. `spawn_kv_watcher` takes over for
+/// hot-reloading afterwards.
+pub async fn load_config_from_consul(consul_addr: &str) -> anyhow::Result<WorkerConfig> {
+    let client = reqwest::Client::new();
+    let url = format!("{}/v1/kv/gateway/config/channels/?recurse=true", consul_addr);
+
+    let res = client
+        .get(&url)
+        .send()
+        .await
+        .context("connecting to Consul KV for channel config")?;
+
+    if res.status() == reqwest::StatusCode::NOT_FOUND {
+        tracing::warn!(
+            "Consul KV prefix 'gateway/config/channels/' not found. \
+             Starting with empty channel list — use logger_admin to configure channels."
+        );
+        return Ok(WorkerConfig { channels: vec![] });
+    }
+
+    let entries: Vec<ConsulKvEntry> = res
+        .json()
+        .await
+        .context("parsing Consul KV channel list response")?;
+
+    parse_kv_entries(entries)
+}
+
+/// Load the initial config from Consul KV and wrap it in a [`SharedWorkerConfig`].
 ///
 /// Call this once at process startup before the Axum server starts accepting
 /// connections.
-pub fn bootstrap(path: &str) -> anyhow::Result<SharedWorkerConfig> {
-    let cfg = load_config(path)?;
+pub async fn bootstrap(consul_addr: &str) -> anyhow::Result<SharedWorkerConfig> {
+    let cfg = load_config_from_consul(consul_addr).await?;
     Ok(Arc::new(ArcSwap::from_pointee(cfg)))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Hot-reload watcher
+// Hot-reload watcher (Consul KV blocking query)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Spawn a background Tokio task that watches `config_path` for write events
-/// and atomically hot-reloads the channel configuration.
+/// Spawn a background Tokio task that watches `gateway/config/channels/` in
+/// Consul KV using HTTP blocking queries and atomically hot-reloads the channel
+/// configuration.
 ///
 /// ## Safety properties
 /// - A failed reload logs the error and **leaves the current live config
 ///   untouched** — the worker continues serving with the last-known-good config.
 /// - The `ArcSwap::store` call is atomic; no handler ever sees a partially-updated config.
-pub async fn spawn_watcher(config_path: String, shared: SharedWorkerConfig) -> anyhow::Result<()> {
-    let (tx, mut rx) = mpsc::channel::<notify::Result<Event>>(32);
-
-    let mut watcher = RecommendedWatcher::new(
-        move |res| {
-            let _ = tx.blocking_send(res);
-        },
-        NotifyConfig::default(),
-    )
-    .context("creating filesystem watcher")?;
-
-    watcher
-        .watch(Path::new(&config_path), RecursiveMode::NonRecursive)
-        .with_context(|| format!("watching '{config_path}'"))?;
-
+pub async fn spawn_kv_watcher(
+    consul_addr: String,
+    shared: SharedWorkerConfig,
+) -> anyhow::Result<()> {
     tokio::spawn(async move {
-        let _watcher = watcher;
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .expect("building reqwest client for worker KV watcher");
 
-        while let Some(res) = rx.recv().await {
-            match res {
-                Ok(event) if matches!(event.kind, EventKind::Modify(_)) => {
-                    match load_config(&config_path) {
-                        Ok(new_cfg) => {
-                            shared.store(Arc::new(new_cfg));
-                            tracing::info!(
-                                path = %config_path,
-                                "Worker channel config hot-reloaded"
+        let base_url = format!(
+            "{}/v1/kv/gateway/config/channels/?recurse=true",
+            consul_addr
+        );
+        let mut last_index: u64 = 0;
+
+        loop {
+            let url = format!("{}&index={}&wait=30s", base_url, last_index);
+
+            match client.get(&url).send().await {
+                Ok(res) => {
+                    let new_index = res
+                        .headers()
+                        .get("X-Consul-Index")
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .unwrap_or(last_index);
+
+                    if new_index > last_index {
+                        last_index = new_index;
+
+                        if res.status() == reqwest::StatusCode::NOT_FOUND {
+                            tracing::warn!(
+                                "Consul KV prefix 'gateway/config/channels/' was deleted \
+                                 — keeping current channel config live"
                             );
+                            continue;
                         }
-                        Err(e) => {
-                            tracing::error!(
-                                path = %config_path,
-                                error = %e,
-                                "Channel config reload failed — keeping current config live"
-                            );
+
+                        match res.json::<Vec<ConsulKvEntry>>().await {
+                            Ok(entries) => match parse_kv_entries(entries) {
+                                Ok(new_cfg) => {
+                                    shared.store(Arc::new(new_cfg));
+                                    tracing::info!(
+                                        consul_index = last_index,
+                                        "Worker channel config hot-reloaded from Consul KV"
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        error = %e,
+                                        "Channel config parse failed — keeping current config live"
+                                    );
+                                }
+                            },
+                            Err(e) => {
+                                tracing::error!(
+                                    error = %e,
+                                    "Failed to parse Consul KV channel response — keeping current config live"
+                                );
+                            }
                         }
                     }
                 }
-                Ok(_) => {}
                 Err(e) => {
-                    tracing::warn!(error = %e, "Filesystem watcher error");
+                    tracing::error!(
+                        error = %e,
+                        "Consul KV channel watcher request failed — retrying in 5s"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 }
             }
         }
-
-        tracing::warn!("Worker config file watcher task exited");
     });
 
     Ok(())

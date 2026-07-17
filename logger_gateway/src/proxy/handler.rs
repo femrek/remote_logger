@@ -188,15 +188,22 @@ impl ProxyHttp for LogGateway {
             return Ok(false); // pipeline continues → upstream_peer → worker
         }
 
-        // ── /v1/logs/<channel> — ingest ───────────────────────────────────────
-        let ch_cfg = match cfg.find_channel_by_path(&path) {
-            Some(ch) => ch.clone(),
+        // ── /v1/logs/<channel-id> — ingest ────────────────────────────────────
+        // Parse the channel ID directly from the URL path segment.
+        // No Consul lookup needed: the gateway no longer stores channel config.
+        // Format: /v1/logs/<channel-id>  (no further path segments expected here)
+        let channel_id = match path
+            .strip_prefix("/v1/logs/")
+            .and_then(|s| s.split('/').next())
+            .filter(|s| !s.is_empty())
+        {
+            Some(id) => id.to_owned(),
             None => {
                 return send_error(session, 404, "CHANNEL_NOT_FOUND", "No channel for this path").await;
             }
         };
 
-        ctx.channel_id = ch_cfg.id.clone();
+        ctx.channel_id = channel_id.clone();
 
         // Extract and validate the bearer JWT --------------------------------
         let auth_header = session
@@ -223,8 +230,12 @@ impl ProxyHttp for LogGateway {
                     .inc();
                 ctx.tenant_id = claims.tid.clone();
 
-                // Enforce that the JWT subject matches the requested channel.
-                if claims.sub != ch_cfg.id {
+                // Enforce that the JWT subject matches the channel ID from the URL.
+                // This prevents token reuse across channels.
+                // The app claim is NOT re-checked here: if the JWT signature is valid,
+                // the app claim is already trustworthy (only workers can mint JWTs
+                // and they already validated app_id against channel config at mint time).
+                if claims.sub != channel_id {
                     JWT_VALIDATIONS_TOTAL
                         .with_label_values(&[&ctx.channel_id, "channel_mismatch"])
                         .inc();
@@ -233,20 +244,6 @@ impl ProxyHttp for LogGateway {
                         403,
                         "JWT_CHANNEL_MISMATCH",
                         "Token was not issued for this channel",
-                    )
-                    .await;
-                }
-
-                // Enforce that the JWT app_id matches the channel's allowed app_id.
-                if claims.app != ch_cfg.app_id {
-                    JWT_VALIDATIONS_TOTAL
-                        .with_label_values(&[&ctx.channel_id, "app_mismatch"])
-                        .inc();
-                    return send_error(
-                        session,
-                        403,
-                        "JWT_APP_MISMATCH",
-                        "Token was not issued for this application",
                     )
                     .await;
                 }

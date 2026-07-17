@@ -1,4 +1,4 @@
-use super::schema::{ChannelConfig, GatewayConfig, GlobalConfig};
+use super::schema::{GatewayConfig, GlobalConfig};
 use anyhow::Context;
 use arc_swap::ArcSwap;
 use std::sync::Arc;
@@ -37,17 +37,16 @@ struct ConsulKvEntry {
 
 /// Parse the raw Consul KV list response into a [`GatewayConfig`].
 ///
-/// Expected keys:
-/// - `gateway/config/global`          → JSON [`GlobalConfig`]
-/// - `gateway/config/channels/<id>`   → JSON [`ChannelConfig`]
+/// Expected key:
+/// - `gateway/config/global` → JSON [`GlobalConfig`]
 ///
-/// If the prefix is entirely absent from Consul, a default config with an
-/// empty channels list is returned and a warning is logged. The gateway
-/// **never writes** to Consul KV — seeding the initial config is the
-/// responsibility of `gateway_admin`.
+/// Channel configs are no longer read by the gateway — they are owned
+/// exclusively by the validation workers via their own Consul KV watcher.
+///
+/// The gateway **never writes** to Consul KV — seeding is the
+/// responsibility of `logger_admin`.
 fn parse_kv_entries(entries: Vec<ConsulKvEntry>) -> anyhow::Result<GatewayConfig> {
     let mut global: Option<GlobalConfig> = None;
-    let mut channels: Vec<ChannelConfig> = Vec::new();
 
     for entry in entries {
         let raw_value = match &entry.value {
@@ -64,12 +63,8 @@ fn parse_kv_entries(entries: Vec<ConsulKvEntry>) -> anyhow::Result<GatewayConfig
                 serde_json::from_slice(&decoded)
                     .with_context(|| "parsing gateway/config/global as JSON GlobalConfig")?,
             );
-        } else if entry.key.starts_with("gateway/config/channels/") {
-            let ch: ChannelConfig = serde_json::from_slice(&decoded).with_context(|| {
-                format!("parsing '{}' as JSON ChannelConfig", entry.key)
-            })?;
-            channels.push(ch);
         }
+        // All other keys (channels, etc.) are intentionally ignored by the gateway.
     }
 
     let global = match global {
@@ -77,7 +72,7 @@ fn parse_kv_entries(entries: Vec<ConsulKvEntry>) -> anyhow::Result<GatewayConfig
         None => {
             tracing::warn!(
                 "Consul KV key 'gateway/config/global' is missing. \
-                 Using built-in defaults. Start gateway_admin to seed the config."
+                 Using built-in defaults. Start logger_admin to seed the config."
             );
             GlobalConfig {
                 jwt: Default::default(),
@@ -86,14 +81,7 @@ fn parse_kv_entries(entries: Vec<ConsulKvEntry>) -> anyhow::Result<GatewayConfig
         }
     };
 
-    if channels.is_empty() {
-        tracing::warn!(
-            "No channels found under 'gateway/config/channels/'. \
-             The gateway will reject all ingest requests until channels are configured via gateway_admin."
-        );
-    }
-
-    Ok(GatewayConfig { global, channels })
+    Ok(GatewayConfig { global })
 }
 
 fn base64_decode(s: &str) -> anyhow::Result<Vec<u8>> {
@@ -124,14 +112,13 @@ pub async fn load_config_from_consul(consul_addr: &str) -> anyhow::Result<Gatewa
     if res.status() == reqwest::StatusCode::NOT_FOUND {
         tracing::warn!(
             "Consul KV prefix 'gateway/config/' not found. \
-             Starting with empty config — use gateway_admin to seed the config."
+             Starting with empty config — use logger_admin to seed the config."
         );
         return Ok(GatewayConfig {
             global: GlobalConfig {
                 jwt: Default::default(),
                 max_body_bytes: 2 * 1024 * 1024,
             },
-            channels: vec![],
         });
     }
 

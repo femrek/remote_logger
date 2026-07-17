@@ -17,9 +17,9 @@ use consul::ConsulClient;
 
 #[derive(Parser, Debug)]
 #[command(
-    name    = "gateway-admin",
+    name    = "logger-admin",
     version = env!("CARGO_PKG_VERSION"),
-    about   = "Stateless Gateway Admin UI — manages logger_gateway config in Consul KV"
+    about   = "Stateless Logger Admin UI — manages channel config (routing + attestation) in Consul KV"
 )]
 struct Cli {
     /// TCP port to listen on.
@@ -74,7 +74,7 @@ async fn main() -> anyhow::Result<()> {
         port        = cli.port,
         consul      = %cli.consul,
         version     = env!("CARGO_PKG_VERSION"),
-        "gateway-admin starting"
+        "logger-admin starting"
     );
 
     // ── Shared state ──────────────────────────────────────────────────────────
@@ -90,14 +90,14 @@ async fn main() -> anyhow::Result<()> {
     consul
         .register_service(
             &node_id,
-            "gateway_admin",
+            "logger_admin",
             &advertised_ip,
             cli.port,
             &format!("http://{}:{}/health", advertised_ip, cli.port),
         )
         .await
-        .context("Registering gateway_admin with Consul")?;
-    tracing::info!("Registered with Consul as 'gateway_admin' (id: {})", node_id);
+        .context("Registering logger_admin with Consul")?;
+    tracing::info!("Registered with Consul as 'logger_admin' (id: {})", node_id);
 
     // ── Router ────────────────────────────────────────────────────────────────
     let app = routes::build_router(consul.clone(), token);
@@ -107,7 +107,7 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .with_context(|| format!("Binding to {addr}"))?;
-    tracing::info!(addr = %addr, "gateway-admin listening");
+    tracing::info!(addr = %addr, "logger-admin listening");
 
     // ── Graceful shutdown + Consul deregistration ─────────────────────────────
     let consul_shutdown = consul.clone();
@@ -166,8 +166,11 @@ async fn seed_consul_if_empty(consul: &ConsulClient) -> anyhow::Result<()> {
         // 2. Seed example-app-dev channel
         let dev_channel = routes::ChannelConfig {
             id: "example-app-dev".to_string(),
-            path_prefix: "/v1/logs/example-app-dev".to_string(),
             app_id: "dev.femrek.exampleapp.dev".to_string(),
+            validate_attestation: false,
+            require_apple_key_hash: false,
+            google_project_number: None,
+            apple_team_id: None,
         };
         let ok = consul.put_cas("gateway/config/channels/example-app-dev", &dev_channel, 0).await?;
         if !ok {
@@ -179,8 +182,11 @@ async fn seed_consul_if_empty(consul: &ConsulClient) -> anyhow::Result<()> {
         // 3. Seed example-app-prod channel
         let prod_channel = routes::ChannelConfig {
             id: "example-app-prod".to_string(),
-            path_prefix: "/v1/logs/example-app-prod".to_string(),
             app_id: "dev.femrek.exampleapp".to_string(),
+            validate_attestation: true,
+            require_apple_key_hash: true,
+            google_project_number: Some("1234567890".to_string()),
+            apple_team_id: Some("STUBTEAMID".to_string()),
         };
         let ok = consul.put_cas("gateway/config/channels/example-app-prod", &prod_channel, 0).await?;
         if !ok {

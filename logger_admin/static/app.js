@@ -171,6 +171,9 @@ function buildChannelRow(ch, modifyIndex = 0, isNew = false) {
   row.dataset.id = ch.id || '';
   row.dataset.modifyIndex = modifyIndex;
 
+  const validateChecked  = ch.validate_attestation   ? 'checked' : '';
+  const keyHashChecked   = ch.require_apple_key_hash ? 'checked' : '';
+
   row.innerHTML = `
     <div class="channel-fields">
       <div class="field-group">
@@ -178,12 +181,28 @@ function buildChannelRow(ch, modifyIndex = 0, isNew = false) {
         <input class="ch-id mono" type="text" value="${esc(ch.id)}" placeholder="example-app-prod" />
       </div>
       <div class="field-group">
-        <label>Path Prefix</label>
-        <input class="ch-prefix mono" type="text" value="${esc(ch.path_prefix)}" placeholder="/v1/logs/example-app-prod" />
-      </div>
-      <div class="field-group">
         <label>App ID</label>
         <input class="ch-appid mono" type="text" value="${esc(ch.app_id)}" placeholder="dev.femrek.exampleapp" />
+      </div>
+      <div class="field-group">
+        <label>Google Project Number <span class="hint">Android Play Integrity</span></label>
+        <input class="ch-google-proj mono" type="text" value="${esc(ch.google_project_number)}" placeholder="optional" />
+      </div>
+      <div class="field-group">
+        <label>Apple Team ID <span class="hint">App Attest</span></label>
+        <input class="ch-apple-team mono" type="text" value="${esc(ch.apple_team_id)}" placeholder="optional" />
+      </div>
+      <div class="field-group field-group--inline">
+        <label>
+          <input class="ch-validate" type="checkbox" ${validateChecked} />
+          Validate attestation
+        </label>
+      </div>
+      <div class="field-group field-group--inline">
+        <label>
+          <input class="ch-keyhash" type="checkbox" ${keyHashChecked} />
+          Require Apple key hash
+        </label>
       </div>
     </div>
     <div class="channel-actions">
@@ -198,6 +217,7 @@ function buildChannelRow(ch, modifyIndex = 0, isNew = false) {
 
   row.querySelector('.btn-delete').addEventListener('click', () => deleteChannelRow(row, ch.id));
   row.querySelectorAll('input').forEach(input => input.addEventListener('input', markDirty));
+  row.querySelectorAll('input[type=checkbox]').forEach(cb => cb.addEventListener('change', markDirty));
 
   return row;
 }
@@ -227,7 +247,11 @@ async function deleteChannelRow(row, channelId) {
 
 addChannelBtn.addEventListener('click', () => {
   noChannels.classList.add('hidden');
-  const row = buildChannelRow({ id: '', path_prefix: '', app_id: '' }, 0, true);
+  const row = buildChannelRow(
+    { id: '', app_id: '', validate_attestation: false, require_apple_key_hash: false,
+      google_project_number: '', apple_team_id: '' },
+    0, true
+  );
   channelsList.appendChild(row);
   row.querySelector('.ch-id').focus();
   markDirty();
@@ -283,11 +307,18 @@ saveBtn.addEventListener('click', async () => {
 
 function buildSavePayload() {
   const channelRows = [...channelsList.querySelectorAll('.channel-item')];
-  const channels = channelRows.map(row => ({
-    id:          row.querySelector('.ch-id').value.trim(),
-    path_prefix: row.querySelector('.ch-prefix').value.trim(),
-    app_id:      row.querySelector('.ch-appid').value.trim(),
-  }));
+  const channels = channelRows.map(row => {
+    const googleProj = row.querySelector('.ch-google-proj').value.trim();
+    const appleTeam  = row.querySelector('.ch-apple-team').value.trim();
+    return {
+      id:                    row.querySelector('.ch-id').value.trim(),
+      app_id:                row.querySelector('.ch-appid').value.trim(),
+      validate_attestation:  row.querySelector('.ch-validate').checked,
+      require_apple_key_hash: row.querySelector('.ch-keyhash').checked,
+      ...(googleProj ? { google_project_number: googleProj } : {}),
+      ...(appleTeam  ? { apple_team_id:         appleTeam  } : {}),
+    };
+  });
 
   // Build modifyIndex map from current config.
   const channelModifyIndexes = {};

@@ -52,23 +52,11 @@ impl SystemConfig {
 
 /// Root structure for gateway configuration stored in Consul KV.
 ///
-/// This is assembled from two Consul KV keys:
-/// - `gateway/config/global`   → serializes to [`GlobalConfig`]
-/// - `gateway/config/channels/<id>` → each serializes to [`ChannelConfig`]
+/// Only `gateway/config/global` is read by the gateway now. Channel config
+/// is owned by the validation workers (also read from Consul KV).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GatewayConfig {
     pub global: GlobalConfig,
-    pub channels: Vec<ChannelConfig>,
-}
-
-impl GatewayConfig {
-    /// Find the first channel whose `path_prefix` is a prefix of `path`.
-    /// Channels are evaluated in declaration order; put more-specific prefixes first.
-    pub fn find_channel_by_path(&self, path: &str) -> Option<&ChannelConfig> {
-        self.channels
-            .iter()
-            .find(|ch| path.starts_with(&ch.path_prefix))
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -155,27 +143,4 @@ impl JwtConfig {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Channel (per-application routing entry)
-// ─────────────────────────────────────────────────────────────────────────────
 
-/// Routing and JWT validation configuration for one application channel.
-///
-/// Stored under Consul KV key `gateway/config/channels/<id>`.
-///
-/// Attestation policy (validate_attestation, google_project_number,
-/// apple_team_id, require_apple_key_hash) has been moved to the validation
-/// worker's `channels.yaml`. This struct covers only gateway concerns:
-/// path routing, JWT subject/app matching, and upstream header injection.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ChannelConfig {
-    /// Unique channel identifier, used as the JWT `sub` claim.
-    pub id: String,
-
-    /// URL path prefix that routes requests to this channel.
-    /// Example: `"/v1/logs/example-app-prod"`.
-    pub path_prefix: String,
-
-    /// Application bundle identifier (e.g., `"dev.femrek.exampleapp"`).
-    pub app_id: String,
-}

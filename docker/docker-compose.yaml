@@ -17,9 +17,9 @@ services:
       consul:
         condition: service_healthy
 
-  gateway_admin:
-    image: ghcr.io/femrek/gateway_admin:latest
-    hostname: logger_gateway_admin
+  logger_admin:
+    image: ghcr.io/femrek/logger_admin:latest
+    hostname: logger_admin
     environment:
       - CONSUL_HTTP_ADDR=http://consul:8500
       - PORT=8082
@@ -35,8 +35,6 @@ services:
     image: ghcr.io/femrek/validation_worker:latest
     deploy:
       replicas: 2
-    volumes:
-      - ./channels.yaml:/app/config/channels.yaml:ro
     environment:
       - KAFKA_BROKERS=${KAFKA_BROKERS:-broker:9094}
       - PORT=${PORT:-8000}
@@ -46,7 +44,6 @@ services:
       - ACCESS_JWT_TTL_SECONDS=${ACCESS_JWT_TTL_SECONDS:-900}
       - REFRESH_JWT_TTL_SECONDS=${REFRESH_JWT_TTL_SECONDS:-604800}
       - JWT_ISSUER=${JWT_ISSUER:-logger-gateway}
-      - WORKER_CONFIG=${WORKER_CONFIG:-/app/config/channels.yaml}
       - RUST_LOG=${RUST_LOG:-info,validation_worker=debug}
       - METRICS_PORT=9091
       - CONSUL_HTTP_ADDR=http://consul:8500

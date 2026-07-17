@@ -6,14 +6,13 @@
 //! control to the shared [`build_app`] function.
 
 use std::sync::Arc;
-use arc_swap::ArcSwap;
 
 use validation_worker::{
     build_app, AppState, RdkafkaSink,
     auth::attestation::{
         AppleAppAttestVerifier, GooglePlayIntegrityVerifier, PlatformDispatchVerifier,
     },
-    config::{WorkerConfig, bootstrap, spawn_watcher},
+    config::{bootstrap, spawn_kv_watcher},
     metrics,
 };
 
@@ -60,7 +59,6 @@ async fn main() {
     let access_ttl      = env_u64("ACCESS_JWT_TTL_SECONDS",  900);
     let refresh_ttl     = env_u64("REFRESH_JWT_TTL_SECONDS", 604_800);
     let jwt_issuer      = env_or("JWT_ISSUER",              "logger-gateway");
-    let worker_cfg_path = env_or("WORKER_CONFIG",           "config/channels.yaml");
     let port            = env_or("PORT",                    "3000");
     let metrics_port    = env_or("METRICS_PORT", "9091");
     let consul_addr     = env_or("CONSUL_HTTP_ADDR", "http://localhost:8500");
@@ -83,22 +81,23 @@ async fn main() {
             .to_string();
     }
 
-    // ── Worker channel config (hot-reloadable) ────────────────────────────────
-    let worker_config = match bootstrap(&worker_cfg_path) {
+    // ── Worker channel config (hot-reloadable from Consul KV) ─────────────────
+    let worker_config = match bootstrap(&consul_addr).await {
         Ok(cfg) => cfg,
         Err(e) => {
             tracing::warn!(
-                path = %worker_cfg_path,
                 error = %e,
-                "Could not load channels.yaml — starting with empty channel list"
+                "Could not load channel config from Consul KV — starting with empty channel list"
             );
-            Arc::new(ArcSwap::from_pointee(WorkerConfig { channels: vec![] }))
+            Arc::new(arc_swap::ArcSwap::from_pointee(
+                validation_worker::config::WorkerConfig { channels: vec![] }
+            ))
         }
     };
 
-    // Start hot-reload watcher in the background (non-fatal if it fails).
-    if let Err(e) = spawn_watcher(worker_cfg_path.clone(), worker_config.clone()).await {
-        tracing::warn!(error = %e, "Failed to start worker config watcher");
+    // Start Consul KV hot-reload watcher in the background (non-fatal if it fails).
+    if let Err(e) = spawn_kv_watcher(consul_addr.clone(), worker_config.clone()).await {
+        tracing::warn!(error = %e, "Failed to start worker channel config KV watcher");
     }
 
     // ── Kafka producer ────────────────────────────────────────────────────────

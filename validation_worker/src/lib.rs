@@ -20,7 +20,7 @@ pub use auth::attestation::{
     AttestationVerifier, NoopVerifier, PlatformDispatchVerifier,
     GooglePlayIntegrityVerifier, AppleAppAttestVerifier, Platform,
 };
-pub use config::{WorkerChannelConfig, WorkerConfig, SharedWorkerConfig, bootstrap as bootstrap_config, spawn_watcher};
+pub use config::{WorkerChannelConfig, WorkerConfig, SharedWorkerConfig, bootstrap as bootstrap_config, spawn_kv_watcher};
 pub use domain::{
     AuthExchangeRequest, AuthExchangeResponse, DeviceMetadata,
     KafkaPayload, ServerLog, SystemStartupEvent,

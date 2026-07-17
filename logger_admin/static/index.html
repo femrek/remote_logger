@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gateway Admin — Remote Logger</title>
-  <meta name="description" content="Manage logger_gateway routing channels and JWT configuration via Consul KV." />
+  <title>Logger Admin — Remote Logger</title>
+  <meta name="description" content="Manage channel config (routing + attestation) for the remote logger system via Consul KV." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -17,7 +17,7 @@
   <div class="overlay-card glass">
     <div class="brand">
       <span class="brand-icon">⬡</span>
-      <h1 id="auth-title">Gateway Admin</h1>
+      <h1 id="auth-title">Logger Admin</h1>
     </div>
     <p class="subtitle">Enter your Bearer token to continue</p>
     <form id="auth-form" autocomplete="off">
@@ -48,7 +48,7 @@
     <div class="topbar-inner">
       <div class="brand small">
         <span class="brand-icon">⬡</span>
-        <span class="brand-label">Gateway Admin</span>
+        <span class="brand-label">Logger Admin</span>
         <span class="badge" id="status-badge">Connected</span>
       </div>
       <div class="topbar-actions">
@@ -108,7 +108,7 @@
       <div class="card-header">
         <div>
           <h2>Routing Channels</h2>
-          <p class="card-subtitle">Per-application path routing and JWT app-id binding</p>
+          <p class="card-subtitle">Per-application configuration — routing identity and attestation policy</p>
         </div>
         <button id="add-channel-btn" class="btn btn-accent">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>

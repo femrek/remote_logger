@@ -59,8 +59,19 @@ fn default_max_body() -> usize { 2 * 1024 * 1024 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelConfig {
     pub id: String,
-    pub path_prefix: String,
     pub app_id: String,
+    /// When `true`, attestation token is cryptographically verified by the worker.
+    #[serde(default)]
+    pub validate_attestation: bool,
+    /// Google Cloud Project Number for Android Play Integrity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub google_project_number: Option<String>,
+    /// Apple Developer Team ID for App Attest.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apple_team_id: Option<String>,
+    /// iOS clients must supply device_public_key when true.
+    #[serde(default)]
+    pub require_apple_key_hash: bool,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -89,6 +100,8 @@ pub struct SaveConfigRequest {
     pub global: GlobalConfig,
     /// ModifyIndex for `gateway/config/global` as returned by GET.
     pub global_modify_index: u64,
+    /// Unified channel list — includes both routing (id, app_id) and
+    /// attestation fields. Written to `gateway/config/channels/<id>` in Consul.
     pub channels: Vec<ChannelConfig>,
     /// ModifyIndexes per channel id. Missing entries default to 0 (create-new).
     #[serde(default)]

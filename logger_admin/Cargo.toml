@@ -1,10 +1,10 @@
 [package]
-name    = "gateway_admin"
+name    = "logger_admin"
 version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "gateway_admin"
+name = "logger_admin"
 path = "src/main.rs"
 
 [dependencies]
