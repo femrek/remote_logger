@@ -19,8 +19,6 @@ use thiserror::Error;
 pub struct GatewayClaims {
     /// Subject — the channel `id` this token was issued for.
     pub sub: String,
-    /// Tenant / organization identifier extracted from the attestation payload.
-    pub tid: String,
     /// Mobile platform the token was issued for (`"android"` | `"ios"`).
     pub plt: String,
     /// Application ID validated during the exchange.
@@ -156,7 +154,6 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
             .as_secs() as usize;
         let claims = GatewayClaims {
             sub: "example-app-prod".to_owned(),
-            tid: "example_tenant".to_owned(),
             plt: "android".to_owned(),
             app: "com.test".to_owned(),
             device_uuid: "device-uuid-1".to_owned(),
@@ -181,7 +178,6 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
         let token = make_test_token(&cfg, "access");
         let claims = validate_jwt(&token, &cfg).unwrap();
         assert_eq!(claims.sub, "example-app-prod");
-        assert_eq!(claims.tid, "example_tenant");
         assert_eq!(claims.device_uuid, "device-uuid-1");
         assert_eq!(claims.session_id, "session-id-1");
         assert_eq!(claims.token_type, "access");

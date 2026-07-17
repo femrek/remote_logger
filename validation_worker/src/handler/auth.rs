@@ -101,7 +101,6 @@ pub async fn auth_exchange_handler(
             .verify(
                 &req.attestation_token,
                 req.platform,
-                &req.tenant_id,
                 &app_id,
                 google_project_number.as_deref(),
                 apple_team_id.as_deref(),
@@ -152,7 +151,6 @@ pub async fn auth_exchange_handler(
 
     let access_token = match issue_access_jwt(
         &channel_id,
-        &req.tenant_id,
         &req.platform.to_string(),
         &app_id,
         &req.device_uuid,
@@ -172,7 +170,6 @@ pub async fn auth_exchange_handler(
 
     let refresh_token = match issue_refresh_jwt(
         &channel_id,
-        &req.tenant_id,
         &req.platform.to_string(),
         &app_id,
         &req.device_uuid,
@@ -194,7 +191,6 @@ pub async fn auth_exchange_handler(
     // ── 8. Produce SystemStartupEvent to Kafka ────────────────────────────────
     let startup_event = SystemStartupEvent {
         event_type: "system_startup".to_string(),
-        tenant_id: req.tenant_id.clone(),
         app_id: app_id.clone(),
         device_uuid: req.device_uuid.clone(),
         session_id: session_id.clone(),
@@ -215,7 +211,6 @@ pub async fn auth_exchange_handler(
     {
         Ok(()) => tracing::info!(
             channel = %channel_id,
-            tenant = %req.tenant_id,
             device_uuid = %req.device_uuid,
             "SystemStartupEvent produced to Kafka"
         ),
@@ -228,7 +223,6 @@ pub async fn auth_exchange_handler(
     // ── 9. Return response ────────────────────────────────────────────────────
     tracing::info!(
         channel = %channel_id,
-        tenant = %req.tenant_id,
         platform = %req.platform,
         device_uuid = %req.device_uuid,
         session_id = %session_id,

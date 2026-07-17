@@ -42,8 +42,6 @@ pub struct JwtConfig<'a> {
 pub struct WorkerClaims {
     /// Subject — the channel `id` (e.g., `"example-app-prod"`).
     pub sub: String,
-    /// Tenant identifier.
-    pub tid: String,
     /// Mobile platform the token was issued for (`"android"` | `"ios"`).
     pub plt: String,
     /// Application bundle ID.
@@ -87,7 +85,6 @@ pub enum JwtError {
 /// refresh tokens are automatically rejected on ingest routes.
 pub fn issue_access_jwt(
     channel_id: &str,
-    tenant_id: &str,
     platform: &str,
     app_id: &str,
     device_uuid: &str,
@@ -97,7 +94,6 @@ pub fn issue_access_jwt(
     let now = Utc::now().timestamp() as usize;
     let claims = WorkerClaims {
         sub: channel_id.to_owned(),
-        tid: tenant_id.to_owned(),
         plt: platform.to_owned(),
         app: app_id.to_owned(),
         device_uuid: device_uuid.to_owned(),
@@ -130,7 +126,6 @@ pub fn issue_access_jwt(
 /// device key.
 pub fn issue_refresh_jwt(
     channel_id: &str,
-    tenant_id: &str,
     platform: &str,
     app_id: &str,
     device_uuid: &str,
@@ -141,7 +136,6 @@ pub fn issue_refresh_jwt(
     let now = Utc::now().timestamp() as usize;
     let claims = WorkerClaims {
         sub: channel_id.to_owned(),
-        tid: tenant_id.to_owned(),
         plt: platform.to_owned(),
         app: app_id.to_owned(),
         device_uuid: device_uuid.to_owned(),
@@ -201,7 +195,7 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
     fn access_token_has_correct_type() {
         let cfg = test_cfg();
         let token =
-            issue_access_jwt("ch-1", "tenant-1", "android", "app-1", "dev-uuid", "sess-uuid", &cfg)
+            issue_access_jwt("ch-1", "android", "app-1", "dev-uuid", "sess-uuid", &cfg)
                 .unwrap();
 
         let mut v = Validation::new(Algorithm::ES256);
@@ -222,7 +216,6 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
         let hash = sha256_hex(b"fake-public-key-bytes");
         let token = issue_refresh_jwt(
             "ch-1",
-            "tenant-1",
             "ios",
             "app-1",
             "dev-uuid",
@@ -248,7 +241,7 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
     fn refresh_token_without_apk_hash() {
         let cfg = test_cfg();
         let token =
-            issue_refresh_jwt("ch-1", "t", "android", "a", "d", "s", None, &cfg).unwrap();
+            issue_refresh_jwt("ch-1", "android", "a", "d", "s", None, &cfg).unwrap();
 
         let mut v = Validation::new(Algorithm::ES256);
         v.set_issuer(&["logger-gateway"]);

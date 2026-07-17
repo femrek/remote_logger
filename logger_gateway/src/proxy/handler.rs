@@ -10,7 +10,7 @@
 //! │    │                                                                   │
 //! │    └─ path starts_with channel.path_prefix                             │
 //! │         ├─ Validate Authorization: Bearer <jwt> (token_type="access")  │
-//! │         ├─ Stash tenant_id + app_id in ctx                             │
+//! │         ├─ Stash app_id in ctx                                         │
 //! │         └─ return Ok(false)  [PIPELINE CONTINUES]                      │
 //! │                                                                        │
 //! │  upstream_peer()                                                       │
@@ -18,7 +18,7 @@
 //! │                                                                        │
 //! │  upstream_request_filter()                                             │
 //! │    ├─ /auth/exchange path → forward as-is (no header mutation)         │
-//! │    └─ ingest path → strip Authorization; inject x-tenant-id + x-app-id│
+//! │    └─ ingest path → strip Authorization; inject x-app-id               │
 //! │                                                                        │
 //! │  request_body_filter()  [called per chunk, streaming from client]      │
 //! │    ├─ Accumulate byte count (size guard only — body is opaque)         │
@@ -60,8 +60,6 @@ use crate::discovery::ServiceDiscovery;
 pub struct RequestContext {
     /// Channel id resolved in `request_filter`. Empty string before resolution.
     pub channel_id: String,
-    /// Tenant id from JWT claims (ingest path).
-    pub tenant_id: String,
     /// Application bundle identifier (e.g., `"dev.femrek.exampleapp"`).
     pub app_id: Option<String>,
 
@@ -89,7 +87,6 @@ impl Default for RequestContext {
     fn default() -> Self {
         Self {
             channel_id: String::new(),
-            tenant_id: String::new(),
             app_id: None,
             is_auth_exchange: false,
             body_bytes_read: 0,
@@ -228,7 +225,6 @@ impl ProxyHttp for LogGateway {
                 JWT_VALIDATIONS_TOTAL
                     .with_label_values(&[&ctx.channel_id, "ok"])
                     .inc();
-                ctx.tenant_id = claims.tid.clone();
 
                 // Enforce that the JWT subject matches the channel ID from the URL.
                 // This prevents token reuse across channels.
@@ -327,7 +323,6 @@ impl ProxyHttp for LogGateway {
         upstream_request.remove_header("authorization");
 
         // Inject routing metadata using `&'static str` for the known static keys.
-        upstream_request.insert_header("x-tenant-id", ctx.tenant_id.as_str())?;
         if let Some(app_id) = &ctx.app_id {
             upstream_request.insert_header("x-app-id", app_id.as_str())?;
         }

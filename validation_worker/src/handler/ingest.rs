@@ -2,12 +2,11 @@
 //!
 //! ## Request contract (post-refactor)
 //!
-//! The gateway validates the client's JWT and injects two mandatory headers:
-//! - `x-tenant-id` — tenant identifier from the JWT `tid` claim.
+//! The gateway validates the client's JWT and injects one mandatory header:
 //! - `x-app-id`   — application ID from the JWT `app` claim.
 //!
 //! The HTTP body MUST be a raw `ServerLog` JSON object. The `IngestEnvelope`
-//! wrapper (`{ app_id, tenant_id, payload }`) has been removed; the gateway
+//! wrapper (`{ app_id, payload }`) has been removed; the gateway
 //! now carries identity exclusively via headers.
 //!
 //! ## Processing pipeline
@@ -43,16 +42,6 @@ pub async fn ingest_handler(
     let start = Instant::now();
 
     // ── 1. Header extraction — REQUIRED (gateway always injects these) ─────────
-    let tenant_id = headers
-        .get("x-tenant-id")
-        .and_then(|v| v.to_str().ok())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            tracing::warn!("Missing x-tenant-id header — request did not pass through gateway JWT validation");
-            AppError::Unauthorized
-        })?
-        .to_string();
-
     let app_id = headers
         .get("x-app-id")
         .and_then(|v| v.to_str().ok())
@@ -64,7 +53,6 @@ pub async fn ingest_handler(
         .to_string();
 
     tracing::info!(
-        tenant_id = %tenant_id,
         app_id = %app_id,
         "Received ingest request"
     );
@@ -83,7 +71,6 @@ pub async fn ingest_handler(
 
     // ── 3. Assemble the flattened Kafka message ───────────────────────────────
     let kafka_payload = KafkaPayload {
-        tenant_id: tenant_id.clone(),
         app_id: app_id.clone(),
         log_index_prefix: format!("mobile-logs-{}", app_id),
         log: log_payload,
@@ -102,15 +89,15 @@ pub async fn ingest_handler(
 
     // ── 4. Zero-data-loss delivery: await broker ACK ──────────────────────────
     let elapsed = start.elapsed().as_secs_f64();
-    match state.sink.send(&state.kafka_topic, &tenant_id, &serialised).await {
+    match state.sink.send(&state.kafka_topic, &app_id, &serialised).await {
         Ok(()) => {
-            tracing::info!(tenant_id = %tenant_id, "Message delivered to Kafka");
+            tracing::info!(app_id = %app_id, "Message delivered to Kafka");
             REQUESTS_TOTAL.with_label_values(&[&app_id, "200"]).inc();
             REQUEST_DURATION_SECONDS.with_label_values(&[&app_id]).observe(elapsed);
             Ok(axum::http::StatusCode::OK)
         }
         Err(e) => {
-            tracing::error!(tenant_id = %tenant_id, error = %e, "Kafka delivery failed");
+            tracing::error!(app_id = %app_id, error = %e, "Kafka delivery failed");
             REQUESTS_TOTAL.with_label_values(&[&app_id, "503"]).inc();
             REQUEST_DURATION_SECONDS.with_label_values(&[&app_id]).observe(elapsed);
             Err(AppError::ServiceUnavailable)
@@ -127,16 +114,6 @@ pub async fn batch_ingest_handler(
     let start = Instant::now();
 
     // ── 1. Header extraction — REQUIRED (gateway always injects these) ─────────
-    let tenant_id = headers
-        .get("x-tenant-id")
-        .and_then(|v| v.to_str().ok())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            tracing::warn!("Missing x-tenant-id header — request did not pass through gateway JWT validation");
-            AppError::Unauthorized
-        })?
-        .to_string();
-
     let app_id = headers
         .get("x-app-id")
         .and_then(|v| v.to_str().ok())
@@ -148,7 +125,6 @@ pub async fn batch_ingest_handler(
         .to_string();
 
     tracing::info!(
-        tenant_id = %tenant_id,
         app_id = %app_id,
         "Received batch ingest request"
     );
@@ -175,7 +151,6 @@ pub async fn batch_ingest_handler(
     // ── 3. Assemble and deliver each log ──────────────────────────────────────
     for log_payload in log_payloads {
         let kafka_payload = KafkaPayload {
-            tenant_id: tenant_id.clone(),
             app_id: app_id.clone(),
             log_index_prefix: format!("mobile-logs-{}", app_id),
             log: log_payload,
@@ -192,8 +167,8 @@ pub async fn batch_ingest_handler(
             }
         };
 
-        if let Err(e) = state.sink.send(&state.kafka_topic, &tenant_id, &serialised).await {
-            tracing::error!(tenant_id = %tenant_id, error = %e, "Kafka delivery failed in batch");
+        if let Err(e) = state.sink.send(&state.kafka_topic, &app_id, &serialised).await {
+            tracing::error!(app_id = %app_id, error = %e, "Kafka delivery failed in batch");
             let elapsed = start.elapsed().as_secs_f64();
             REQUESTS_TOTAL.with_label_values(&[&app_id, "503"]).inc();
             REQUEST_DURATION_SECONDS.with_label_values(&[&app_id]).observe(elapsed);
@@ -329,7 +304,6 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             "/v1/logs/example-app-dev",
             valid_server_log(),
             &[
-                ("x-tenant-id", "example_tenant"),
                 ("x-app-id", "dev.femrek.exampleapp.dev"),
             ],
         )
@@ -345,48 +319,12 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             "/ingest",
             valid_server_log(),
             &[
-                ("x-tenant-id", "example_tenant"),
                 ("x-app-id", "dev.femrek.exampleapp.dev"),
             ],
         )
         .await;
         assert_eq!(resp.status(), StatusCode::OK);
     }
-
-    /// Missing `x-tenant-id` header → 401 (gateway authentication bypassed).
-    #[tokio::test]
-    async fn test_missing_tenant_id_header_returns_401() {
-        let resp = post_json_with_headers(
-            test_app(),
-            "/v1/logs/example-app-dev",
-            valid_server_log(),
-            &[("x-app-id", "dev.femrek.exampleapp.dev")],
-        )
-        .await;
-        assert_eq!(
-            resp.status(),
-            StatusCode::UNAUTHORIZED,
-            "Missing x-tenant-id must be rejected with 401"
-        );
-    }
-
-    /// Missing `x-app-id` header → 401.
-    #[tokio::test]
-    async fn test_missing_app_id_header_returns_401() {
-        let resp = post_json_with_headers(
-            test_app(),
-            "/v1/logs/example-app-dev",
-            valid_server_log(),
-            &[("x-tenant-id", "example_tenant")],
-        )
-        .await;
-        assert_eq!(
-            resp.status(),
-            StatusCode::UNAUTHORIZED,
-            "Missing x-app-id must be rejected with 401"
-        );
-    }
-
     /// Both headers absent → 401.
     #[tokio::test]
     async fn test_no_headers_returns_401() {
@@ -404,7 +342,6 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
                     .method("POST")
                     .uri("/v1/logs/example-app-dev")
                     .header("content-type", "application/json")
-                    .header("x-tenant-id", "example_tenant")
                     .header("x-app-id", "dev.femrek.exampleapp.dev")
                     .body(Body::from("not-json"))
                     .unwrap(),
@@ -430,7 +367,6 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             "/v1/logs/example-app-dev",
             body,
             &[
-                ("x-tenant-id", "example_tenant"),
                 ("x-app-id", "dev.femrek.exampleapp.dev"),
             ],
         )
@@ -447,7 +383,6 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             "/v1/logs/example-app-dev",
             valid_server_log(),
             &[
-                ("x-tenant-id", "example_tenant"),
                 ("x-app-id", "dev.femrek.exampleapp.dev"),
             ],
         )
@@ -473,7 +408,6 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             "/v1/logs/example-app-dev",
             body,
             &[
-                ("x-tenant-id", "example_tenant"),
                 ("x-app-id", "dev.femrek.exampleapp.dev"),
             ],
         )
@@ -489,7 +423,6 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             "/v1/logs/example-app-dev/log",
             valid_server_log(),
             &[
-                ("x-tenant-id", "example_tenant"),
                 ("x-app-id", "dev.femrek.exampleapp.dev"),
             ],
         )
@@ -508,7 +441,6 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             "/v1/logs/example-app-dev/batch",
             body,
             &[
-                ("x-tenant-id", "example_tenant"),
                 ("x-app-id", "dev.femrek.exampleapp.dev"),
             ],
         )
@@ -524,7 +456,6 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             "/v1/logs/example-app-dev/batch",
             body,
             &[
-                ("x-tenant-id", "example_tenant"),
                 ("x-app-id", "dev.femrek.exampleapp.dev"),
             ],
         )
@@ -541,7 +472,6 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
                     .method("POST")
                     .uri("/v1/logs/example-app-dev/batch")
                     .header("content-type", "application/json")
-                    .header("x-tenant-id", "example_tenant")
                     .header("x-app-id", "dev.femrek.exampleapp.dev")
                     .body(Body::from("not-json"))
                     .unwrap(),

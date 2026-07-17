@@ -84,7 +84,6 @@ pub trait AttestationVerifier: Send + Sync {
         &'a self,
         token: &'a str,
         platform: Platform,
-        tenant_id: &'a str,
         app_id: &'a str,
         google_project_number: Option<&'a str>,
         apple_team_id: Option<&'a str>,
@@ -104,7 +103,6 @@ impl AttestationVerifier for NoopVerifier {
         _: &'a str,
         _: Platform,
         _: &'a str,
-        _: &'a str,
         _: Option<&'a str>,
         _: Option<&'a str>,
     ) -> VerifyFuture<'a> {
@@ -123,7 +121,6 @@ impl AttestationVerifier for GooglePlayIntegrityVerifier {
         &'a self,
         token: &'a str,
         platform: Platform,
-        _tenant_id: &'a str,
         app_id: &'a str,
         google_project_number: Option<&'a str>,
         _apple_team_id: Option<&'a str>,
@@ -162,7 +159,6 @@ impl AttestationVerifier for AppleAppAttestVerifier {
         &'a self,
         token: &'a str,
         platform: Platform,
-        _tenant_id: &'a str,
         app_id: &'a str,
         _google_project_number: Option<&'a str>,
         apple_team_id: Option<&'a str>,
@@ -206,20 +202,25 @@ impl AttestationVerifier for PlatformDispatchVerifier {
         &'a self,
         token: &'a str,
         platform: Platform,
-        tenant_id: &'a str,
         app_id: &'a str,
         google_project_number: Option<&'a str>,
         apple_team_id: Option<&'a str>,
     ) -> VerifyFuture<'a> {
         match platform {
-            Platform::Android => {
-                self.android
-                    .verify(token, platform, tenant_id, app_id, google_project_number, apple_team_id)
-            }
-            Platform::Ios => {
-                self.ios
-                    .verify(token, platform, tenant_id, app_id, google_project_number, apple_team_id)
-            }
+            Platform::Android => self.android.verify(
+                token,
+                platform,
+                app_id,
+                google_project_number,
+                apple_team_id,
+            ),
+            Platform::Ios => self.ios.verify(
+                token,
+                platform,
+                app_id,
+                google_project_number,
+                apple_team_id,
+            ),
         }
     }
 }

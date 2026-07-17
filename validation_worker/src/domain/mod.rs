@@ -73,8 +73,6 @@ pub struct AuthExchangeRequest {
     pub platform: Platform,
     /// Raw attestation blob from Google Play Integrity or Apple App Attest.
     pub attestation_token: String,
-    /// Tenant identifier claimed by the client.
-    pub tenant_id: String,
     /// Client-generated device UUID — embedded in both JWTs.
     pub device_uuid: String,
     /// Full device metadata — serialised to Kafka, NOT embedded in the JWT.
@@ -111,7 +109,6 @@ pub struct AuthExchangeResponse {
 pub struct SystemStartupEvent {
     /// Always `"system_startup"` — used as a discriminator by consumers.
     pub event_type: String,
-    pub tenant_id: String,
     pub app_id: String,
     pub device_uuid: String,
     pub session_id: String,
@@ -128,7 +125,6 @@ pub struct SystemStartupEvent {
 /// Per spec report §4, Fluent Bit's `nest/lift` filter is therefore a no-op.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KafkaPayload {
-    pub tenant_id: String,
     pub app_id: String,
     pub log_index_prefix: String,
     #[serde(flatten)]

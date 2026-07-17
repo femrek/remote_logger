@@ -173,7 +173,7 @@ async fn main() {
                             tracing::info!("Successfully registered with Consul via reqwest at {}", consul_addr);
                             first_success = false;
                         } else {
-                            tracing::debug!("Refreshed Consul registration at {}", consul_addr);
+                            tracing::trace!("Refreshed Consul registration at {}", consul_addr);
                         }
                         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                     }

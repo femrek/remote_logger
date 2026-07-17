@@ -166,7 +166,6 @@ async fn integration_valid_payload_returns_200_and_reaches_kafka() {
             "http://127.0.0.1:{}/v1/logs/test-channel",
             server_port
         ))
-        .header("x-tenant-id", "example_tenant-test")
         .header("x-app-id", "com.test.app")
         .json(&envelope)
         .send()
@@ -214,7 +213,6 @@ async fn integration_valid_payload_returns_200_and_reaches_kafka() {
     // ── 5. Assert KafkaPayload structure (spec report §4) ────────────────────
 
     // Top-level enrichment fields added by the worker.
-    assert_eq!(kafka_json["tenant_id"],         "example_tenant-test",              "tenant_id");
     assert_eq!(kafka_json["app_id"],            "com.test.app",           "app_id");
     assert_eq!(kafka_json["log_index_prefix"], "mobile-logs-com.test.app","log_index_prefix");
 
@@ -300,7 +298,6 @@ async fn integration_invalid_payloads_return_400() {
     // Case A — Spec report §2: raw `ServerLog` body missing required fields (empty object)
     let raw_log = serde_json::json!({});
     let resp = client.post(&base_url)
-        .header("x-tenant-id", "example_tenant-test")
         .header("x-app-id", "com.test.app")
         .json(&raw_log).send().await.unwrap();
     assert_eq!(
@@ -320,7 +317,6 @@ async fn integration_invalid_payloads_return_400() {
     });
     let resp = client
         .post(&base_url)
-        .header("x-tenant-id", "example_tenant-test")
         .header("x-app-id", "com.test.app")
         .json(&missing_uuid)
         .send()
@@ -342,7 +338,6 @@ async fn integration_invalid_payloads_return_400() {
         "deviceUUID": "some-uuid"
     });
     let resp = client.post(&base_url)
-        .header("x-tenant-id", "")
         .header("x-app-id", "")
         .json(&empty_ids).send().await.unwrap();
     assert_eq!(
