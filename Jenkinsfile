@@ -73,7 +73,7 @@ pipeline {
                 script {
                     // Build logger_gateway from its context and Dockerfile
                     echo "Building logger_gateway image..."
-                    gatewayImage = docker.build("${DOCKER_REGISTRY}/logger_gateway:${IMAGE_TAG}", "-f logger_gateway/docker/Dockerfile logger_gateway")
+                    gatewayImage = docker.build("${DOCKER_REGISTRY}/logger_gateway:${IMAGE_TAG}", "-f logger_gateway/Dockerfile logger_gateway")
                     
                     // Build validation_worker from its context and Dockerfile
                     echo "Building validation_worker image..."
