@@ -10,8 +10,9 @@ services:
       - "9090:9090"  # Prometheus metrics port
     environment:
       - RUST_LOG=${RUST_LOG:-info,logger_gateway=debug}
-      - GATEWAY_PUBLIC_KEY=${GATEWAY_PUBLIC_KEY}
+      - GATEWAY_PUBLIC_KEY_PATH=${GATEWAY_PUBLIC_KEY_PATH:-/app/keys/public.pem}
     volumes:
+      - ../keys:/app/keys
       # Mount the gateway.yaml file so that modifying it on the host triggers the hot-reload watcher in the container.
       - ../config/gateway.yaml:/app/config/gateway.yaml
       - ../config/workers_list.json:/app/config/workers_list.json

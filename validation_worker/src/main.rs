@@ -46,10 +46,13 @@ async fn main() {
     let kafka_brokers   = env_or("KAFKA_BROKERS",           "localhost:9092");
     let kafka_topic     = env_or("KAFKA_TOPIC",             "mobile-logs");
     let metadata_topic  = env_or("KAFKA_METADATA_TOPIC",    "device-metadata");
-    let raw_private_key = std::env::var("GATEWAY_PRIVATE_KEY")
-        .expect("GATEWAY_PRIVATE_KEY env var must be set");
+    let key_path = std::env::var("GATEWAY_PRIVATE_KEY_PATH")
+        .unwrap_or_else(|_| "./private_key.pem".to_string());
+    let raw_private_key = std::fs::read_to_string(&key_path)
+        .unwrap_or_else(|e| panic!("Failed to read private key from {}: {}", key_path, e));
     let jwt_private_key = {
-        let trimmed = raw_private_key.trim();
+        let processed = raw_private_key.replace("\\n", "\n");
+        let trimmed = processed.trim();
         if trimmed.starts_with("-----BEGIN") {
             trimmed.to_string()
         } else {

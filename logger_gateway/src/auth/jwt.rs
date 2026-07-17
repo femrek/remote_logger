@@ -136,8 +136,11 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
 -----END PUBLIC KEY-----";
 
     fn test_cfg() -> JwtConfig {
+        let temp_dir = std::env::temp_dir();
+        let key_path = temp_dir.join(format!("gateway_public_key_{}.pem", std::process::id()));
+        std::fs::write(&key_path, TEST_PUBLIC_KEY_PEM).unwrap();
         unsafe {
-            std::env::set_var("GATEWAY_PUBLIC_KEY", TEST_PUBLIC_KEY_PEM);
+            std::env::set_var("GATEWAY_PUBLIC_KEY_PATH", key_path.to_str().unwrap());
         }
         JwtConfig {
             issuer: "logger-gateway".to_string(),
@@ -200,11 +203,14 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
         let _guard = TEST_LOCK.lock().unwrap();
         let cfg = test_cfg();
         let token = make_test_token(&cfg, "access");
-        unsafe {
-            std::env::set_var("GATEWAY_PUBLIC_KEY", "-----BEGIN PUBLIC KEY-----\n\
+        let temp_dir = std::env::temp_dir();
+        let key_path = temp_dir.join(format!("gateway_wrong_public_key_{}.pem", std::process::id()));
+        std::fs::write(&key_path, "-----BEGIN PUBLIC KEY-----\n\
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE14cM3v8/JkZ2oFpx7WqL/kX6Z7S9\n\
 u8m2g9b/qszcku8bm+8JJ8wNLKIOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqn\n\
------END PUBLIC KEY-----");
+-----END PUBLIC KEY-----").unwrap();
+        unsafe {
+            std::env::set_var("GATEWAY_PUBLIC_KEY_PATH", key_path.to_str().unwrap());
         }
         
         assert!(validate_jwt(&token, &cfg).is_err());
@@ -221,8 +227,11 @@ u8m2g9b/qszcku8bm+8JJ8wNLKIOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqn\n\
     fn validates_ok_with_raw_base64_public_key() {
         let _guard = TEST_LOCK.lock().unwrap();
         let raw_pub_key = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElCR0ys2PS/qszcku8bm+8JJ8wNLKIOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==";
+        let temp_dir = std::env::temp_dir();
+        let key_path = temp_dir.join(format!("gateway_raw_public_key_{}.pem", std::process::id()));
+        std::fs::write(&key_path, raw_pub_key).unwrap();
         unsafe {
-            std::env::set_var("GATEWAY_PUBLIC_KEY", raw_pub_key);
+            std::env::set_var("GATEWAY_PUBLIC_KEY_PATH", key_path.to_str().unwrap());
         }
         let cfg = JwtConfig {
             issuer: "logger-gateway".to_string(),

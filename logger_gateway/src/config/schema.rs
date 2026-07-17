@@ -128,13 +128,16 @@ impl JwtConfig {
     /// # Errors
     /// Returns an error if the environment variable is not set at runtime.
     pub fn resolved_public_key(&self) -> anyhow::Result<String> {
-        let key = std::env::var("GATEWAY_PUBLIC_KEY").map_err(|_| {
+        let key_path = std::env::var("GATEWAY_PUBLIC_KEY_PATH")
+            .unwrap_or_else(|_| "./public_key.pem".to_string());
+        let key = std::fs::read_to_string(&key_path).map_err(|e| {
             anyhow::anyhow!(
-                "JWT public key env var 'GATEWAY_PUBLIC_KEY' is not set. \
-                 Set it with: export GATEWAY_PUBLIC_KEY=<public_key>"
+                "Failed to read JWT public key from '{}' (set by GATEWAY_PUBLIC_KEY_PATH): {}",
+                key_path, e
             )
         })?;
-        let trimmed = key.trim();
+        let processed = key.replace("\\n", "\n");
+        let trimmed = processed.trim();
         if trimmed.starts_with("-----BEGIN") {
             Ok(trimmed.to_string())
         } else {

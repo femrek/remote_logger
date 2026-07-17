@@ -227,6 +227,11 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
         compose_files.push(compose_dev_file.to_str().unwrap().to_string());
     }
 
+    let keys_dir = docker_dir.join("keys");
+    std::fs::create_dir_all(&keys_dir).expect("Failed to create keys directory");
+    std::fs::write(keys_dir.join("private.pem"), &jwt_private_key).expect("Failed to write private.pem");
+    std::fs::write(keys_dir.join("public.pem"), &jwt_public_key).expect("Failed to write public.pem");
+
     // ── 2. Bring up the compose stack ────────────────────────────────────────
     //
     // The `_stack` binding is intentionally held for the lifetime of this test.
@@ -235,8 +240,6 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     let _stack = DockerComposeHandle::up(
         &compose_files,
         &[
-            ("GATEWAY_PRIVATE_KEY", &jwt_private_key),
-            ("GATEWAY_PUBLIC_KEY", &jwt_public_key),
             ("GATEWAY_ADMIN_TOKEN", &admin_token),
             ("OPENSEARCH_ADMIN_PASSWORD", "Ax2ZlVoT4nH2FANX"),
         ],

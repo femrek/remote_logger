@@ -5,12 +5,14 @@ services:
     environment:
       - CONSUL_HTTP_ADDR=http://consul:8500
       - RUST_LOG=${RUST_LOG:-info,logger_gateway=debug}
-      - GATEWAY_PUBLIC_KEY=${GATEWAY_PUBLIC_KEY}
+      - GATEWAY_PUBLIC_KEY_PATH=${GATEWAY_PUBLIC_KEY_PATH:-/etc/logger/keys/public.pem}
       - GATEWAY_BIND_ADDR=${GATEWAY_BIND_ADDR:-0.0.0.0:8080}
       - GATEWAY_METRICS_ADDR=${GATEWAY_METRICS_ADDR:-0.0.0.0:9090}
       # Uncomment to enable TLS termination:
       # - GATEWAY_TLS_CERT_PATH=/etc/certs/server.crt
       # - GATEWAY_TLS_KEY_PATH=/etc/certs/server.key
+    volumes:
+      - ./keys/public.pem:/etc/logger/keys/public.pem:ro
     networks:
       - logger_network
     depends_on:
@@ -40,7 +42,7 @@ services:
       - PORT=${PORT:-8000}
       - KAFKA_TOPIC=${KAFKA_TOPIC:-mobile-logs}
       - KAFKA_METADATA_TOPIC=${KAFKA_METADATA_TOPIC:-device-metadata}
-      - GATEWAY_PRIVATE_KEY=${GATEWAY_PRIVATE_KEY}
+      - GATEWAY_PRIVATE_KEY_PATH=${GATEWAY_PRIVATE_KEY_PATH:-/etc/logger/keys/private.pem}
       - ACCESS_JWT_TTL_SECONDS=${ACCESS_JWT_TTL_SECONDS:-900}
       - REFRESH_JWT_TTL_SECONDS=${REFRESH_JWT_TTL_SECONDS:-604800}
       - JWT_ISSUER=${JWT_ISSUER:-logger-gateway}
@@ -49,6 +51,8 @@ services:
       - CONSUL_HTTP_ADDR=http://consul:8500
       - ADVERTISED_IP=auto
       - NODE_ID=auto
+    volumes:
+      - ./keys/private.pem:/etc/logger/keys/private.pem:ro
     networks:
       - logger_network
     depends_on:
