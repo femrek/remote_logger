@@ -2,7 +2,7 @@ services:
   logger_gateway:
     build:
       context: ../logger_gateway
-      dockerfile: docker/Dockerfile
+      dockerfile: Dockerfile
     ports:
       - "8080:8080"
       - "127.0.0.1:9095:9090"  # Prometheus metrics (mapped to 9095 to avoid conflict with IDE plugin)
