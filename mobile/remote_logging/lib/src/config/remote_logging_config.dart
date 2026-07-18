@@ -3,16 +3,13 @@ import 'package:logging/logging.dart';
 /// Configuration class for remote logging functionality.
 ///
 /// This class encapsulates all configuration parameters required for setting up
-/// and controlling the behavior of remote logging in the application. It
-/// includes endpoints for device information, individual logs, and batch log
-/// submissions, along with level controls for filtering and displaying logs.
+/// and controlling the behavior of remote logging in the application.
 ///
 /// Example usage:
 /// ```dart
 /// final config = RemoteLoggingConfig(
-///   loggerEndpointDevice: 'https://api.example.com/device',
-///   loggerEndpointLog: 'https://api.example.com/log',
-///   loggerEndpointLogBatch: 'https://api.example.com/batch',
+///   gatewayUrl: 'https://api.example.com',
+///   channelId: 'my-channel',
 ///   enableRemoteLogging: true,
 ///   logSendLevel: Level.WARNING,
 /// );
@@ -21,12 +18,9 @@ class RemoteLoggingConfig {
   /// Creates a configuration instance for remote logging.
   ///
   /// Parameters:
-  /// - [loggerEndpointDevice]: The HTTP endpoint URL for sending device
-  /// information
-  /// - [loggerEndpointLog]: The HTTP endpoint URL for sending individual log
-  /// entries
-  /// - [loggerEndpointLogBatch]: The HTTP endpoint URL for sending batch log
-  /// submissions
+  /// - [gatewayUrl]: The base HTTP endpoint URL for the remote logger gateway
+  /// - [channelId]: The channel ID for logs
+  /// - [devicePublicKey]: The device public key (optional)
   /// - [enableRemoteLogging]: Whether remote logging is enabled (default: true)
   /// - [logSendLevel]: The minimum log level for sending logs remotely
   /// (default: Level.INFO)
@@ -35,26 +29,23 @@ class RemoteLoggingConfig {
   /// - [localLogPrintLevel]: The minimum log level for local logging (default:
   /// Level.FINEST)
   const RemoteLoggingConfig({
-    required this.loggerEndpointDevice,
-    required this.loggerEndpointLog,
-    required this.loggerEndpointLogBatch,
+    required this.gatewayUrl,
+    required this.channelId,
+    this.devicePublicKey,
     this.enableRemoteLogging = true,
     this.logSendLevel = Level.INFO,
     this.logPrintLevel = Level.FINEST,
     this.localLogPrintLevel = Level.FINEST,
   });
 
-  /// The HTTP endpoint URL for sending device information to the logging
-  /// service.
-  final String loggerEndpointDevice;
+  /// The base HTTP endpoint URL for the remote logger gateway
+  final String gatewayUrl;
 
-  /// The HTTP endpoint URL for sending individual log entries to the logging
-  /// service.
-  final String loggerEndpointLog;
+  /// The channel ID for logs
+  final String channelId;
 
-  /// The HTTP endpoint URL for sending batch log submissions to the logging
-  /// service.
-  final String loggerEndpointLogBatch;
+  /// The device public key (optional)
+  final String? devicePublicKey;
 
   /// Whether remote logging is enabled.
   ///
@@ -83,19 +74,18 @@ class RemoteLoggingConfig {
   /// Creates a copy of this configuration with the given fields replaced by
   /// the new values.
   RemoteLoggingConfig copyWith({
-    String? loggerEndpointDevice,
-    String? loggerEndpointLog,
-    String? loggerEndpointLogBatch,
+    String? gatewayUrl,
+    String? channelId,
+    String? devicePublicKey,
     bool? enableRemoteLogging,
     Level? logSendLevel,
     Level? logPrintLevel,
     Level? localLogPrintLevel,
   }) {
     return RemoteLoggingConfig(
-      loggerEndpointDevice: loggerEndpointDevice ?? this.loggerEndpointDevice,
-      loggerEndpointLog: loggerEndpointLog ?? this.loggerEndpointLog,
-      loggerEndpointLogBatch:
-          loggerEndpointLogBatch ?? this.loggerEndpointLogBatch,
+      gatewayUrl: gatewayUrl ?? this.gatewayUrl,
+      channelId: channelId ?? this.channelId,
+      devicePublicKey: devicePublicKey ?? this.devicePublicKey,
       enableRemoteLogging: enableRemoteLogging ?? this.enableRemoteLogging,
       logSendLevel: logSendLevel ?? this.logSendLevel,
       logPrintLevel: logPrintLevel ?? this.logPrintLevel,
@@ -106,9 +96,9 @@ class RemoteLoggingConfig {
   @override
   String toString() {
     return 'RemoteLoggingConfig('
-        'loggerEndpointDevice: $loggerEndpointDevice, '
-        'loggerEndpointLog: $loggerEndpointLog, '
-        'loggerEndpointLogBatch: $loggerEndpointLogBatch, '
+        'gatewayUrl: $gatewayUrl, '
+        'channelId: $channelId, '
+        'devicePublicKey: $devicePublicKey, '
         'enableRemoteLogging: $enableRemoteLogging, '
         'logSendLevel: $logSendLevel, '
         'logPrintLevel: $logPrintLevel, '

@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:dart_network_layer_core/dart_network_layer_core.dart';
 import 'package:remote_logging/remote_logging.dart';
-import 'package:remote_logging/src/remote/request/request_device_metadata.dart';
+import 'package:remote_logging/src/remote/auth_service.dart';
 import 'package:remote_logging/src/remote/request/request_log_batch.dart';
 
 /// A service that collects log records and periodically sends them to a remote
@@ -18,6 +18,7 @@ final class LogSenderService {
   LogSenderService({
     required this.config,
     required this.deviceDataGenerator,
+    this.onError,
   });
 
   /// Configuration for the remote logging service.
@@ -26,8 +27,12 @@ final class LogSenderService {
   /// Generator for device data to be included in log records.
   final IDeviceDataGenerator deviceDataGenerator;
 
+  /// Optional error listener.
+  final void Function(Object error, StackTrace stackTrace)? onError;
+
   late final INetworkInvoker _invoker;
   late final DeviceMetadata _deviceMetadata;
+  late final AuthService _authService;
 
   static const Duration _syncInterval = Duration(seconds: 10);
 
@@ -55,6 +60,7 @@ final class LogSenderService {
   Future<void> start({
     required INetworkInvoker invoker,
     required DeviceMetadata deviceMetadata,
+    required AuthService authService,
   }) async {
     localLog.config('Starting LogSenderService...');
     if (!config.enableRemoteLogging) {
@@ -67,12 +73,12 @@ final class LogSenderService {
 
     _invoker = invoker;
     _deviceMetadata = deviceMetadata;
+    _authService = authService;
 
     localLog.config(
       () => 'Device metadata: ${_deviceMetadata.toJsonPayload()}',
     );
 
-    await _sendDeviceMetadata();
     await _sendAll();
     return Stream<void>.periodic(
       _syncInterval,
@@ -80,14 +86,6 @@ final class LogSenderService {
       await _resendFailedRequests();
       await _sendAll();
     }).asFuture();
-  }
-
-  Future<void> _sendDeviceMetadata() async {
-    final request = RequestDeviceMetadata(
-      metadata: _deviceMetadata,
-      path: config.loggerEndpointDevice,
-    );
-    await _invoker.send(request);
   }
 
   Future<void> _sendAll() async {
@@ -117,26 +115,37 @@ final class LogSenderService {
             ),
           )
           .toList(),
-      path: config.loggerEndpointLogBatch,
+      path: '${config.gatewayUrl.endsWith('/') ? config.gatewayUrl.substring(0, config.gatewayUrl.length - 1) : config.gatewayUrl}/v1/logs/${config.channelId}/batch',
+      token: await _authService.getValidAccessToken(),
     );
     final response = await _invoker.send(request);
     switch (response) {
-      case SuccessResponseResult<IgnoredSchema>():
+      case SuccessResponseResult():
         localLog.finer(
           () => 'Received response for log batch request: ${request.hashCode}',
         );
-      case NetworkErrorResult<IgnoredSchema>():
+      case NetworkErrorResult():
         _failedRequests.add(request);
         localLog.warning(
           'Network error while sending log batch request: ${request.hashCode}',
           response.error,
           response.error.stackTrace,
         );
-      case SpecifiedResponseResult<IgnoredSchema>():
-        throw Exception(
-          'Unexpected response type for log batch request: '
-          '${response.runtimeType}',
+        onError?.call(response.error, response.error.stackTrace);
+      // If it's a 401, token might be expired. Handle it if needed by force
+      // refreshing token on next try.
+      // For now, it will be added to failed requests and retried.
+      case SpecifiedResponseResult(:final data, :final type):
+        final err = Exception(
+          'Unexpected response type for log batch request: $type, data: $data',
         );
+        localLog.severe(
+          'Unexpected response type for log batch request: ${request.hashCode}',
+          err,
+          StackTrace.current,
+        );
+
+        throw err;
     }
   }
 
@@ -181,5 +190,10 @@ final class LogSenderService {
         'still failed after resend attempts',
       );
     }
+  }
+
+  /// Forces an immediate flush of the log queue.
+  Future<void> flush() async {
+    await _sendAll();
   }
 }

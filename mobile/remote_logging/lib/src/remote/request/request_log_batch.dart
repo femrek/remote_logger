@@ -7,10 +7,14 @@ class RequestLogBatch extends RequestCommand<IgnoredSchema> {
   RequestLogBatch({
     required this.logs,
     required this.path,
+    this.token,
   });
 
   /// the data to be sent.
   final List<ServerLog> logs;
+
+  /// Optional JWT access token
+  final String? token;
 
   @override
   final String path;
@@ -20,6 +24,11 @@ class RequestLogBatch extends RequestCommand<IgnoredSchema> {
 
   @override
   late final RequestSchema payload = _RequestLogBatchPayload(logs: logs);
+
+  @override
+  Map<String, dynamic> get headers => {
+    if (token != null) 'Authorization': 'Bearer $token',
+  };
 
   @override
   SchemaFactory<Schema> get defaultErrorResponseFactory =>

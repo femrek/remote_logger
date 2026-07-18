@@ -18,8 +18,26 @@ void main() {
           events: [
             StandardServerEvent(
               matcher: (request) =>
-                  request.method == 'POST' && request.uri.path == '/log/batch',
+                  request.method == 'POST' &&
+                  request.uri.path == '/auth/exchange',
               handler: (request) async {
+                return jsonEncode({
+                  'access_token': 'dummy-access',
+                  'refresh_token': 'dummy-refresh',
+                  'access_expires_in': 3600,
+                  'refresh_expires_in': 86400,
+                });
+              },
+              responseStatusCode: 200,
+            ),
+            StandardServerEvent(
+              matcher: (request) =>
+                  request.method == 'POST' && request.uri.path == '/v1/logs/test-channel/batch',
+              handler: (request) async {
+                expect(
+                  request.headers.value('authorization'),
+                  'Bearer dummy-access',
+                );
                 final content = await request.map<String>((e) {
                   return String.fromCharCodes(e);
                 }).join();
@@ -32,7 +50,7 @@ void main() {
                 expect(logMessages[0], 'First log message');
                 expect(logMessages[1], 'Second log message');
                 serverSideExpectationsMet = true;
-                return '';
+                return '{}';
               },
               responseStatusCode: 200,
             ),
@@ -41,7 +59,7 @@ void main() {
         final baseUrl = 'http://localhost:${server.port}';
 
         final remoteLogger = await RemoteLogging.init(
-          remoteLoggingConfig: _config,
+          remoteLoggingConfig: _config.copyWith(gatewayUrl: baseUrl),
           deviceDataGenerator: TestDeviceDataGenerator(),
         );
         final invoker = DioNetworkInvoker.fromBaseUrl(baseUrl);
@@ -77,7 +95,21 @@ void main() {
           events: [
             StandardServerEvent(
               matcher: (request) =>
-                  request.method == 'POST' && request.uri.path == '/log/batch',
+                  request.method == 'POST' &&
+                  request.uri.path == '/auth/exchange',
+              handler: (request) async {
+                return jsonEncode({
+                  'access_token': 'dummy-access',
+                  'refresh_token': 'dummy-refresh',
+                  'access_expires_in': 3600,
+                  'refresh_expires_in': 86400,
+                });
+              },
+              responseStatusCode: 200,
+            ),
+            StandardServerEvent(
+              matcher: (request) =>
+                  request.method == 'POST' && request.uri.path == '/v1/logs/test-channel/batch',
               handler: (request) async {
                 final content = await request.map<String>((e) {
                   return String.fromCharCodes(e);
@@ -88,7 +120,7 @@ void main() {
                 expect(jsonData.length, 1);
                 expect(jsonData[0]['level'] as String, 'WARNING');
                 batchSent = true;
-                return '';
+                return '{}';
               },
               responseStatusCode: 200,
             ),
@@ -96,10 +128,9 @@ void main() {
         );
         final baseUrl = 'http://localhost:${server.port}';
 
-        const configWithFiltering = RemoteLoggingConfig(
-          loggerEndpointDevice: '/log/device',
-          loggerEndpointLog: '/log',
-          loggerEndpointLogBatch: '/log/batch',
+        final configWithFiltering = RemoteLoggingConfig(
+          gatewayUrl: baseUrl,
+          channelId: 'test-channel',
           logSendLevel: Level.WARNING,
           logPrintLevel: Level.FINEST,
           localLogPrintLevel: Level.FINEST,
@@ -139,10 +170,24 @@ void main() {
           events: [
             StandardServerEvent(
               matcher: (request) =>
-                  request.method == 'POST' && request.uri.path == '/log/batch',
+                  request.method == 'POST' &&
+                  request.uri.path == '/auth/exchange',
+              handler: (request) async {
+                return jsonEncode({
+                  'access_token': 'dummy-access',
+                  'refresh_token': 'dummy-refresh',
+                  'access_expires_in': 3600,
+                  'refresh_expires_in': 86400,
+                });
+              },
+              responseStatusCode: 200,
+            ),
+            StandardServerEvent(
+              matcher: (request) =>
+                  request.method == 'POST' && request.uri.path == '/v1/logs/test-channel/batch',
               handler: (request) async {
                 batchSent = true;
-                return '';
+                return '{}';
               },
               responseStatusCode: 200,
             ),
@@ -150,10 +195,9 @@ void main() {
         );
         final baseUrl = 'http://localhost:${server.port}';
 
-        const disabledConfig = RemoteLoggingConfig(
-          loggerEndpointDevice: '/log/device',
-          loggerEndpointLog: '/log',
-          loggerEndpointLogBatch: '/log/batch',
+        final disabledConfig = RemoteLoggingConfig(
+          gatewayUrl: baseUrl,
+          channelId: 'test-channel',
           enableRemoteLogging: false,
           logSendLevel: Level.FINEST,
           logPrintLevel: Level.FINEST,
@@ -184,7 +228,21 @@ void main() {
           events: [
             StandardServerEvent(
               matcher: (request) =>
-                  request.method == 'POST' && request.uri.path == '/log/batch',
+                  request.method == 'POST' &&
+                  request.uri.path == '/auth/exchange',
+              handler: (request) async {
+                return jsonEncode({
+                  'access_token': 'dummy-access',
+                  'refresh_token': 'dummy-refresh',
+                  'access_expires_in': 3600,
+                  'refresh_expires_in': 86400,
+                });
+              },
+              responseStatusCode: 200,
+            ),
+            StandardServerEvent(
+              matcher: (request) =>
+                  request.method == 'POST' && request.uri.path == '/v1/logs/test-channel/batch',
               handler: (request) async {
                 final content = await request.map<String>((e) {
                   return String.fromCharCodes(e);
@@ -193,7 +251,7 @@ void main() {
                     .cast<Map<String, dynamic>>();
                 expect(jsonData.length, greaterThan(0));
                 batchCount++;
-                return '';
+                return '{}';
               },
               responseStatusCode: 200,
             ),
@@ -202,7 +260,7 @@ void main() {
         final baseUrl = 'http://localhost:${server.port}';
 
         final remoteLogger = await RemoteLogging.init(
-          remoteLoggingConfig: _config,
+          remoteLoggingConfig: _config.copyWith(gatewayUrl: baseUrl),
           deviceDataGenerator: TestDeviceDataGenerator(),
         );
         final invoker = DioNetworkInvoker.fromBaseUrl(baseUrl);
@@ -234,7 +292,21 @@ void main() {
           events: [
             StandardServerEvent(
               matcher: (request) =>
-                  request.method == 'POST' && request.uri.path == '/log/batch',
+                  request.method == 'POST' &&
+                  request.uri.path == '/auth/exchange',
+              handler: (request) async {
+                return jsonEncode({
+                  'access_token': 'dummy-access',
+                  'refresh_token': 'dummy-refresh',
+                  'access_expires_in': 3600,
+                  'refresh_expires_in': 86400,
+                });
+              },
+              responseStatusCode: 200,
+            ),
+            StandardServerEvent(
+              matcher: (request) =>
+                  request.method == 'POST' && request.uri.path == '/v1/logs/test-channel/batch',
               handler: (request) async {
                 final content = await request.map<String>((e) {
                   return String.fromCharCodes(e);
@@ -244,7 +316,7 @@ void main() {
                 capturedLevels = jsonData
                     .map((e) => e['level'] as String)
                     .toList(growable: false);
-                return '';
+                return '{}';
               },
               responseStatusCode: 200,
             ),
@@ -253,7 +325,7 @@ void main() {
         final baseUrl = 'http://localhost:${server.port}';
 
         final remoteLogger = await RemoteLogging.init(
-          remoteLoggingConfig: _config,
+          remoteLoggingConfig: _config.copyWith(gatewayUrl: baseUrl),
           deviceDataGenerator: TestDeviceDataGenerator(),
         );
         final invoker = DioNetworkInvoker.fromBaseUrl(baseUrl);
@@ -286,9 +358,8 @@ void main() {
 }
 
 RemoteLoggingConfig get _config => const RemoteLoggingConfig(
-  loggerEndpointDevice: '/log/device',
-  loggerEndpointLog: '/log',
-  loggerEndpointLogBatch: '/log/batch',
+  gatewayUrl: 'http://localhost:8080',
+  channelId: 'test-channel',
   localLogPrintLevel: Level.FINEST,
   logSendLevel: Level.FINEST,
   logPrintLevel: Level.FINEST,

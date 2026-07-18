@@ -1,5 +1,6 @@
 import 'package:dart_network_layer_core/dart_network_layer_core.dart';
 import 'package:remote_logging/remote_logging.dart';
+import 'package:remote_logging/src/remote/auth_service.dart';
 import 'package:remote_logging/src/remote/log_sender_service.dart';
 import 'package:remote_logging/src/util/log_record_extension.dart';
 
@@ -59,6 +60,11 @@ Logger logger(String name) => Logger(name);
 /// custom processing.
 typedef OnLog = void Function(LogRecord record);
 
+/// Callback to fetch attestation token for authentication.
+///
+/// Can be null if the remote server is configured to not require attestation.
+typedef GetAttestationTokenCallback = Future<String?> Function();
+
 // Level.OFF
 // Level.SHOUT
 // Level.SEVERE
@@ -75,7 +81,9 @@ final class RemoteLogging {
     required RemoteLoggingConfig config,
     required this.deviceDataGenerator,
     OnLog? onRemoteLog,
-  }) : _config = config {
+    GetAttestationTokenCallback? getAttestationTokenCallback,
+  }) : _config = config,
+       _getAttestationTokenCallback = getAttestationTokenCallback {
     Logger.root.level = _getBiggerScopeLevel(
       _config.logSendLevel,
       _config.logPrintLevel,
@@ -99,6 +107,8 @@ final class RemoteLogging {
   /// Gets the current configuration.
   RemoteLoggingConfig get config => _config;
 
+  final GetAttestationTokenCallback? _getAttestationTokenCallback;
+
   /// Sets the configuration dynamically, updating the root logger level.
   set config(RemoteLoggingConfig newConfig) {
     if (_config != newConfig) {
@@ -118,18 +128,22 @@ final class RemoteLogging {
   static Future<RemoteLogging> init({
     required RemoteLoggingConfig remoteLoggingConfig,
     required IDeviceDataGenerator deviceDataGenerator,
+    GetAttestationTokenCallback? getAttestationTokenCallback,
     OnLog? onRemoteLog,
     OnLog? onLocalLog,
+    void Function(Object error, StackTrace stackTrace)? onError,
   }) async {
     final logSenderService = LogSenderService(
       config: remoteLoggingConfig,
       deviceDataGenerator: deviceDataGenerator,
+      onError: onError,
     );
 
     final instance = RemoteLogging._internal(
       logSenderService: logSenderService,
       config: remoteLoggingConfig,
       deviceDataGenerator: deviceDataGenerator,
+      getAttestationTokenCallback: getAttestationTokenCallback,
       onRemoteLog: onRemoteLog,
     );
 
@@ -140,6 +154,9 @@ final class RemoteLogging {
 
     return instance;
   }
+
+  /// Optional error callback. Set dynamically or passed via `init`.
+  void Function(Object error, StackTrace stackTrace)? onError;
 
   /// Starts the log sender service to send logs to the remote server.
   ///
@@ -163,9 +180,18 @@ final class RemoteLogging {
     }
 
     final metadata = deviceDataGenerator.deviceMetadata;
+    final authService = AuthService(
+      config: config,
+      deviceMetadata: metadata,
+      invoker: invoker,
+      getAttestationToken: _getAttestationTokenCallback,
+      onError: onError ?? logSenderService.onError,
+    );
+
     await logSenderService.start(
       invoker: invoker,
       deviceMetadata: metadata,
+      authService: authService,
     );
   }
 
@@ -177,6 +203,12 @@ final class RemoteLogging {
     if (_isLoggable(record, _config.logPrintLevel)) {
       _printRecord(record);
     }
+  }
+
+  /// Flushes any pending logs immediately. Useful for testing or when shutting
+  /// down.
+  Future<void> flush() async {
+    await logSenderService.flush();
   }
 }
 
