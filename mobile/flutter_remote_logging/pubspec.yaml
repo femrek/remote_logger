@@ -10,9 +10,13 @@ environment:
   flutter: ">=1.17.0"
 
 dependencies:
+  device_info_plus: ^13.2.0
   flutter:
     sdk: flutter
+  package_info_plus: ^10.2.1
   remote_logging: ^0.0.1
+  shared_preferences: ^2.5.5
+  uuid: ^4.3.3
 
 dev_dependencies:
   flutter_test:
