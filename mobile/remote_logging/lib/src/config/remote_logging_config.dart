@@ -18,9 +18,12 @@ class RemoteLoggingConfig {
   /// Creates a configuration instance for remote logging.
   ///
   /// Parameters:
-  /// - [gatewayUrl]: The base HTTP endpoint URL for the remote logger gateway
-  /// - [channelId]: The channel ID for logs
-  /// - [devicePublicKey]: The device public key (optional)
+  /// - [gatewayUrl]: The base HTTP endpoint URL for the remote logger gateway.
+  /// - [channelId]: The identifier used to route logs to the correct project or
+  /// application in the remote server.
+  /// - [appleDevicePublicKey]: An optional public key for the device, used
+  /// only if the backend requires asymmetric encryption or cryptographic
+  /// identity.
   /// - [enableRemoteLogging]: Whether remote logging is enabled (default: true)
   /// - [logSendLevel]: The minimum log level for sending logs remotely
   /// (default: Level.INFO)
@@ -31,21 +34,26 @@ class RemoteLoggingConfig {
   const RemoteLoggingConfig({
     required this.gatewayUrl,
     required this.channelId,
-    this.devicePublicKey,
+    this.appleDevicePublicKey,
     this.enableRemoteLogging = true,
     this.logSendLevel = Level.INFO,
     this.logPrintLevel = Level.FINEST,
     this.localLogPrintLevel = Level.FINEST,
   });
 
-  /// The base HTTP endpoint URL for the remote logger gateway
+  /// The base HTTP endpoint URL for the remote logger gateway.
   final String gatewayUrl;
 
-  /// The channel ID for logs
+  /// The identifier used to route logs to the correct project or application
+  /// in the remote server.
   final String channelId;
 
-  /// The device public key (optional)
-  final String? devicePublicKey;
+  /// An optional public key for the device.
+  ///
+  /// This is only required if your backend is configured to use asymmetric
+  /// cryptography (e.g., end-to-end encryption or cryptographic device
+  /// authentication). For most standard logging setups, this can be left null.
+  final String? appleDevicePublicKey;
 
   /// Whether remote logging is enabled.
   ///
@@ -76,7 +84,7 @@ class RemoteLoggingConfig {
   RemoteLoggingConfig copyWith({
     String? gatewayUrl,
     String? channelId,
-    String? devicePublicKey,
+    String? appleDevicePublicKey,
     bool? enableRemoteLogging,
     Level? logSendLevel,
     Level? logPrintLevel,
@@ -85,7 +93,7 @@ class RemoteLoggingConfig {
     return RemoteLoggingConfig(
       gatewayUrl: gatewayUrl ?? this.gatewayUrl,
       channelId: channelId ?? this.channelId,
-      devicePublicKey: devicePublicKey ?? this.devicePublicKey,
+      appleDevicePublicKey: appleDevicePublicKey ?? this.appleDevicePublicKey,
       enableRemoteLogging: enableRemoteLogging ?? this.enableRemoteLogging,
       logSendLevel: logSendLevel ?? this.logSendLevel,
       logPrintLevel: logPrintLevel ?? this.logPrintLevel,
@@ -98,7 +106,7 @@ class RemoteLoggingConfig {
     return 'RemoteLoggingConfig('
         'gatewayUrl: $gatewayUrl, '
         'channelId: $channelId, '
-        'devicePublicKey: $devicePublicKey, '
+        'appleDevicePublicKey: $appleDevicePublicKey, '
         'enableRemoteLogging: $enableRemoteLogging, '
         'logSendLevel: $logSendLevel, '
         'logPrintLevel: $logPrintLevel, '

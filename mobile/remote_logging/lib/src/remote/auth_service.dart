@@ -29,7 +29,7 @@ class AuthService {
   final GetAttestationTokenCallback? getAttestationToken;
 
   /// Error callback when an error occurs during the authentication exchange
-  final void Function(Object error, StackTrace stackTrace)? onError;
+  final OnError? onError;
 
   String? _accessToken;
   DateTime? _accessExpiresAt;
@@ -52,7 +52,7 @@ class AuthService {
       attestationToken: token,
       deviceUuid: deviceMetadata.deviceId,
       deviceMetadata: deviceMetadata,
-      devicePublicKey: config.devicePublicKey,
+      devicePublicKey: config.appleDevicePublicKey,
     );
 
     // Ensure no trailing slash on the gatewayUrl

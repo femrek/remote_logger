@@ -60,6 +60,12 @@ Logger logger(String name) => Logger(name);
 /// custom processing.
 typedef OnLog = void Function(LogRecord record);
 
+/// Callback type for handling background errors during log transmission.
+///
+/// This is used to report network errors or unexpected exceptions that occur
+/// when the logging service is processing and sending log batches.
+typedef OnError = void Function(Object error, StackTrace stackTrace);
+
 /// Callback to fetch attestation token for authentication.
 ///
 /// Can be null if the remote server is configured to not require attestation.
@@ -131,7 +137,7 @@ final class RemoteLogging {
     GetAttestationTokenCallback? getAttestationTokenCallback,
     OnLog? onRemoteLog,
     OnLog? onLocalLog,
-    void Function(Object error, StackTrace stackTrace)? onError,
+    OnError? onError,
   }) async {
     final logSenderService = LogSenderService(
       config: remoteLoggingConfig,
@@ -156,7 +162,7 @@ final class RemoteLogging {
   }
 
   /// Optional error callback. Set dynamically or passed via `init`.
-  void Function(Object error, StackTrace stackTrace)? onError;
+  OnError? onError;
 
   /// Starts the log sender service to send logs to the remote server.
   ///

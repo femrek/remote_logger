@@ -42,7 +42,6 @@ class RequestAuthExchange extends RequestCommand<AuthExchangeResponse> {
       const _AuthExchangeResponseFactory();
 }
 
-
 class _AuthExchangeResponseFactory
     extends JsonSchemaFactory<AuthExchangeResponse> {
   const _AuthExchangeResponseFactory();

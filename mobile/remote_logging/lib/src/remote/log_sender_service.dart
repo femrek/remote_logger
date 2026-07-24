@@ -28,7 +28,7 @@ final class LogSenderService {
   final IDeviceDataGenerator deviceDataGenerator;
 
   /// Optional error listener.
-  final void Function(Object error, StackTrace stackTrace)? onError;
+  final OnError? onError;
 
   late final INetworkInvoker _invoker;
   late final DeviceMetadata _deviceMetadata;
@@ -115,7 +115,8 @@ final class LogSenderService {
             ),
           )
           .toList(),
-      path: '${config.gatewayUrl.endsWith('/') ? config.gatewayUrl.substring(0, config.gatewayUrl.length - 1) : config.gatewayUrl}/v1/logs/${config.channelId}/batch',
+      path:
+          '${config.gatewayUrl.endsWith('/') ? config.gatewayUrl.substring(0, config.gatewayUrl.length - 1) : config.gatewayUrl}/v1/logs/${config.channelId}/batch',
       token: await _authService.getValidAccessToken(),
     );
     final response = await _invoker.send(request);

@@ -63,9 +63,7 @@ class GatewayErrorFactory extends DynamicSchemaFactory<GatewayError> {
         return GatewayError.fromJson(
           jsonDecode(response) as Map<String, dynamic>,
         );
-      }
-
-      else {
+      } else {
         throw FormatException(
           'Response is not a valid JSON object: ${response.runtimeType}',
         );

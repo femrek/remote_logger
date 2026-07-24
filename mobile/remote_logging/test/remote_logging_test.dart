@@ -32,7 +32,8 @@ void main() {
             ),
             StandardServerEvent(
               matcher: (request) =>
-                  request.method == 'POST' && request.uri.path == '/v1/logs/test-channel/batch',
+                  request.method == 'POST' &&
+                  request.uri.path == '/v1/logs/test-channel/batch',
               handler: (request) async {
                 expect(
                   request.headers.value('authorization'),
@@ -109,7 +110,8 @@ void main() {
             ),
             StandardServerEvent(
               matcher: (request) =>
-                  request.method == 'POST' && request.uri.path == '/v1/logs/test-channel/batch',
+                  request.method == 'POST' &&
+                  request.uri.path == '/v1/logs/test-channel/batch',
               handler: (request) async {
                 final content = await request.map<String>((e) {
                   return String.fromCharCodes(e);
@@ -184,7 +186,8 @@ void main() {
             ),
             StandardServerEvent(
               matcher: (request) =>
-                  request.method == 'POST' && request.uri.path == '/v1/logs/test-channel/batch',
+                  request.method == 'POST' &&
+                  request.uri.path == '/v1/logs/test-channel/batch',
               handler: (request) async {
                 batchSent = true;
                 return '{}';
@@ -242,7 +245,8 @@ void main() {
             ),
             StandardServerEvent(
               matcher: (request) =>
-                  request.method == 'POST' && request.uri.path == '/v1/logs/test-channel/batch',
+                  request.method == 'POST' &&
+                  request.uri.path == '/v1/logs/test-channel/batch',
               handler: (request) async {
                 final content = await request.map<String>((e) {
                   return String.fromCharCodes(e);
@@ -306,7 +310,8 @@ void main() {
             ),
             StandardServerEvent(
               matcher: (request) =>
-                  request.method == 'POST' && request.uri.path == '/v1/logs/test-channel/batch',
+                  request.method == 'POST' &&
+                  request.uri.path == '/v1/logs/test-channel/batch',
               handler: (request) async {
                 final content = await request.map<String>((e) {
                   return String.fromCharCodes(e);
