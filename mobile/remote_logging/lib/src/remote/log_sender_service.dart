@@ -11,13 +11,15 @@ import 'package:remote_logging/src/remote/request/request_log_batch.dart';
 ///
 /// Queues log records and sends them in batches every 10 seconds. If a
 /// transmission fails, it stores the failed requests and retries them in the
-/// next cycle.
+/// next cycle. Optionally stores unsent logs locally using
+/// [ILocalLogRepository].
 final class LogSenderService {
   /// Creates a [LogSenderService] with the given [config] and
   /// [deviceDataGenerator].
   LogSenderService({
     required this.config,
     required this.deviceDataGenerator,
+    this.localRepository,
     this.onError,
   });
 
@@ -26,6 +28,9 @@ final class LogSenderService {
 
   /// Generator for device data to be included in log records.
   final IDeviceDataGenerator deviceDataGenerator;
+
+  /// Optional local storage for unsent logs to prevent loss on crash/offline.
+  final ILocalLogRepository? localRepository;
 
   /// Optional error listener.
   final OnError? onError;
@@ -36,19 +41,32 @@ final class LogSenderService {
 
   static const Duration _syncInterval = Duration(seconds: 10);
 
-  final List<LogRecord> _queue = [];
+  final List<ServerLog> _queue = [];
   bool _coping = false;
   final Set<RequestLogBatch> _failedRequests = {};
 
   /// Enqueues a [LogRecord] to be sent to the server.
   void enqueue(LogRecord logRecord) {
+    final serverLog = ServerLog.fromLogRecord(logRecord, deviceDataGenerator);
+
+    if (localRepository != null) {
+      unawaited(
+        localRepository!.saveLogs([serverLog]).catchError((
+          Object e,
+          StackTrace st,
+        ) {
+          localLog.warning('Failed to save log locally', e, st);
+        }),
+      );
+    }
+
     unawaited(
       Future.doWhile(() async {
         if (_coping) {
           await Future<void>.delayed(const Duration(milliseconds: 10));
           return true;
         } else {
-          _queue.add(logRecord);
+          _queue.add(serverLog);
           return false;
         }
       }),
@@ -79,27 +97,44 @@ final class LogSenderService {
       () => 'Device metadata: ${_deviceMetadata.toJsonPayload()}',
     );
 
+    if (localRepository != null) {
+      try {
+        final unsent = await localRepository!.getUnsentLogs();
+        if (unsent.isNotEmpty) {
+          localLog.info(
+            'Loaded ${unsent.length} unsent logs from local repository',
+          );
+          _queue.insertAll(0, unsent);
+        }
+      } on Object catch (e, st) {
+        localLog.warning('Failed to load unsent logs', e, st);
+      }
+    }
+
     await _sendAll();
-    return Stream<void>.periodic(
-      _syncInterval,
-    ).listen((_) async {
+    return Stream<void>.periodic(_syncInterval).listen((_) async {
       await _resendFailedRequests();
       await _sendAll();
     }).asFuture();
+  }
+
+  /// Forces an immediate flush of the log queue.
+  Future<void> flush() async {
+    await _sendAll();
   }
 
   Future<void> _sendAll() async {
     if (_queue.isEmpty) return;
 
     if (_coping) return;
-    late final List<LogRecord> toSend;
+    late final List<ServerLog> toSend;
     await Future.doWhile(() async {
       if (_coping) {
         await Future<void>.delayed(const Duration(milliseconds: 10));
         return true;
       } else {
         _coping = true;
-        toSend = List<LogRecord>.of(_queue);
+        toSend = List<ServerLog>.of(_queue);
         _queue.clear();
         _coping = false;
         return false;
@@ -107,16 +142,8 @@ final class LogSenderService {
     });
 
     final request = RequestLogBatch(
-      logs: toSend
-          .map<ServerLog>(
-            (log) => ServerLog.fromLogRecord(
-              log,
-              deviceDataGenerator,
-            ),
-          )
-          .toList(),
-      path:
-          '${config.gatewayUrl.endsWith('/') ? config.gatewayUrl.substring(0, config.gatewayUrl.length - 1) : config.gatewayUrl}/v1/logs/${config.channelId}/batch',
+      logs: toSend,
+      path: config.path,
       token: await _authService.getValidAccessToken(),
     );
     final response = await _invoker.send(request);
@@ -125,6 +152,7 @@ final class LogSenderService {
         localLog.finer(
           () => 'Received response for log batch request: ${request.hashCode}',
         );
+        _removeLocalLogs(toSend);
       case NetworkErrorResult():
         _failedRequests.add(request);
         localLog.warning(
@@ -167,6 +195,7 @@ final class LogSenderService {
           localLog.fine(
             'Successfully resent log batch request: ${request.hashCode}',
           );
+          _removeLocalLogs(request.logs);
         case NetworkErrorResult<IgnoredSchema>():
           localLog.fine(
             () => 'Failed to resend log batch request: ${request.hashCode}',
@@ -193,8 +222,14 @@ final class LogSenderService {
     }
   }
 
-  /// Forces an immediate flush of the log queue.
-  Future<void> flush() async {
-    await _sendAll();
+  void _removeLocalLogs(List<ServerLog> logs) {
+    if (localRepository != null) {
+      final ids = logs.map((l) => l.id).toList();
+      unawaited(
+        localRepository!.removeLogs(ids).catchError((Object e, StackTrace st) {
+          localLog.warning('Failed to remove sent logs from local repo', e, st);
+        }),
+      );
+    }
   }
 }

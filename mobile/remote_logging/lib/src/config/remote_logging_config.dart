@@ -79,6 +79,15 @@ class RemoteLoggingConfig {
   /// Defaults to [Level.FINEST].
   final Level localLogPrintLevel;
 
+  /// Returns the gateway URL without a trailing slash.
+  String get gatewayUrlTrimmed => gatewayUrl.endsWith('/')
+      ? gatewayUrl.substring(0, gatewayUrl.length - 1)
+      : gatewayUrl;
+
+  /// Returns the full path for sending log batches to the remote logging
+  /// service.
+  String get path => '$gatewayUrlTrimmed/v1/logs/$channelId/batch';
+
   /// Creates a copy of this configuration with the given fields replaced by
   /// the new values.
   RemoteLoggingConfig copyWith({

@@ -32,6 +32,7 @@ void main() {
   group('ServerLog', () {
     test('toJsonPayload contains all 6 required keys', () {
       final log = ServerLog(
+        id: 'test-id',
         timestamp: DateTime.utc(2023),
         loggerName: 'TestLogger',
         message: 'Test message',
@@ -58,6 +59,7 @@ void main() {
 
     test('toJsonPayload does NOT contain sessionId', () {
       final log = ServerLog(
+        id: 'test-id',
         timestamp: DateTime.utc(2023),
         loggerName: 'TestLogger',
         message: 'Test message',
@@ -73,6 +75,7 @@ void main() {
 
     test('timestamp is serialised as UTC ISO 8601 string', () {
       final log = ServerLog(
+        id: 'test-id',
         timestamp: DateTime(2023, 1, 1, 12),
         // Local time
         loggerName: 'TestLogger',
@@ -94,6 +97,7 @@ void main() {
     test('error is included as String when present', () {
       final exception = Exception('test exception');
       final log = ServerLog(
+        id: 'test-id',
         timestamp: DateTime.utc(2023),
         loggerName: 'TestLogger',
         message: 'Test message',
@@ -112,6 +116,7 @@ void main() {
     test('stacktrace is included as String when present', () {
       final stacktrace = StackTrace.fromString('test stacktrace');
       final log = ServerLog(
+        id: 'test-id',
         timestamp: DateTime.utc(2023),
         loggerName: 'TestLogger',
         message: 'Test message',
@@ -119,7 +124,7 @@ void main() {
         zone: 'test-zone',
         deviceUUID: 'device-123',
         sessionId: 'session-456',
-        stacktrace: stacktrace,
+        stacktrace: stacktrace.toString(),
       );
       final json = log.toJsonPayload();
 
@@ -129,6 +134,7 @@ void main() {
 
     test('error and stacktrace are omitted when null', () {
       final log = ServerLog(
+        id: 'test-id',
         timestamp: DateTime.utc(2023),
         loggerName: 'TestLogger',
         message: 'Test message',
@@ -168,6 +174,7 @@ void main() {
 
     test('toJsonPayload produces no extra keys', () {
       final log = ServerLog(
+        id: 'test-id',
         timestamp: DateTime.utc(2023),
         loggerName: 'TestLogger',
         message: 'Test message',

@@ -135,6 +135,7 @@ final class RemoteLogging {
     required RemoteLoggingConfig remoteLoggingConfig,
     required IDeviceDataGenerator deviceDataGenerator,
     GetAttestationTokenCallback? getAttestationTokenCallback,
+    ILocalLogRepository? localLogRepository,
     OnLog? onRemoteLog,
     OnLog? onLocalLog,
     OnError? onError,
@@ -142,6 +143,7 @@ final class RemoteLogging {
     final logSenderService = LogSenderService(
       config: remoteLoggingConfig,
       deviceDataGenerator: deviceDataGenerator,
+      localRepository: localLogRepository,
       onError: onError,
     );
 

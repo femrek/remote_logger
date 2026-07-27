@@ -1,11 +1,13 @@
 import 'package:dart_network_layer_core/dart_network_layer_core.dart';
 import 'package:remote_logging/remote_logging.dart';
 import 'package:remote_logging/src/util/log_record_extension.dart';
+import 'package:uuid/uuid.dart';
 
 /// A model class representing a log entry to be sent to OpenSearch.
 class ServerLog extends JsonRequestSchema {
   /// Constructs a [ServerLog] instance.
   ServerLog({
+    required this.id,
     required this.timestamp,
     required this.loggerName,
     required this.message,
@@ -23,6 +25,7 @@ class ServerLog extends JsonRequestSchema {
     IDeviceDataGenerator deviceDataGenerator,
   ) {
     return ServerLog(
+      id: const Uuid().v4(),
       timestamp: record.time,
       loggerName: record.loggerName,
       message: record.message,
@@ -31,9 +34,32 @@ class ServerLog extends JsonRequestSchema {
       deviceUUID: deviceDataGenerator.deviceId,
       sessionId: deviceDataGenerator.sessionId,
       error: record.error,
-      stacktrace: record.stackTrace,
+      stacktrace: record.stackTrace?.toString(),
     );
   }
+
+  /// Creates a [ServerLog] instance from a JSON map (used for local storage).
+  factory ServerLog.fromJson(Map<String, dynamic> json) {
+    return ServerLog(
+      id: json['id'] as String,
+      timestamp: DateTime.parse(json['timestamp'] as String),
+      loggerName: json['loggerName'] as String,
+      message: json['message'] as String,
+      level: json['level'] as String,
+      zone: json['zone'] as String,
+      deviceUUID: json['deviceUUID'] as String,
+      sessionId: json['sessionId'] as String,
+      error: json['error'],
+      stacktrace:
+          json['stacktrace']
+              as String?, // StackTrace is usually stored as String
+    );
+  }
+
+  /// The unique identifier for this specific log entry.
+  ///
+  /// Only for saving local database. Is not sent remote.
+  final String id;
 
   /// The timestamp of the log entry.
   final DateTime timestamp;
@@ -61,7 +87,21 @@ class ServerLog extends JsonRequestSchema {
   final Object? error;
 
   /// An optional stack trace associated
-  final StackTrace? stacktrace;
+  final String? stacktrace;
+
+  /// Used to convert this log to a map for local storage.
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'timestamp': timestamp.toUtc().toIso8601String(),
+    'loggerName': loggerName,
+    'message': message,
+    'level': level,
+    'zone': zone,
+    'deviceUUID': deviceUUID,
+    'sessionId': sessionId,
+    if (error != null) 'error': error.toString(),
+    if (stacktrace != null) 'stacktrace': stacktrace.toString(),
+  };
 
   @override
   Map<String, dynamic> toJsonPayload() => {

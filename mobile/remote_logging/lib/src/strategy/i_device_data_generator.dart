@@ -6,7 +6,7 @@ abstract interface class IDeviceDataGenerator {
   /// Initializer of [IDeviceDataGenerator]. must read or create [deviceId] and
   /// must create [sessionId].
   ///
-  /// After [init] is completed, [deviceId], [sessionId] and [deviceMetadata
+  /// After [init] is completed, [deviceId], [sessionId] and [deviceMetadata]
   /// are available.
   Future<void> init();
 
