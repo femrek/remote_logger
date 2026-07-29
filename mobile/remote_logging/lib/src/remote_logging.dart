@@ -86,7 +86,7 @@ final class RemoteLogging {
     required this.logSenderService,
     required RemoteLoggingConfig config,
     required this.deviceDataGenerator,
-    OnLog? onRemoteLog,
+    OnLog? onLog,
     GetAttestationTokenCallback? getAttestationTokenCallback,
   }) : _config = config,
        _getAttestationTokenCallback = getAttestationTokenCallback {
@@ -95,16 +95,34 @@ final class RemoteLogging {
       _config.logPrintLevel,
     );
     Logger.root.onRecord.listen((record) {
-      if (onRemoteLog != null) onRemoteLog(record);
+      if (onLog != null) onLog(record);
+      _onLog(record);
+    });
+  }
+
+  RemoteLogging._internalLocalOnly({
+    required RemoteLoggingConfig config,
+    OnLog? onLog,
+  }) : _config = config,
+       _getAttestationTokenCallback = null,
+       logSenderService = null,
+       deviceDataGenerator = null {
+    Logger.root.level = _getBiggerScopeLevel(
+      _config.logSendLevel,
+      _config.logPrintLevel,
+    );
+
+    Logger.root.onRecord.listen((record) {
+      if (onLog != null) onLog(record);
       _onLog(record);
     });
   }
 
   /// The service responsible for sending logs to the remote server.
-  final LogSenderService logSenderService;
+  final LogSenderService? logSenderService;
 
   /// The provider for device data, providing metadata for logs.
-  final IDeviceDataGenerator deviceDataGenerator;
+  final IDeviceDataGenerator? deviceDataGenerator;
 
   static bool _initialized = false;
 
@@ -136,8 +154,8 @@ final class RemoteLogging {
     required IDeviceDataGenerator deviceDataGenerator,
     GetAttestationTokenCallback? getAttestationTokenCallback,
     ILocalLogRepository? localLogRepository,
-    OnLog? onRemoteLog,
-    OnLog? onLocalLog,
+    OnLog? onLog,
+    OnLog? onLocalOnlyLog,
     OnError? onError,
   }) async {
     final logSenderService = LogSenderService(
@@ -152,13 +170,30 @@ final class RemoteLogging {
       config: remoteLoggingConfig,
       deviceDataGenerator: deviceDataGenerator,
       getAttestationTokenCallback: getAttestationTokenCallback,
-      onRemoteLog: onRemoteLog,
+      onLog: onLog,
     );
 
-    _LocalLog().init(remoteLoggingConfig.localLogPrintLevel, onLocalLog);
+    _LocalLog().init(remoteLoggingConfig.localLogPrintLevel, onLocalOnlyLog);
 
     await deviceDataGenerator.init();
     _initialized = true;
+
+    return instance;
+  }
+
+  /// unlike [init], initialize only for local usage.
+  static RemoteLogging initLocalOnly({
+    required RemoteLoggingConfig config,
+    OnLog? onLog,
+    OnLog? onLocalOnlyLog,
+    OnError? onError,
+  }) {
+    final instance = RemoteLogging._internalLocalOnly(
+      config: config,
+      onLog: onLog,
+    );
+
+    _LocalLog().init(config.localLogPrintLevel, onLocalOnlyLog);
 
     return instance;
   }
@@ -187,6 +222,18 @@ final class RemoteLogging {
       return;
     }
 
+    final logSenderService = this.logSenderService;
+    if (logSenderService == null) {
+      localLog.severe('Log sender service is not initialized.');
+      return;
+    }
+
+    final deviceDataGenerator = this.deviceDataGenerator;
+    if (deviceDataGenerator == null) {
+      localLog.severe('Device data generator is not initialized.');
+      return;
+    }
+
     final metadata = deviceDataGenerator.deviceMetadata;
     final authService = AuthService(
       config: config,
@@ -205,7 +252,7 @@ final class RemoteLogging {
 
   void _onLog(LogRecord record) {
     if (_isLoggable(record, _config.logSendLevel)) {
-      logSenderService.enqueue(record);
+      logSenderService?.enqueue(record);
     }
 
     if (_isLoggable(record, _config.logPrintLevel)) {
@@ -216,7 +263,11 @@ final class RemoteLogging {
   /// Flushes any pending logs immediately. Useful for testing or when shutting
   /// down.
   Future<void> flush() async {
-    await logSenderService.flush();
+    if (logSenderService == null) {
+      localLog.severe('Log sender service is not initialized.');
+      return;
+    }
+    await logSenderService?.flush();
   }
 }
 

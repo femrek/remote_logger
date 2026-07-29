@@ -55,15 +55,26 @@ class AuthService {
       devicePublicKey: config.appleDevicePublicKey,
     );
 
-    // Ensure no trailing slash on the gatewayUrl
-    final base = config.gatewayUrl.endsWith('/')
-        ? config.gatewayUrl.substring(0, config.gatewayUrl.length - 1)
-        : config.gatewayUrl;
+    final gatewayUrl = config.gatewayUrlTrimmed;
+    if (gatewayUrl == null || gatewayUrl.isEmpty) {
+      localLog.severe(
+        'Gateway URL is not configured. Cannot exchange auth token.',
+      );
+      throw Exception('Gateway URL is not configured.');
+    }
+
+    final channelId = config.channelId;
+    if (channelId == null || channelId.isEmpty) {
+      localLog.severe(
+        'Channel ID is not configured. Cannot exchange auth token.',
+      );
+      throw Exception('Channel ID is not configured.');
+    }
 
     final command = RequestAuthExchange(
       request: request,
-      path: '$base/auth/exchange',
-      channelId: config.channelId,
+      path: '$gatewayUrl/auth/exchange',
+      channelId: channelId,
     );
 
     final response = await invoker.send(command);
