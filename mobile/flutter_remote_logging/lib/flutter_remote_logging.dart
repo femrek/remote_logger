@@ -25,8 +25,7 @@ class FlutterRemoteLogging {
     GetAttestationTokenCallback? getAttestationTokenCallback,
     ILocalLogRepository? localLogRepository,
     bool enableLocalFallbackStorage = true,
-    OnLog? onRemoteLog,
-    OnLog? onLocalLog,
+    OnLog? onLog,
     OnError? onError,
   }) async {
     var repo = localLogRepository;
@@ -50,8 +49,7 @@ class FlutterRemoteLogging {
       deviceDataGenerator: deviceDataGenerator ?? FlutterDeviceDataGenerator(),
       getAttestationTokenCallback: getAttestationTokenCallback,
       localLogRepository: repo,
-      onRemoteLog: onRemoteLog,
-      onLocalLog: onLocalLog,
+      onLog: onLog,
       onError: onError,
     );
   }
