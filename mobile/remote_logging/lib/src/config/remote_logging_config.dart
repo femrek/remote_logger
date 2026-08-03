@@ -1,4 +1,5 @@
 import 'package:logging/logging.dart';
+import 'package:remote_logging/src/config/base_logging_config.dart';
 
 /// Configuration class for remote logging functionality.
 ///
@@ -14,7 +15,7 @@ import 'package:logging/logging.dart';
 ///   logSendLevel: Level.WARNING,
 /// );
 /// ```
-class RemoteLoggingConfig {
+class RemoteLoggingConfig extends BaseLoggingConfig {
   /// Creates a configuration instance for remote logging.
   ///
   /// Parameters:
@@ -29,16 +30,17 @@ class RemoteLoggingConfig {
   /// (default: Level.INFO)
   /// - [logPrintLevel]: The minimum log level for console output (default:
   /// Level.FINEST)
-  /// - [localLogPrintLevel]: The minimum log level for local logging (default:
-  /// Level.FINEST)
+  /// - [remoteLoggingLibraryLogPrintLevel]: The minimum log level for local
+  /// logging (default: Level.CONFIG)
   const RemoteLoggingConfig({
     this.gatewayUrl,
     this.channelId,
     this.appleDevicePublicKey,
     this.enableRemoteLogging = true,
     this.logSendLevel = Level.INFO,
-    this.logPrintLevel = Level.FINEST,
-    this.localLogPrintLevel = Level.FINEST,
+    super.logPrintLevel = Level.FINEST,
+    super.remoteLoggingLibraryLogPrintLevel = Level.CONFIG,
+    super.logPrinter,
   });
 
   /// The base HTTP endpoint URL for the remote logger gateway.
@@ -66,18 +68,6 @@ class RemoteLoggingConfig {
   /// Logs with a level below this threshold will not be sent remotely.
   /// Defaults to [Level.INFO].
   final Level logSendLevel;
-
-  /// The minimum log level for console output.
-  ///
-  /// Logs with a level below this threshold will not be printed to console.
-  /// Defaults to [Level.FINEST].
-  final Level logPrintLevel;
-
-  /// The minimum log level for local logging.
-  ///
-  /// Logs with a level below this threshold will not be stored locally.
-  /// Defaults to [Level.FINEST].
-  final Level localLogPrintLevel;
 
   /// Returns the gateway URL without a trailing slash.
   String? get gatewayUrlTrimmed {
@@ -110,7 +100,8 @@ class RemoteLoggingConfig {
       enableRemoteLogging: enableRemoteLogging ?? this.enableRemoteLogging,
       logSendLevel: logSendLevel ?? this.logSendLevel,
       logPrintLevel: logPrintLevel ?? this.logPrintLevel,
-      localLogPrintLevel: localLogPrintLevel ?? this.localLogPrintLevel,
+      remoteLoggingLibraryLogPrintLevel:
+          localLogPrintLevel ?? remoteLoggingLibraryLogPrintLevel,
     );
   }
 
@@ -123,7 +114,7 @@ class RemoteLoggingConfig {
         'enableRemoteLogging: $enableRemoteLogging, '
         'logSendLevel: $logSendLevel, '
         'logPrintLevel: $logPrintLevel, '
-        'localLogPrintLevel: $localLogPrintLevel'
+        'localLogPrintLevel: $remoteLoggingLibraryLogPrintLevel'
         ')';
   }
 }

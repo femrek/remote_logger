@@ -23,8 +23,8 @@ void main() {
 
         Object? caughtError;
 
-        final remoteLogger = await RemoteLogging.init(
-          remoteLoggingConfig: config,
+        final remoteLogger = await RemoteLoggingInit.initRemote(
+          config: config,
           deviceDataGenerator: _E2eDeviceDataGenerator(),
           onError: (error, stackTrace) {
             caughtError = error;

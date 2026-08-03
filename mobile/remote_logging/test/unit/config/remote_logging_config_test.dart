@@ -12,7 +12,7 @@ void main() {
       expect(config.enableRemoteLogging, isTrue);
       expect(config.logSendLevel, Level.INFO);
       expect(config.logPrintLevel, Level.FINEST);
-      expect(config.localLogPrintLevel, Level.FINEST);
+      expect(config.remoteLoggingLibraryLogPrintLevel, Level.CONFIG);
     });
 
     test('copyWith replaces specified fields and preserves others', () {

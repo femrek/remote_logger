@@ -4,6 +4,7 @@ import 'package:dart_network_layer_core/dart_network_layer_core.dart';
 import 'package:remote_logging/remote_logging.dart';
 import 'package:remote_logging/src/remote/auth_service.dart';
 import 'package:remote_logging/src/remote/request/request_log_batch.dart';
+import 'package:remote_logging/src/util/internal_logger.dart';
 
 /// A service that collects log records and periodically sends them to a remote
 /// server. It also handles device metadata transmission and retries failed log
@@ -20,8 +21,8 @@ final class LogSenderService {
     required this.config,
     required this.deviceDataGenerator,
     this.localRepository,
-    this.onError,
-  });
+    OnError? onError,
+  }) : _onError = onError;
 
   /// Configuration for the remote logging service.
   final RemoteLoggingConfig config;
@@ -33,7 +34,7 @@ final class LogSenderService {
   final ILocalLogRepository? localRepository;
 
   /// Optional error listener.
-  final OnError? onError;
+  final OnError? _onError;
 
   late final INetworkInvoker _invoker;
   late final DeviceMetadata _deviceMetadata;
@@ -49,16 +50,14 @@ final class LogSenderService {
   void enqueue(LogRecord logRecord) {
     final serverLog = ServerLog.fromLogRecord(logRecord, deviceDataGenerator);
 
-    if (localRepository != null) {
-      unawaited(
-        localRepository!.saveLogs([serverLog]).catchError((
-          Object e,
-          StackTrace st,
-        ) {
-          localLog.warning('Failed to save log locally', e, st);
-        }),
-      );
-    }
+    unawaited(
+      localRepository?.saveLogs([serverLog]).catchError((
+        Object e,
+        StackTrace s,
+      ) {
+        internalLog.warning('Failed to save log locally', e, s);
+      }),
+    );
 
     unawaited(
       Future.doWhile(() async {
@@ -80,9 +79,9 @@ final class LogSenderService {
     required DeviceMetadata deviceMetadata,
     required AuthService authService,
   }) async {
-    localLog.config('Starting LogSenderService...');
+    internalLog.config('Starting LogSenderService...');
     if (!config.enableRemoteLogging) {
-      localLog.warning(
+      internalLog.warning(
         'Remote logging is disabled. '
         'Logs will not be sent to remote endpoints.',
       );
@@ -93,21 +92,22 @@ final class LogSenderService {
     _deviceMetadata = deviceMetadata;
     _authService = authService;
 
-    localLog.config(
+    internalLog.config(
       () => 'Device metadata: ${_deviceMetadata.toJsonPayload()}',
     );
 
+    final localRepository = this.localRepository;
     if (localRepository != null) {
       try {
-        final unsent = await localRepository!.getUnsentLogs();
+        final unsent = await localRepository.getUnsentLogs();
         if (unsent.isNotEmpty) {
-          localLog.info(
+          internalLog.info(
             'Loaded ${unsent.length} unsent logs from local repository',
           );
           _queue.insertAll(0, unsent);
         }
-      } on Object catch (e, st) {
-        localLog.warning('Failed to load unsent logs', e, st);
+      } on Object catch (e, s) {
+        internalLog.warning('Failed to load unsent logs', e, s);
       }
     }
 
@@ -149,18 +149,18 @@ final class LogSenderService {
     final response = await _invoker.send(request);
     switch (response) {
       case SuccessResponseResult():
-        localLog.finer(
+        internalLog.finer(
           () => 'Received response for log batch request: ${request.hashCode}',
         );
         _removeLocalLogs(toSend);
       case NetworkErrorResult():
         _failedRequests.add(request);
-        localLog.warning(
+        internalLog.warning(
           'Network error while sending log batch request: ${request.hashCode}',
           response.error,
           response.error.stackTrace,
         );
-        onError?.call(response.error, response.error.stackTrace);
+        _onError?.call(response.error, response.error.stackTrace);
       // If it's a 401, token might be expired. Handle it if needed by force
       // refreshing token on next try.
       // For now, it will be added to failed requests and retried.
@@ -168,7 +168,7 @@ final class LogSenderService {
         final err = Exception(
           'Unexpected response type for log batch request: $type, data: $data',
         );
-        localLog.severe(
+        internalLog.severe(
           'Unexpected response type for log batch request: ${request.hashCode}',
           err,
           StackTrace.current,
@@ -180,7 +180,7 @@ final class LogSenderService {
 
   Future<void> _resendFailedRequests() async {
     if (_failedRequests.isEmpty) return;
-    localLog.info(
+    internalLog.info(
       'Resending ${_failedRequests.length} failed log batch requests',
     );
 
@@ -192,12 +192,12 @@ final class LogSenderService {
       switch (response) {
         case SuccessResponseResult<IgnoredSchema>():
           _failedRequests.remove(request);
-          localLog.fine(
+          internalLog.fine(
             'Successfully resent log batch request: ${request.hashCode}',
           );
           _removeLocalLogs(request.logs);
         case NetworkErrorResult<IgnoredSchema>():
-          localLog.fine(
+          internalLog.fine(
             () => 'Failed to resend log batch request: ${request.hashCode}',
             response.error,
             response.error.stackTrace,
@@ -211,11 +211,11 @@ final class LogSenderService {
     }
 
     if (_failedRequests.isEmpty) {
-      localLog.info(
+      internalLog.info(
         'All failed log batch requests have been resent successfully',
       );
     } else {
-      localLog.warning(
+      internalLog.warning(
         '${_failedRequests.length} log batch requests '
         'still failed after resend attempts',
       );
@@ -223,13 +223,15 @@ final class LogSenderService {
   }
 
   void _removeLocalLogs(List<ServerLog> logs) {
-    if (localRepository != null) {
-      final ids = logs.map((l) => l.id).toList();
-      unawaited(
-        localRepository!.removeLogs(ids).catchError((Object e, StackTrace st) {
-          localLog.warning('Failed to remove sent logs from local repo', e, st);
-        }),
-      );
-    }
+    final ids = logs.map((l) => l.id).toList();
+    unawaited(
+      localRepository?.removeLogs(ids).catchError((Object e, StackTrace s) {
+        internalLog.warning(
+          'Failed to remove sent logs from local repo',
+          e,
+          s,
+        );
+      }),
+    );
   }
 }

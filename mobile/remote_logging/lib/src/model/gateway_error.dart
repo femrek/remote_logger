@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:dart_network_layer_core/dart_network_layer_core.dart';
-import 'package:remote_logging/remote_logging.dart';
+import 'package:remote_logging/src/util/internal_logger.dart';
 
 /// Error response from the gateway
 class GatewayError extends Schema implements Exception {
@@ -70,7 +70,7 @@ class GatewayErrorFactory extends DynamicSchemaFactory<GatewayError> {
       }
     } on Object catch (e, s) {
       if (e is FormatException || e is TypeError) {
-        localLog.severe(
+        internalLog.severe(
           'Failed to parse GatewayError from response: $response',
           e,
           s,

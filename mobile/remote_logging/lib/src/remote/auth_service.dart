@@ -4,6 +4,7 @@ import 'package:dart_network_layer_core/dart_network_layer_core.dart';
 import 'package:remote_logging/remote_logging.dart';
 import 'package:remote_logging/src/model/auth_exchange_request.dart';
 import 'package:remote_logging/src/remote/request/request_auth_exchange.dart';
+import 'package:remote_logging/src/util/internal_logger.dart';
 
 /// A service responsible for handling authentication exchange.
 class AuthService {
@@ -57,7 +58,7 @@ class AuthService {
 
     final gatewayUrl = config.gatewayUrlTrimmed;
     if (gatewayUrl == null || gatewayUrl.isEmpty) {
-      localLog.severe(
+      internalLog.severe(
         'Gateway URL is not configured. Cannot exchange auth token.',
       );
       throw Exception('Gateway URL is not configured.');
@@ -65,7 +66,7 @@ class AuthService {
 
     final channelId = config.channelId;
     if (channelId == null || channelId.isEmpty) {
-      localLog.severe(
+      internalLog.severe(
         'Channel ID is not configured. Cannot exchange auth token.',
       );
       throw Exception('Channel ID is not configured.');

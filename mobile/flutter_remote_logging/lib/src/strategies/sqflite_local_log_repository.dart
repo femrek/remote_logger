@@ -1,7 +1,8 @@
 import 'dart:convert';
+import 'package:flutter_remote_logging/flutter_remote_logging.dart';
+import 'package:flutter_remote_logging/src/util/internal_logger.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:remote_logging/remote_logging.dart';
 import 'package:sqflite/sqflite.dart';
 
 /// An SQLite implementation of [ILocalLogRepository] to store unsent logs.
@@ -58,8 +59,8 @@ class SqfliteLocalLogRepository implements ILocalLogRepository {
         try {
           final json = jsonDecode(payload) as Map<String, dynamic>;
           logs.add(ServerLog.fromJson(json));
-        } on Object catch (e, st) {
-          localLog.warning('Failed to parse saved log payload', e, st);
+        } on Object catch (e, s) {
+          internalLog.warning('Failed to parse saved log payload', e, s);
         }
       }
     }

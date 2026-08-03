@@ -1,5 +1,9 @@
 import 'package:remote_logging/remote_logging.dart';
 
+/// A device data generator that generates anonymous/placeholder device metadata.
+///
+/// This is used when real device metadata is not available (e.g.
+/// non-mobile platforms) or when anonymous logging is preferred.
 class AnonymousDeviceDataGenerator implements IDeviceDataGenerator {
   @override
   Future<void> init() {

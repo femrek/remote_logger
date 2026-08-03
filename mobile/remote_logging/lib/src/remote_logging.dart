@@ -2,69 +2,54 @@ import 'package:dart_network_layer_core/dart_network_layer_core.dart';
 import 'package:remote_logging/remote_logging.dart';
 import 'package:remote_logging/src/remote/auth_service.dart';
 import 'package:remote_logging/src/remote/log_sender_service.dart';
-import 'package:remote_logging/src/util/log_record_extension.dart';
+import 'package:remote_logging/src/util/helpers.dart';
+import 'package:remote_logging/src/util/internal_logger.dart';
 
-export 'package:logging/logging.dart';
+/// Initializer for [RemoteLogging] and [LocalLogging].
+abstract final class RemoteLoggingInit {
+  static bool _isInitialized = false;
 
-/// A singleton logger that logs messages locally only.
-///
-/// Unlike [logger], this logger does not send logs to remote services. And this
-/// cannot be named; it is always named 'LOCAL_ONLY_LOGGER'.
-///
-/// Example usage:
-/// ```dart
-/// import 'package:menu_app/product/logging/remote_logging.dart';
-///
-/// class MyClass {
-///   void doSomething() {
-///     localLog.info('Doing something');
-///   }
-/// }
-final Logger localLog = _LocalLog()._logger;
+  /// Initializes remote logging with the specified configuration and device
+  /// data generator.
+  static Future<RemoteLogging> initRemote({
+    required RemoteLoggingConfig config,
+    required IDeviceDataGenerator deviceDataGenerator,
+    GetAttestationTokenCallback? getAttestationTokenCallback,
+    ILocalLogRepository? localLogRepository,
+    OnLog? onLog,
+    OnError? onError,
+  }) async {
+    if (_isInitialized) {
+      throw StateError('RemoteLogging is already initialized');
+    }
+    _isInitialized = true;
 
-/// A simple logging utility that wraps around the `logging` package.
-/// It provides methods for logging messages at various levels (shout, severe,
-/// warning, info, config, fine, finer, finest) and checks if the level is
-/// loggable before logging the message.
-///
-/// Example usage:
-/// ```dart
-/// import 'package:menu_app/product/logging/remote_logging.dart';
-///
-/// class MyClass {
-///   final _log = logger('MyApp');
-///
-///   void doSomething() {
-///     _log.info('Doing something');
-///   }
-/// }
-/// ```
-///
-/// Example usage with mixin (only for class members, not for static methods and
-/// constructors):
-/// ```dart
-/// import 'package:menu_app/product/logging/remote_logging.dart';
-///
-/// class MyClass with LoggerMixin<MyClass> {
-///   void doSomething() {
-///     log.info('Doing something');
-///   }
-/// }
-/// ```
-Logger logger(String name) => Logger(name);
+    return RemoteLogging._init(
+      remoteLoggingConfig: config,
+      deviceDataGenerator: deviceDataGenerator,
+      getAttestationTokenCallback: getAttestationTokenCallback,
+      localLogRepository: localLogRepository,
+      onLog: onLog,
+      onError: onError,
+    );
+  }
 
-/// Callback type for taking an action when a log record is created.
-///
-/// Do not use for sending or printing logs; they are already handled by the
-/// logging system. This is only for additional actions like analytics or
-/// custom processing.
-typedef OnLog = void Function(LogRecord record);
+  /// Initializes local logging with the specified configuration.
+  static LocalLogging initLocal({
+    required LocalLoggingConfig config,
+    OnLog? onLog,
+  }) {
+    if (_isInitialized) {
+      throw StateError('LocalLogging is already initialized');
+    }
+    _isInitialized = true;
 
-/// Callback type for handling background errors during log transmission.
-///
-/// This is used to report network errors or unexpected exceptions that occur
-/// when the logging service is processing and sending log batches.
-typedef OnError = void Function(Object error, StackTrace stackTrace);
+    return LocalLogging._internal(
+      config: config,
+      onLog: onLog,
+    );
+  }
+}
 
 /// Callback to fetch attestation token for authentication.
 ///
@@ -83,14 +68,18 @@ typedef GetAttestationTokenCallback = Future<String?> Function();
 /// Application logger initializer that sets up logging configurations.
 final class RemoteLogging {
   RemoteLogging._internal({
-    required this.logSenderService,
+    required LogSenderService logSenderService,
     required RemoteLoggingConfig config,
-    required this.deviceDataGenerator,
+    required IDeviceDataGenerator deviceDataGenerator,
     OnLog? onLog,
     GetAttestationTokenCallback? getAttestationTokenCallback,
-  }) : _config = config,
-       _getAttestationTokenCallback = getAttestationTokenCallback {
-    Logger.root.level = _getBiggerScopeLevel(
+    OnError? onError,
+  }) : _deviceDataGenerator = deviceDataGenerator,
+       _logSenderService = logSenderService,
+       _config = config,
+       _getAttestationTokenCallback = getAttestationTokenCallback,
+       _onError = onError {
+    Logger.root.level = getBiggerScopeLevel(
       _config.logSendLevel,
       _config.logPrintLevel,
     );
@@ -99,63 +88,42 @@ final class RemoteLogging {
       _onLog(record);
     });
   }
-
-  RemoteLogging._internalLocalOnly({
-    required RemoteLoggingConfig config,
-    OnLog? onLog,
-  }) : _config = config,
-       _getAttestationTokenCallback = null,
-       logSenderService = null,
-       deviceDataGenerator = null {
-    Logger.root.level = _getBiggerScopeLevel(
-      _config.logSendLevel,
-      _config.logPrintLevel,
-    );
-
-    Logger.root.onRecord.listen((record) {
-      if (onLog != null) onLog(record);
-      _onLog(record);
-    });
-  }
-
-  /// The service responsible for sending logs to the remote server.
-  final LogSenderService? logSenderService;
-
-  /// The provider for device data, providing metadata for logs.
-  final IDeviceDataGenerator? deviceDataGenerator;
 
   static bool _initialized = false;
 
+  final LogSenderService _logSenderService;
+  final IDeviceDataGenerator _deviceDataGenerator;
+  final OnError? _onError;
+  final GetAttestationTokenCallback? _getAttestationTokenCallback;
   RemoteLoggingConfig _config;
 
   /// Gets the current configuration.
   RemoteLoggingConfig get config => _config;
 
-  final GetAttestationTokenCallback? _getAttestationTokenCallback;
-
   /// Sets the configuration dynamically, updating the root logger level.
   set config(RemoteLoggingConfig newConfig) {
     if (_config != newConfig) {
       _config = newConfig;
-      Logger.root.level = _getBiggerScopeLevel(
+      Logger.root.level = getBiggerScopeLevel(
         _config.logSendLevel,
         _config.logPrintLevel,
       );
-      localLog.config('RemoteLogging config updated to: $_config');
+      internalLog.config('RemoteLogging config updated to: $_config');
     } else {
-      localLog.config('RemoteLogging config set to the same value: $_config');
+      internalLog.config(
+        'RemoteLogging config set to the same value: $_config',
+      );
     }
   }
 
   /// Initializes the logging system. Call this method before using any logging
   /// features.
-  static Future<RemoteLogging> init({
+  static Future<RemoteLogging> _init({
     required RemoteLoggingConfig remoteLoggingConfig,
     required IDeviceDataGenerator deviceDataGenerator,
     GetAttestationTokenCallback? getAttestationTokenCallback,
     ILocalLogRepository? localLogRepository,
     OnLog? onLog,
-    OnLog? onLocalOnlyLog,
     OnError? onError,
   }) async {
     final logSenderService = LogSenderService(
@@ -171,9 +139,10 @@ final class RemoteLogging {
       deviceDataGenerator: deviceDataGenerator,
       getAttestationTokenCallback: getAttestationTokenCallback,
       onLog: onLog,
+      onError: onError,
     );
 
-    _LocalLog().init(remoteLoggingConfig.localLogPrintLevel, onLocalOnlyLog);
+    initInternalLogger(remoteLoggingConfig);
 
     await deviceDataGenerator.init();
     _initialized = true;
@@ -181,32 +150,12 @@ final class RemoteLogging {
     return instance;
   }
 
-  /// unlike [init], initialize only for local usage.
-  static RemoteLogging initLocalOnly({
-    required RemoteLoggingConfig config,
-    OnLog? onLog,
-    OnLog? onLocalOnlyLog,
-    OnError? onError,
-  }) {
-    final instance = RemoteLogging._internalLocalOnly(
-      config: config,
-      onLog: onLog,
-    );
-
-    _LocalLog().init(config.localLogPrintLevel, onLocalOnlyLog);
-
-    return instance;
-  }
-
-  /// Optional error callback. Set dynamically or passed via `init`.
-  OnError? onError;
-
   /// Starts the log sender service to send logs to the remote server.
   ///
   /// DO NOT AWAIT THIS FUNCTION. It is designed to run indefinitely, sending
   /// logs as they are generated.
   Future<void> start(INetworkInvoker invoker) async {
-    localLog.config('Starting RemoteLogging with config: $config');
+    internalLog.config('Starting RemoteLogging with config: $config');
     if (!_initialized) {
       throw StateError(
         'LoggerInitializer.init() must be called'
@@ -215,35 +164,23 @@ final class RemoteLogging {
     }
 
     if (!config.enableRemoteLogging) {
-      localLog.warning(
+      internalLog.warning(
         'Remote logging is disabled. '
         'Logs will not be sent to remote endpoints.',
       );
       return;
     }
 
-    final logSenderService = this.logSenderService;
-    if (logSenderService == null) {
-      localLog.severe('Log sender service is not initialized.');
-      return;
-    }
-
-    final deviceDataGenerator = this.deviceDataGenerator;
-    if (deviceDataGenerator == null) {
-      localLog.severe('Device data generator is not initialized.');
-      return;
-    }
-
-    final metadata = deviceDataGenerator.deviceMetadata;
+    final metadata = _deviceDataGenerator.deviceMetadata;
     final authService = AuthService(
       config: config,
       deviceMetadata: metadata,
       invoker: invoker,
       getAttestationToken: _getAttestationTokenCallback,
-      onError: onError ?? logSenderService.onError,
+      onError: _onError,
     );
 
-    await logSenderService.start(
+    await _logSenderService.start(
       invoker: invoker,
       deviceMetadata: metadata,
       authService: authService,
@@ -251,74 +188,70 @@ final class RemoteLogging {
   }
 
   void _onLog(LogRecord record) {
-    if (_isLoggable(record, _config.logSendLevel)) {
-      logSenderService?.enqueue(record);
+    if (isLoggable(record, _config.logSendLevel)) {
+      _logSenderService.enqueue(record);
     }
 
-    if (_isLoggable(record, _config.logPrintLevel)) {
-      _printRecord(record);
+    if (isLoggable(record, _config.logPrintLevel)) {
+      _config.logPrinter(record);
     }
   }
 
   /// Flushes any pending logs immediately. Useful for testing or when shutting
   /// down.
   Future<void> flush() async {
-    if (logSenderService == null) {
-      localLog.severe('Log sender service is not initialized.');
-      return;
-    }
-    await logSenderService?.flush();
+    await _logSenderService.flush();
   }
 }
 
-class _LocalLog {
-  factory _LocalLog() => _instance ??= _LocalLog._internal();
+/// Manages local logging configuration and log listeners.
+///
+/// Sets up root logger listeners and handles log record formatting
+/// and filtering.
+class LocalLogging {
+  /// Creates a [LocalLogging] instance with the provided configuration and
+  /// optional log callback.
+  ///
+  /// The local only variant of [RemoteLogging]. Do not use [LocalLogging] and
+  /// [RemoteLogging] together, as they will conflict with each other.
+  ///
+  /// [config] is required and defines the logging behavior.
+  /// [onLog] is an optional callback that will be invoked for each log record.
+  LocalLogging._internal({
+    required LocalLoggingConfig config,
+    OnLog? onLog,
+  }) : _config = config {
+    Logger.root.level = _config.logPrintLevel;
 
-  _LocalLog._internal();
-
-  /// Initializes the local logger with the specified log level
-  void init(Level level, OnLog? onLocalLog) {
-    _logger = Logger.detached('LOCAL_ONLY_LOGGER');
-    _logger.level = level;
-    _logger.onRecord.listen((record) {
-      onLocalLog?.call(record);
-      _printRecord(record);
+    Logger.root.onRecord.listen((record) {
+      if (onLog != null) onLog(record);
+      _onLog(record);
     });
+
+    initInternalLogger(config);
   }
 
-  static _LocalLog? _instance;
-  late Logger _logger;
-}
+  LocalLoggingConfig _config;
 
-void _printRecord(LogRecord record) {
-  print(
-    '${record.time.toIso8601String()} '
-    '[${record.zoneName}] '
-    '[${_s7(record.level.name)}] '
-    '${record.loggerName}: '
-    '${record.message}',
-  );
+  /// Gets the current configuration.
+  LocalLoggingConfig get config => _config;
 
-  if (record.error != null) {
-    print('ERROR: ${record.error}');
+  /// Sets the configuration dynamically, updating the root logger level.
+  set config(LocalLoggingConfig newConfig) {
+    if (_config != newConfig) {
+      _config = newConfig;
+      Logger.root.level = _config.logPrintLevel;
+      internalLog.config('LocalLogging config updated to: $_config');
+    } else {
+      internalLog.config(
+        'LocalLogging config set to the same value: $_config',
+      );
+    }
   }
-  if (record.stackTrace != null) {
-    print('${record.stackTrace}');
+
+  void _onLog(LogRecord record) {
+    if (isLoggable(record, _config.logPrintLevel)) {
+      _config.logPrinter(record);
+    }
   }
-}
-
-String _s7(String str) {
-  if (str.length >= 7) {
-    return str;
-  } else {
-    return str + ' ' * (7 - str.length);
-  }
-}
-
-bool _isLoggable(LogRecord log, Level requiredLevel) {
-  return log.level >= requiredLevel;
-}
-
-Level _getBiggerScopeLevel(Level level1, Level level2) {
-  return level1.value < level2.value ? level1 : level2;
 }

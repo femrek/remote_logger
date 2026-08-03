@@ -1,5 +1,36 @@
 import 'package:remote_logging/remote_logging.dart';
 
+/// A simple logging utility that wraps around the `logging` package.
+/// It provides methods for logging messages at various levels (shout, severe,
+/// warning, info, config, fine, finer, finest) and checks if the level is
+/// loggable before logging the message.
+///
+/// Example usage:
+/// ```dart
+/// import 'package:remote_logging/remote_logging.dart';
+///
+/// class MyClass {
+///   final _log = logger('MyApp');
+///
+///   void doSomething() {
+///     _log.info('Doing something');
+///   }
+/// }
+/// ```
+///
+/// Example usage with mixin (only for class members, not for static methods and
+/// constructors):
+/// ```dart
+/// import 'package:remote_logging/remote_logging.dart';
+///
+/// class MyClass with LoggerMixin<MyClass> {
+///   void doSomething() {
+///     log.info('Doing something');
+///   }
+/// }
+/// ```
+Logger logger(String name) => Logger(name);
+
 /// A mixin that provides a `late final` [Logger] instance for the class `T`.
 ///
 /// The logger is named after the class `T.toString()`.

@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_remote_logging/flutter_remote_logging.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:remote_logging/remote_logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
