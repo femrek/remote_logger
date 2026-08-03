@@ -1,16 +1,24 @@
 import 'package:dart_network_layer_core/dart_network_layer_core.dart';
 import 'package:remote_logging/remote_logging.dart';
 import 'package:remote_logging/src/remote/auth_service.dart';
+import 'package:remote_logging/src/remote/i_log_sender_service.dart';
 import 'package:remote_logging/src/remote/log_sender_service.dart';
 import 'package:remote_logging/src/util/helpers.dart';
 import 'package:remote_logging/src/util/internal_logger.dart';
 
 /// Initializer for [RemoteLogging] and [LocalLogging].
+///
+/// Use [initRemote] to set up remote log transmission, or [initLocal] for
+/// console-only logging without any network transport. Only one may be
+/// initialized at a time.
 abstract final class RemoteLoggingInit {
   static bool _isInitialized = false;
 
   /// Initializes remote logging with the specified configuration and device
   /// data generator.
+  ///
+  /// Throws a [StateError] if called more than once without calling
+  /// [RemoteLogging.stop] first.
   static Future<RemoteLogging> initRemote({
     required RemoteLoggingConfig config,
     required IDeviceDataGenerator deviceDataGenerator,
@@ -34,7 +42,10 @@ abstract final class RemoteLoggingInit {
     );
   }
 
-  /// Initializes local logging with the specified configuration.
+  /// Initializes local-only logging with the specified configuration.
+  ///
+  /// Throws a [StateError] if called more than once without calling
+  /// [LocalLogging.stop] first.
   static LocalLogging initLocal({
     required LocalLoggingConfig config,
     OnLog? onLog,
@@ -49,12 +60,11 @@ abstract final class RemoteLoggingInit {
       onLog: onLog,
     );
   }
-}
 
-/// Callback to fetch attestation token for authentication.
-///
-/// Can be null if the remote server is configured to not require attestation.
-typedef GetAttestationTokenCallback = Future<String?> Function();
+  /// Resets the initialization flag. Called internally by [RemoteLogging.stop]
+  /// and [LocalLogging.stop].
+  static void _reset() => _isInitialized = false;
+}
 
 // Level.OFF
 // Level.SHOUT
@@ -65,17 +75,20 @@ typedef GetAttestationTokenCallback = Future<String?> Function();
 // Level.FINE
 // Level.FINER
 // Level.FINEST
-/// Application logger initializer that sets up logging configurations.
+/// Manages remote logging: collects [LogRecord]s and transmits them to the
+/// remote gateway in batches.
+///
+/// Obtain an instance via [RemoteLoggingInit.initRemote].
 final class RemoteLogging {
   RemoteLogging._internal({
-    required LogSenderService logSenderService,
+    required ILogSenderService logSenderService,
     required RemoteLoggingConfig config,
     required IDeviceDataGenerator deviceDataGenerator,
     OnLog? onLog,
     GetAttestationTokenCallback? getAttestationTokenCallback,
     OnError? onError,
-  }) : _deviceDataGenerator = deviceDataGenerator,
-       _logSenderService = logSenderService,
+  }) : _logSenderService = logSenderService,
+       _deviceDataGenerator = deviceDataGenerator,
        _config = config,
        _getAttestationTokenCallback = getAttestationTokenCallback,
        _onError = onError {
@@ -89,9 +102,7 @@ final class RemoteLogging {
     });
   }
 
-  static bool _initialized = false;
-
-  final LogSenderService _logSenderService;
+  final ILogSenderService _logSenderService;
   final IDeviceDataGenerator _deviceDataGenerator;
   final OnError? _onError;
   final GetAttestationTokenCallback? _getAttestationTokenCallback;
@@ -116,8 +127,6 @@ final class RemoteLogging {
     }
   }
 
-  /// Initializes the logging system. Call this method before using any logging
-  /// features.
   static Future<RemoteLogging> _init({
     required RemoteLoggingConfig remoteLoggingConfig,
     required IDeviceDataGenerator deviceDataGenerator,
@@ -145,23 +154,15 @@ final class RemoteLogging {
     initInternalLogger(remoteLoggingConfig);
 
     await deviceDataGenerator.init();
-    _initialized = true;
 
     return instance;
   }
 
   /// Starts the log sender service to send logs to the remote server.
   ///
-  /// DO NOT AWAIT THIS FUNCTION. It is designed to run indefinitely, sending
-  /// logs as they are generated.
+  /// DO NOT AWAIT THIS FUNCTION. It is designed to run until [stop] is called.
   Future<void> start(INetworkInvoker invoker) async {
     internalLog.config('Starting RemoteLogging with config: $config');
-    if (!_initialized) {
-      throw StateError(
-        'LoggerInitializer.init() must be called'
-        ' before LoggerInitializer.start()',
-      );
-    }
 
     if (!config.enableRemoteLogging) {
       internalLog.warning(
@@ -182,9 +183,18 @@ final class RemoteLogging {
 
     await _logSenderService.start(
       invoker: invoker,
-      deviceMetadata: metadata,
       authService: authService,
     );
+  }
+
+  /// Stops the log sender service and resets the initialization state so
+  /// [RemoteLoggingInit.initRemote] can be called again if needed.
+  ///
+  /// If [flush] is `true` (the default), any pending logs in the queue are
+  /// sent before the service stops.
+  Future<void> stop({bool flush = true}) async {
+    await _logSenderService.stop(flush: flush);
+    RemoteLoggingInit._reset();
   }
 
   void _onLog(LogRecord record) {
@@ -204,19 +214,15 @@ final class RemoteLogging {
   }
 }
 
-/// Manages local logging configuration and log listeners.
+/// Manages local-only logging: prints [LogRecord]s to the console without any
+/// network transport.
 ///
-/// Sets up root logger listeners and handles log record formatting
-/// and filtering.
+/// Use this instead of [RemoteLogging] when you don't need remote transmission.
+/// Do not use [LocalLogging] and [RemoteLogging] together — they will conflict
+/// by both registering listeners on [Logger.root].
+///
+/// Obtain an instance via [RemoteLoggingInit.initLocal].
 class LocalLogging {
-  /// Creates a [LocalLogging] instance with the provided configuration and
-  /// optional log callback.
-  ///
-  /// The local only variant of [RemoteLogging]. Do not use [LocalLogging] and
-  /// [RemoteLogging] together, as they will conflict with each other.
-  ///
-  /// [config] is required and defines the logging behavior.
-  /// [onLog] is an optional callback that will be invoked for each log record.
   LocalLogging._internal({
     required LocalLoggingConfig config,
     OnLog? onLog,
@@ -247,6 +253,12 @@ class LocalLogging {
         'LocalLogging config set to the same value: $_config',
       );
     }
+  }
+
+  /// Stops local logging and resets the initialization state so
+  /// [RemoteLoggingInit.initLocal] can be called again if needed.
+  void stop() {
+    RemoteLoggingInit._reset();
   }
 
   void _onLog(LogRecord record) {

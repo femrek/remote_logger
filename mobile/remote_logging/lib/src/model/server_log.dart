@@ -19,22 +19,35 @@ class ServerLog extends JsonRequestSchema {
     this.stacktrace,
   });
 
-  /// Creates a [ServerLog] instance from a [LogRecord].
+  /// Creates a [ServerLog] instance from a [LogRecord], applying field
+  /// truncation as specified by [truncation].
   factory ServerLog.fromLogRecord(
     LogRecord record,
     IDeviceDataGenerator deviceDataGenerator,
+    LogTruncationConfig truncation,
   ) {
     return ServerLog(
       id: const Uuid().v4(),
       timestamp: record.time,
       loggerName: record.loggerName,
-      message: record.message,
+      message: _truncateChars(record.message, truncation.maxMessageChars),
       level: record.level.name,
       zone: record.zoneName,
       deviceUUID: deviceDataGenerator.deviceId,
       sessionId: deviceDataGenerator.sessionId,
-      error: record.error,
-      stacktrace: record.stackTrace?.toString(),
+      error: record.error == null
+          ? null
+          : _truncateChars(
+              record.error.toString(),
+              truncation.maxErrorChars,
+            ),
+      stacktrace: record.stackTrace == null
+          ? null
+          : _truncateStacktrace(
+              record.stackTrace.toString(),
+              truncation.maxStacktraceLines,
+              truncation.maxStacktraceLineChars,
+            ),
     );
   }
 
@@ -86,8 +99,17 @@ class ServerLog extends JsonRequestSchema {
   /// An optional error object associated with the log entry.
   final Object? error;
 
-  /// An optional stack trace associated
+  /// An optional stack trace associated with the log entry.
   final String? stacktrace;
+
+  /// The total character count of the variable-length fields.
+  ///
+  /// Useful for debugging oversized logs and future adaptive batching.
+  /// This reflects post-truncation lengths.
+  int get charCount =>
+      message.length +
+      (error?.toString().length ?? 0) +
+      (stacktrace?.length ?? 0);
 
   /// Used to convert this log to a map for local storage.
   Map<String, dynamic> toMap() => {
@@ -114,4 +136,40 @@ class ServerLog extends JsonRequestSchema {
     if (error != null) 'error': error.toString(),
     if (stacktrace != null) 'stacktrace': stacktrace.toString(),
   };
+}
+
+/// Truncates [text] to [maxChars] characters, appending `'...[truncated]'`
+/// if the text was shortened. Returns [text] unchanged if [maxChars] is 0.
+String _truncateChars(String text, int maxChars) {
+  if (maxChars <= 0 || text.length <= maxChars) return text;
+  return '${text.substring(0, maxChars)}...[truncated]';
+}
+
+/// Truncates a stacktrace string by line count and per-line character limit.
+///
+/// - [maxLines]: maximum number of lines to retain (0 = unlimited).
+/// - [maxLineChars]: maximum characters per line (0 = unlimited).
+String _truncateStacktrace(String stacktrace, int maxLines, int maxLineChars) {
+  var lines = stacktrace.split('\n');
+  var lineTruncated = false;
+
+  if (maxLines > 0 && lines.length > maxLines) {
+    lines = lines.sublist(0, maxLines);
+    lineTruncated = true;
+  }
+
+  if (maxLineChars > 0) {
+    lines = lines.map((line) {
+      if (line.length > maxLineChars) {
+        return '${line.substring(0, maxLineChars)}...[truncated]';
+      }
+      return line;
+    }).toList();
+  }
+
+  if (lineTruncated) {
+    lines.add('...[truncated]');
+  }
+
+  return lines.join('\n');
 }

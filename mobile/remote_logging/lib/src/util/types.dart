@@ -13,5 +13,10 @@ typedef OnLog = void Function(LogRecord record);
 /// when the logging service is processing and sending log batches.
 typedef OnError = void Function(Object error, StackTrace stackTrace);
 
+/// Callback to fetch attestation token for authentication.
+///
+/// Can be null if the remote server is configured to not require attestation.
+typedef GetAttestationTokenCallback = Future<String?> Function();
+
 /// Callback type for formatting and printing a [LogRecord].
 typedef LogPrinter = void Function(LogRecord logRecord);

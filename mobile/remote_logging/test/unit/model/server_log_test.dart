@@ -160,7 +160,11 @@ void main() {
           StackTrace.fromString('test stacktrace'),
         );
         final generator = MockDeviceDataGenerator();
-        final log = ServerLog.fromLogRecord(record, generator);
+        final log = ServerLog.fromLogRecord(
+          record,
+          generator,
+          const LogTruncationConfig(),
+        );
 
         expect(log.loggerName, 'TestLogger');
         expect(log.level, 'INFO');
@@ -204,5 +208,189 @@ void main() {
         );
       }
     });
+  });
+
+  group('ServerLog truncation', () {
+    final deviceDataGenerator = AnonymousDeviceDataGenerator();
+
+    test(
+      'message is truncated when it exceeds maxMessageChars '
+      '(append ...[truncated])',
+      () {
+        final record = LogRecord(Level.INFO, '1234567890', 'loggerName');
+        const truncation = LogTruncationConfig(maxMessageChars: 5);
+        final log = ServerLog.fromLogRecord(
+          record,
+          deviceDataGenerator,
+          truncation,
+        );
+
+        expect(log.message, equals('12345...[truncated]'));
+      },
+    );
+
+    test('message is unchanged when within limit', () {
+      final record = LogRecord(Level.INFO, 'hello', 'loggerName');
+      const truncation = LogTruncationConfig(maxMessageChars: 10);
+      final log = ServerLog.fromLogRecord(
+        record,
+        deviceDataGenerator,
+        truncation,
+      );
+
+      expect(log.message, equals('hello'));
+    });
+
+    test('message is not truncated when maxMessageChars is 0 (unlimited)', () {
+      final record = LogRecord(Level.INFO, '1234567890', 'loggerName');
+      const truncation = LogTruncationConfig(maxMessageChars: 0);
+      final log = ServerLog.fromLogRecord(
+        record,
+        deviceDataGenerator,
+        truncation,
+      );
+
+      expect(log.message, equals('1234567890'));
+    });
+
+    test('error string is truncated when it exceeds maxErrorChars', () {
+      final record = LogRecord(
+        Level.INFO,
+        'msg',
+        'log',
+        Exception('1234567890'),
+      );
+      const truncation = LogTruncationConfig(maxErrorChars: 10);
+      final log = ServerLog.fromLogRecord(
+        record,
+        deviceDataGenerator,
+        truncation,
+      );
+
+      expect(log.error, equals('Exception:...[truncated]'));
+    });
+
+    test(
+      'stacktrace is capped to maxStacktraceLines lines '
+      '(excess lines dropped, ...[truncated] appended as extra line)',
+      () {
+        final record = LogRecord(
+          Level.INFO,
+          'msg',
+          'log',
+          null,
+          StackTrace.fromString('line1\nline2\nline3\nline4'),
+        );
+        const truncation = LogTruncationConfig(maxStacktraceLines: 2);
+        final log = ServerLog.fromLogRecord(
+          record,
+          deviceDataGenerator,
+          truncation,
+        );
+
+        expect(log.stacktrace, equals('line1\nline2\n...[truncated]'));
+      },
+    );
+
+    test(
+      'each stacktrace line is truncated to maxStacktraceLineChars '
+      '(with ...[truncated] suffix)',
+      () {
+        final record = LogRecord(
+          Level.INFO,
+          'msg',
+          'log',
+          null,
+          StackTrace.fromString('line1_very_long\nline2_very_long'),
+        );
+        const truncation = LogTruncationConfig(maxStacktraceLineChars: 5);
+        final log = ServerLog.fromLogRecord(
+          record,
+          deviceDataGenerator,
+          truncation,
+        );
+
+        expect(
+          log.stacktrace,
+          equals('line1...[truncated]\nline2...[truncated]'),
+        );
+      },
+    );
+
+    test('both stacktrace limits applied together', () {
+      final record = LogRecord(
+        Level.INFO,
+        'msg',
+        'log',
+        null,
+        StackTrace.fromString(
+          'line1_very_long\nline2_very_long\nline3_very_long',
+        ),
+      );
+      const truncation = LogTruncationConfig(
+        maxStacktraceLines: 2,
+        maxStacktraceLineChars: 5,
+      );
+      final log = ServerLog.fromLogRecord(
+        record,
+        deviceDataGenerator,
+        truncation,
+      );
+
+      expect(
+        log.stacktrace,
+        equals('line1...[truncated]\nline2...[truncated]\n...[truncated]'),
+      );
+    });
+
+    test('charCount reflects post-truncation lengths', () {
+      final record = LogRecord(
+        Level.INFO,
+        '1234567890',
+        'log',
+        Exception('1234567890'),
+        StackTrace.fromString('line1_very_long\nline2_very_long'),
+      );
+      const truncation = LogTruncationConfig(
+        maxMessageChars: 5,
+        maxErrorChars: 10,
+        maxStacktraceLineChars: 5,
+      );
+      final log = ServerLog.fromLogRecord(
+        record,
+        deviceDataGenerator,
+        truncation,
+      );
+
+      final expectedCharCount =
+          log.message.length +
+          log.error!.toString().length +
+          log.stacktrace!.length;
+      expect(log.charCount, equals(expectedCharCount));
+    });
+
+    test(
+      'charCount is 0 when error and stacktrace are null '
+      '(only message length)',
+      () {
+        final recordNoMsg = LogRecord(Level.INFO, '', 'log');
+        final logNoMsg = ServerLog.fromLogRecord(
+          recordNoMsg,
+          deviceDataGenerator,
+          const LogTruncationConfig(),
+        );
+
+        expect(logNoMsg.charCount, equals(0));
+
+        final record = LogRecord(Level.INFO, 'the message', 'log');
+        final log = ServerLog.fromLogRecord(
+          record,
+          deviceDataGenerator,
+          const LogTruncationConfig(),
+        );
+
+        expect(log.charCount, equals('the message'.length));
+      },
+    );
   });
 }
