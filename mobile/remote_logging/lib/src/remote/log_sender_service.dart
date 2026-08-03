@@ -20,7 +20,7 @@ final class LogSenderService {
   LogSenderService({
     required this.config,
     required this.deviceDataGenerator,
-    this.localRepository,
+    required this.localRepository,
     OnError? onError,
   }) : _onError = onError;
 
@@ -31,7 +31,7 @@ final class LogSenderService {
   final IDeviceDataGenerator deviceDataGenerator;
 
   /// Optional local storage for unsent logs to prevent loss on crash/offline.
-  final ILocalLogRepository? localRepository;
+  final ILocalLogRepository localRepository;
 
   /// Optional error listener.
   final OnError? _onError;
@@ -51,7 +51,7 @@ final class LogSenderService {
     final serverLog = ServerLog.fromLogRecord(logRecord, deviceDataGenerator);
 
     unawaited(
-      localRepository?.saveLogs([serverLog]).catchError((
+      localRepository.saveLogs([serverLog]).catchError((
         Object e,
         StackTrace s,
       ) {
@@ -96,19 +96,16 @@ final class LogSenderService {
       () => 'Device metadata: ${_deviceMetadata.toJsonPayload()}',
     );
 
-    final localRepository = this.localRepository;
-    if (localRepository != null) {
-      try {
-        final unsent = await localRepository.getUnsentLogs();
-        if (unsent.isNotEmpty) {
-          internalLog.info(
-            'Loaded ${unsent.length} unsent logs from local repository',
-          );
-          _queue.insertAll(0, unsent);
-        }
-      } on Object catch (e, s) {
-        internalLog.warning('Failed to load unsent logs', e, s);
+    try {
+      final unsent = await localRepository.getUnsentLogs();
+      if (unsent.isNotEmpty) {
+        internalLog.info(
+          'Loaded ${unsent.length} unsent logs from local repository',
+        );
+        _queue.insertAll(0, unsent);
       }
+    } on Object catch (e, s) {
+      internalLog.warning('Failed to load unsent logs', e, s);
     }
 
     await _sendAll();
@@ -225,7 +222,7 @@ final class LogSenderService {
   void _removeLocalLogs(List<ServerLog> logs) {
     final ids = logs.map((l) => l.id).toList();
     unawaited(
-      localRepository?.removeLogs(ids).catchError((Object e, StackTrace s) {
+      localRepository.removeLogs(ids).catchError((Object e, StackTrace s) {
         internalLog.warning(
           'Failed to remove sent logs from local repo',
           e,

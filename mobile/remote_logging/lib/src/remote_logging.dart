@@ -14,8 +14,8 @@ abstract final class RemoteLoggingInit {
   static Future<RemoteLogging> initRemote({
     required RemoteLoggingConfig config,
     required IDeviceDataGenerator deviceDataGenerator,
+    ILocalLogRepository localLogRepository = const NoSaveLocalLogRepository(),
     GetAttestationTokenCallback? getAttestationTokenCallback,
-    ILocalLogRepository? localLogRepository,
     OnLog? onLog,
     OnError? onError,
   }) async {
@@ -121,8 +121,8 @@ final class RemoteLogging {
   static Future<RemoteLogging> _init({
     required RemoteLoggingConfig remoteLoggingConfig,
     required IDeviceDataGenerator deviceDataGenerator,
+    required ILocalLogRepository localLogRepository,
     GetAttestationTokenCallback? getAttestationTokenCallback,
-    ILocalLogRepository? localLogRepository,
     OnLog? onLog,
     OnError? onError,
   }) async {

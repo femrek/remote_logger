@@ -45,7 +45,7 @@ abstract final class FlutterRemoteLogging {
       config: remoteLoggingConfig,
       deviceDataGenerator: deviceDataGenerator ?? FlutterDeviceDataGenerator(),
       getAttestationTokenCallback: getAttestationTokenCallback,
-      localLogRepository: repo,
+      localLogRepository: repo ?? const NoSaveLocalLogRepository(),
       onLog: onLog,
       onError: onError,
     );

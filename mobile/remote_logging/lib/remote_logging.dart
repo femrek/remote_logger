@@ -9,4 +9,6 @@ export 'src/model/server_log.dart';
 export 'src/remote_logging.dart';
 export 'src/strategy/i_device_data_generator.dart';
 export 'src/strategy/i_local_log_repository.dart';
+export 'src/strategy/impl/anonymous_device_data_generator.dart';
+export 'src/strategy/impl/no_save_local_log_repository.dart';
 export 'src/util/types.dart';
