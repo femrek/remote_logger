@@ -1,0 +1,40 @@
+name: Dart Tests
+
+on:
+  push:
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/dart_test.yml'
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/dart_test.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.x'
+          channel: 'stable'
+          
+      - name: Install dependencies (remote_logging)
+        working-directory: mobile/remote_logging
+        run: dart pub get
+        
+      - name: Run tests (remote_logging)
+        working-directory: mobile/remote_logging
+        run: dart test
+        
+      - name: Install dependencies (flutter_remote_logging)
+        working-directory: mobile/flutter_remote_logging
+        run: flutter pub get
+        
+      - name: Run tests (flutter_remote_logging)
+        working-directory: mobile/flutter_remote_logging
+        run: flutter test

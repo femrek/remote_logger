@@ -35,6 +35,12 @@ pipeline {
                 }
 
                 stage('Test logger_gateway') {
+                    when {
+                        anyOf {
+                            changeset "logger_gateway/**"
+                            changeset "Jenkinsfile"
+                        }
+                    }
                     steps {
                         script {
                             echo 'Running logger_gateway unit tests...'
@@ -44,6 +50,12 @@ pipeline {
                 }
 
                 stage('Test validation_worker') {
+                    when {
+                        anyOf {
+                            changeset "validation_worker/**"
+                            changeset "Jenkinsfile"
+                        }
+                    }
                     steps {
                         script {
                             echo 'Running validation_worker unit and integration tests...'
