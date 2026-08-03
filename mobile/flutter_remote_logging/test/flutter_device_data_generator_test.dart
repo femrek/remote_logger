@@ -1,8 +1,11 @@
+import 'package:device_info_plus_platform_interface/device_info_plus_platform_interface.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_remote_logging/src/strategies/flutter_device_data_generator.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'mock_device_info_platform.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -17,63 +20,7 @@ void main() {
       buildSignature: 'signature',
     );
 
-    // Mock device_info_plus channel to prevent MissingPluginException
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(
-          const MethodChannel('dev.fluttercommunity.plus/device_info'),
-          (methodCall) async {
-            return {
-              'computerName': 'Test Mac',
-              'hostName': 'test-mac',
-              'arch': 'arm64',
-              'model': 'MacBook',
-              'modelName': 'MacBook Pro',
-              'kernelVersion': 'Darwin',
-              'osRelease': '13.0',
-              'activeCPUs': 8,
-              'memorySize': 16000000000,
-              'cpuFrequency': 3200000000,
-              'systemGUID': 'test-guid',
-              'majorVersion': 13,
-              'minorVersion': 0,
-              'patchVersion': 0,
-              'name': 'Linux',
-              'version': '1.0',
-              'id': 'linux_id',
-              'idLike': ['debian'],
-              'versionCodename': 'test',
-              'versionId': '1.0',
-              'prettyName': 'Test Linux',
-              'buildId': '1',
-              'variant': 'test',
-              'variantId': '1',
-              'machineId': '1',
-              // Windows
-              'numberOfCores': 4,
-              'systemMemoryInMegabytes': 8000,
-              'userName': 'testUser',
-              'buildNumber': 19041,
-              'platformId': 2,
-              'csdVersion': '',
-              'servicePackMajor': 0,
-              'servicePackMinor': 0,
-              'suitMask': 0,
-              'productType': 1,
-              'reserved': 0,
-              'buildLab': 'test',
-              'buildLabEx': 'test',
-              'digitalProductId': <int>[],
-              'displayVersion': '20H2',
-              'editionId': 'Professional',
-              'installDate': 1600000000,
-              'productId': 'test',
-              'productName': 'Windows 10',
-              'registeredOwner': 'test',
-              'releaseId': '2009',
-              'deviceId': 'test',
-            };
-          },
-        );
+    DeviceInfoPlatform.instance = MockDeviceInfoPlatform();
   });
 
   test('init generates a new sessionId', () async {
