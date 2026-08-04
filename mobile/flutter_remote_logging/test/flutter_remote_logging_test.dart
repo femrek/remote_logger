@@ -1,4 +1,3 @@
-import 'package:flutter/services.dart';
 import 'package:device_info_plus_platform_interface/device_info_plus_platform_interface.dart';
 import 'package:flutter_remote_logging/flutter_remote_logging.dart';
 import 'package:flutter_test/flutter_test.dart';
