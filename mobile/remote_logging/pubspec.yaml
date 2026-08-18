@@ -1,6 +1,6 @@
 name: remote_logging
 description: "Dart package to extend logging library to send logs to a self hosted remote server."
-version: 0.0.2
+version: 0.0.3
 homepage: https://github.com/femrek/remote_logger/tree/main/mobile/remote_logging
 
 environment:
