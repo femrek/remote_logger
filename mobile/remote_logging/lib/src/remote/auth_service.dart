@@ -57,7 +57,7 @@ class AuthService {
     );
 
     final gatewayUrl = config.gatewayUrlTrimmed;
-    if (gatewayUrl == null || gatewayUrl.isEmpty) {
+    if (gatewayUrl.isEmpty) {
       internalLog.severe(
         'Gateway URL is not configured. Cannot exchange auth token.',
       );
@@ -65,7 +65,7 @@ class AuthService {
     }
 
     final channelId = config.channelId;
-    if (channelId == null || channelId.isEmpty) {
+    if (channelId.isEmpty) {
       internalLog.severe(
         'Channel ID is not configured. Cannot exchange auth token.',
       );

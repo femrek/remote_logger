@@ -65,14 +65,6 @@ void main() {
         expect(config.gatewayUrlTrimmed, equals('https://api.example.com'));
       });
 
-      test('gatewayUrlTrimmed returns null when gatewayUrl is null', () {
-        const config = RemoteLoggingConfig(
-          channelId: 'channel-id',
-        );
-
-        expect(config.gatewayUrlTrimmed, isNull);
-      });
-
       test('path returns the correct /v1/logs/{channelId}/batch URL', () {
         const config = RemoteLoggingConfig(
           gatewayUrl: 'https://api.example.com/',
@@ -86,7 +78,10 @@ void main() {
       });
 
       test('maxPendingLogCount defaults to 500', () {
-        const config = RemoteLoggingConfig();
+        const config = RemoteLoggingConfig(
+          gatewayUrl: 'gateway',
+          channelId: 'channel',
+        );
 
         expect(config.maxPendingLogCount, equals(500));
       });
@@ -94,7 +89,10 @@ void main() {
       test(
         'truncation defaults to LogTruncationConfig() with expected defaults',
         () {
-          const config = RemoteLoggingConfig();
+          const config = RemoteLoggingConfig(
+            gatewayUrl: 'gateway',
+            channelId: 'channel',
+          );
 
           expect(config.truncation.maxMessageChars, equals(8192));
           expect(config.truncation.maxErrorChars, equals(2048));

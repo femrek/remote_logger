@@ -34,8 +34,8 @@ class RemoteLoggingConfig extends BaseLoggingConfig {
   /// - [remoteLoggingLibraryLogPrintLevel]: The minimum log level for local
   /// logging (default: Level.CONFIG)
   const RemoteLoggingConfig({
-    this.gatewayUrl,
-    this.channelId,
+    required this.gatewayUrl,
+    required this.channelId,
     this.appleDevicePublicKey,
     this.enableRemoteLogging = true,
     this.logSendLevel = Level.INFO,
@@ -47,11 +47,11 @@ class RemoteLoggingConfig extends BaseLoggingConfig {
   });
 
   /// The base HTTP endpoint URL for the remote logger gateway.
-  final String? gatewayUrl;
+  final String gatewayUrl;
 
   /// The identifier used to route logs to the correct project or application
   /// in the remote server.
-  final String? channelId;
+  final String channelId;
 
   /// An optional public key for the device.
   ///
@@ -90,9 +90,8 @@ class RemoteLoggingConfig extends BaseLoggingConfig {
   final int maxPendingLogCount;
 
   /// Returns the gateway URL without a trailing slash.
-  String? get gatewayUrlTrimmed {
+  String get gatewayUrlTrimmed {
     final gatewayUrl = this.gatewayUrl;
-    if (gatewayUrl == null) return null;
     return gatewayUrl.endsWith('/')
         ? gatewayUrl.substring(0, gatewayUrl.length - 1)
         : gatewayUrl;
