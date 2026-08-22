@@ -1,3 +1,7 @@
+## 0.0.4
+
+- refactor(remote_logging): make gatewayUrl and channelId required parameters
+
 ## 0.0.3
 
 - Split local only logger and remote logger.
