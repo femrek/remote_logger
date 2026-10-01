@@ -18,9 +18,9 @@ abstract final class FlutterRemoteLogging {
   /// app attestation token (e.g. Firebase App Check).
   static Future<RemoteLogging> initRemote({
     required RemoteLoggingConfig remoteLoggingConfig,
-    IDeviceDataGenerator? deviceDataGenerator,
+    DeviceDataGenerator? deviceDataGenerator,
     GetAttestationTokenCallback? getAttestationTokenCallback,
-    ILocalLogRepository? localLogRepository,
+    LocalLogRepository? localLogRepository,
     bool enableDefaultLocalFallbackStorage = true,
     OnLog? onLog,
     OnError? onError,

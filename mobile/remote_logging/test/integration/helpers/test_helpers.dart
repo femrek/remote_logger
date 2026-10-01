@@ -8,7 +8,7 @@ RemoteLoggingConfig get testConfig => const RemoteLoggingConfig(
   logSendLevel: Level.FINEST,
 );
 
-class TestDeviceDataGenerator implements IDeviceDataGenerator {
+class TestDeviceDataGenerator implements DeviceDataGenerator {
   late final String _deviceIdCache;
   late final String _sessionIdCache;
   late final DeviceMetadata _metadataCache;

@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:dart_network_layer_core/dart_network_layer_core.dart';
 import 'package:remote_logging/remote_logging.dart';
 import 'package:remote_logging/src/remote/auth_service.dart';
-import 'package:remote_logging/src/remote/i_log_sender_service.dart';
 import 'package:remote_logging/src/remote/request/request_log_batch.dart';
 import 'package:remote_logging/src/util/internal_logger.dart';
 
@@ -15,14 +14,14 @@ import 'package:remote_logging/src/util/internal_logger.dart';
 /// cycle. The total number of pending logs across all failed batches is capped
 /// by [RemoteLoggingConfig.maxPendingLogCount] to prevent unbounded growth
 /// during offline periods (FIFO eviction). Optionally stores unsent logs
-/// locally using [ILocalLogRepository].
-final class LogSenderService implements ILogSenderService {
+/// locally using [LocalLogRepository].
+final class LogSenderService {
   /// Creates a [LogSenderService] with the given [config] and
   /// [deviceDataGenerator].
   LogSenderService({
     required RemoteLoggingConfig config,
-    required IDeviceDataGenerator deviceDataGenerator,
-    ILocalLogRepository? localRepository,
+    required DeviceDataGenerator deviceDataGenerator,
+    LocalLogRepository? localRepository,
     OnError? onError,
   }) : _config = config,
        _deviceDataGenerator = deviceDataGenerator,
@@ -30,8 +29,8 @@ final class LogSenderService implements ILogSenderService {
        _onError = onError;
 
   final RemoteLoggingConfig _config;
-  final IDeviceDataGenerator _deviceDataGenerator;
-  final ILocalLogRepository? _localRepository;
+  final DeviceDataGenerator _deviceDataGenerator;
+  final LocalLogRepository? _localRepository;
   final OnError? _onError;
 
   late final INetworkInvoker _invoker;
@@ -52,7 +51,7 @@ final class LogSenderService implements ILogSenderService {
   StreamSubscription<void>? _subscription;
   bool _isStarted = false;
 
-  @override
+  /// Enqueues a [LogRecord] to be sent to the server on the next cycle.
   void enqueue(LogRecord logRecord) {
     final serverLog = ServerLog.fromLogRecord(
       logRecord,
@@ -72,7 +71,12 @@ final class LogSenderService implements ILogSenderService {
     unawaited(_withCopyLock(() => _queue.add(serverLog)));
   }
 
-  @override
+  /// Starts the periodic log-sending loop.
+  ///
+  /// Must be called before [flush] or [stop]. Calling [start] when remote
+  /// logging is disabled in the config is a no-op.
+  ///
+  /// It is designed to run until [stop] is called.
   Future<void> start({
     required INetworkInvoker invoker,
     required AuthService authService,
@@ -118,14 +122,25 @@ final class LogSenderService implements ILogSenderService {
     });
   }
 
-  @override
+  /// Forces an immediate flush of the current log queue.
+  ///
+  /// No-ops if [start] has not been called.
+  ///
+  /// Flushes any pending logs immediately. Useful for testing or when shutting
+  /// down.
   Future<void> flush() async {
     if (!_isStarted) return;
     await _resendFailedRequests();
     await _sendAll();
   }
 
-  @override
+  /// Stops the periodic log-sending loop.
+  ///
+  /// Stops the log sender service and resets the initialization state so
+  /// [RemoteLoggingInit.initRemote] can be called again if needed.
+  ///
+  /// If [flush] is `true` (the default), any pending logs in the queue are
+  /// sent before the service stops.
   Future<void> stop({bool flush = true}) async {
     if (flush) await this.flush();
     await _subscription?.cancel();

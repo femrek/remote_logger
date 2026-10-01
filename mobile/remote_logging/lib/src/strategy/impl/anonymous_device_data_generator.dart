@@ -4,7 +4,7 @@ import 'package:remote_logging/remote_logging.dart';
 ///
 /// This is used when real device metadata is not available (e.g.
 /// non-mobile platforms) or when anonymous logging is preferred.
-class AnonymousDeviceDataGenerator implements IDeviceDataGenerator {
+class AnonymousDeviceDataGenerator implements DeviceDataGenerator {
   @override
   Future<void> init() {
     return Future.value();

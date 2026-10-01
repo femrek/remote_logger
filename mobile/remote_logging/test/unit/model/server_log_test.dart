@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:remote_logging/remote_logging.dart';
 import 'package:test/test.dart';
 
-class MockDeviceDataGenerator implements IDeviceDataGenerator {
+class MockDeviceDataGenerator implements DeviceDataGenerator {
   @override
   String get deviceId => 'test-device-uuid';
 

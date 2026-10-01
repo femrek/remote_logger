@@ -1,7 +1,6 @@
 import 'package:dart_network_layer_core/dart_network_layer_core.dart';
 import 'package:remote_logging/remote_logging.dart';
 import 'package:remote_logging/src/remote/auth_service.dart';
-import 'package:remote_logging/src/remote/i_log_sender_service.dart';
 import 'package:remote_logging/src/remote/log_sender_service.dart';
 import 'package:remote_logging/src/util/helpers.dart';
 import 'package:remote_logging/src/util/internal_logger.dart';
@@ -21,8 +20,8 @@ abstract final class RemoteLoggingInit {
   /// [RemoteLogging.stop] first.
   static Future<RemoteLogging> initRemote({
     required RemoteLoggingConfig config,
-    required IDeviceDataGenerator deviceDataGenerator,
-    ILocalLogRepository localLogRepository = const NoSaveLocalLogRepository(),
+    required DeviceDataGenerator deviceDataGenerator,
+    LocalLogRepository localLogRepository = const NoSaveLocalLogRepository(),
     GetAttestationTokenCallback? getAttestationTokenCallback,
     OnLog? onLog,
     OnError? onError,
@@ -81,9 +80,9 @@ abstract final class RemoteLoggingInit {
 /// Obtain an instance via [RemoteLoggingInit.initRemote].
 final class RemoteLogging {
   RemoteLogging._internal({
-    required ILogSenderService logSenderService,
+    required LogSenderService logSenderService,
     required RemoteLoggingConfig config,
-    required IDeviceDataGenerator deviceDataGenerator,
+    required DeviceDataGenerator deviceDataGenerator,
     OnLog? onLog,
     GetAttestationTokenCallback? getAttestationTokenCallback,
     OnError? onError,
@@ -102,8 +101,8 @@ final class RemoteLogging {
     });
   }
 
-  final ILogSenderService _logSenderService;
-  final IDeviceDataGenerator _deviceDataGenerator;
+  final LogSenderService _logSenderService;
+  final DeviceDataGenerator _deviceDataGenerator;
   final OnError? _onError;
   final GetAttestationTokenCallback? _getAttestationTokenCallback;
   RemoteLoggingConfig _config;
@@ -129,8 +128,8 @@ final class RemoteLogging {
 
   static Future<RemoteLogging> _init({
     required RemoteLoggingConfig remoteLoggingConfig,
-    required IDeviceDataGenerator deviceDataGenerator,
-    required ILocalLogRepository localLogRepository,
+    required DeviceDataGenerator deviceDataGenerator,
+    required LocalLogRepository localLogRepository,
     GetAttestationTokenCallback? getAttestationTokenCallback,
     OnLog? onLog,
     OnError? onError,
@@ -187,6 +186,8 @@ final class RemoteLogging {
     );
   }
 
+  /// Stops the periodic log-sending loop.
+  ///
   /// Stops the log sender service and resets the initialization state so
   /// [RemoteLoggingInit.initRemote] can be called again if needed.
   ///

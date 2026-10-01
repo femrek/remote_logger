@@ -2,7 +2,7 @@ import 'package:remote_logging/src/model/server_log.dart';
 
 /// An interface for local log storage to ensure logs are not lost
 /// if the network goes offline or the app crashes.
-abstract interface class ILocalLogRepository {
+abstract interface class LocalLogRepository {
   /// Save a list of logs to local storage.
   Future<void> saveLogs(List<ServerLog> logs);
 

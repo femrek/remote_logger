@@ -2,8 +2,8 @@ import 'package:remote_logging/remote_logging.dart';
 
 /// A class that generates and stores a unique device ID using secure storage.
 /// The ID persists across app launches but is unique per installation.
-abstract interface class IDeviceDataGenerator {
-  /// Initializer of [IDeviceDataGenerator]. must read or create [deviceId] and
+abstract interface class DeviceDataGenerator {
+  /// Initializer of [DeviceDataGenerator]. must read or create [deviceId] and
   /// must create [sessionId].
   ///
   /// After [init] is completed, [deviceId], [sessionId] and [deviceMetadata]

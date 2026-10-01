@@ -20,7 +20,7 @@ class _FakeRequestCommand extends Fake
 
 class MockINetworkInvoker extends Mock implements INetworkInvoker {}
 
-class MockILocalLogRepository extends Mock implements ILocalLogRepository {}
+class MockILocalLogRepository extends Mock implements LocalLogRepository {}
 
 /// Invoker that should never be called — used as a placeholder inside
 /// [_StubAuthService] constructor so auth never hits the network.
@@ -99,7 +99,7 @@ LogRecord _makeRecord({String message = 'test message'}) => LogRecord(
 
 LogSenderService _makeService({
   RemoteLoggingConfig config = _testConfig,
-  ILocalLogRepository? localRepository,
+  LocalLogRepository? localRepository,
   void Function(Object, StackTrace)? onError,
 }) =>
     LogSenderService(

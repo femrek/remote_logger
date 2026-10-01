@@ -7,10 +7,10 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
-/// A Flutter implementation of [IDeviceDataGenerator] that uses
+/// A Flutter implementation of [DeviceDataGenerator] that uses
 /// `device_info_plus`, `package_info_plus`, and `shared_preferences` to
 /// automatically collect device data.
-class FlutterDeviceDataGenerator implements IDeviceDataGenerator {
+class FlutterDeviceDataGenerator implements DeviceDataGenerator {
   late final String _deviceId;
   late final String _sessionId;
   late final DeviceMetadata _deviceMetadata;

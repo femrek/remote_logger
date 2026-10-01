@@ -58,7 +58,7 @@ void main() {
   });
 }
 
-class _E2eDeviceDataGenerator implements IDeviceDataGenerator {
+class _E2eDeviceDataGenerator implements DeviceDataGenerator {
   @override
   Future<void> init() async {
     _deviceIdCache = 'e2e-device-${const Uuid().v4()}';

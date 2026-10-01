@@ -1,8 +1,8 @@
 import 'package:remote_logging/remote_logging.dart';
 
-/// A no-op implementation of [ILocalLogRepository] that does not store
+/// A no-op implementation of [LocalLogRepository] that does not store
 /// or persist logs locally.
-final class NoSaveLocalLogRepository implements ILocalLogRepository {
+final class NoSaveLocalLogRepository implements LocalLogRepository {
   /// Creates a [NoSaveLocalLogRepository].
   const NoSaveLocalLogRepository();
 

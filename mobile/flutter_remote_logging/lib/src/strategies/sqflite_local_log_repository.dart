@@ -5,8 +5,8 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
-/// An SQLite implementation of [ILocalLogRepository] to store unsent logs.
-class SqfliteLocalLogRepository implements ILocalLogRepository {
+/// An SQLite implementation of [LocalLogRepository] to store unsent logs.
+class SqfliteLocalLogRepository implements LocalLogRepository {
   Database? _db;
 
   /// Initializes the SQLite database.

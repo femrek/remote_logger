@@ -7,7 +7,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'mock_device_info_platform.dart';
 
-class MockLocalLogRepository implements ILocalLogRepository {
+class MockLocalLogRepository implements LocalLogRepository {
   bool initCalled = false;
 
   @override
@@ -20,7 +20,7 @@ class MockLocalLogRepository implements ILocalLogRepository {
   Future<void> saveLogs(List<ServerLog> logs) async {}
 }
 
-class MockDeviceDataGenerator implements IDeviceDataGenerator {
+class MockDeviceDataGenerator implements DeviceDataGenerator {
   @override
   String get deviceId => 'mock_device_id';
 
