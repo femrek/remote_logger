@@ -46,6 +46,7 @@ async fn main() {
     let kafka_brokers   = env_or("KAFKA_BROKERS",           "localhost:9092");
     let kafka_topic     = env_or("KAFKA_TOPIC",             "mobile-logs");
     let metadata_topic  = env_or("KAFKA_METADATA_TOPIC",    "device-metadata");
+    let device_index_prefix = env_or("DEVICE_INDEX_PREFIX", "mobile-devices");
     let key_path = std::env::var("GATEWAY_PRIVATE_KEY_PATH")
         .unwrap_or_else(|_| "./private_key.pem".to_string());
     let raw_private_key = std::fs::read_to_string(&key_path)
@@ -120,6 +121,7 @@ async fn main() {
         sink: Arc::new(sink),
         kafka_topic,
         metadata_topic,
+        device_index_prefix,
         verifier,
         worker_config,
         jwt_private_key,

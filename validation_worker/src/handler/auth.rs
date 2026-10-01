@@ -190,6 +190,7 @@ pub async fn auth_exchange_handler(
 
     // ── 8. Produce SystemStartupEvent to Kafka ────────────────────────────────
     let startup_event = SystemStartupEvent {
+        log_index_prefix: format!("{}-{}", state.device_index_prefix, app_id),
         event_type: "system_startup".to_string(),
         app_id: app_id.clone(),
         device_uuid: req.device_uuid.clone(),
@@ -281,6 +282,7 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             sink: Arc::new(NoopSink),
             kafka_topic: "mobile-logs".to_string(),
             metadata_topic: "device-metadata".to_string(),
+            device_index_prefix: "mobile-devices".to_string(),
             verifier: Arc::new(PlatformDispatchVerifier {
                 android: Box::new(NoopVerifier),
                 ios: Box::new(NoopVerifier),
@@ -482,5 +484,65 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[derive(Default)]
+    struct CapturingSink {
+        sent: std::sync::Mutex<Vec<(String, String, String)>>,
+    }
+
+    impl KafkaSink for CapturingSink {
+        fn send<'a>(
+            &'a self,
+            topic: &'a str,
+            key: &'a str,
+            payload: &'a str,
+        ) -> BoxFuture<'a, Result<(), KafkaSinkError>> {
+            self.sent
+                .lock()
+                .unwrap()
+                .push((topic.to_string(), key.to_string(), payload.to_string()));
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn auth_exchange_produces_startup_event_with_device_index_prefix() {
+        let capturing_sink = Arc::new(CapturingSink::default());
+        let worker_config = Arc::new(ArcSwap::from_pointee(WorkerConfig {
+            channels: vec![dev_channel()],
+        }));
+        let state = Arc::new(AppState {
+            sink: capturing_sink.clone(),
+            kafka_topic: "mobile-logs".to_string(),
+            metadata_topic: "device-metadata".to_string(),
+            device_index_prefix: "mobile-devices".to_string(),
+            verifier: Arc::new(PlatformDispatchVerifier {
+                android: Box::new(NoopVerifier),
+                ios: Box::new(NoopVerifier),
+            }),
+            worker_config,
+            jwt_private_key: TEST_PRIVATE_KEY_PEM.to_string(),
+            access_ttl_seconds: 900,
+            refresh_ttl_seconds: 604_800,
+            jwt_issuer: "logger-gateway".to_string(),
+        });
+        let app = build_app(state);
+        let resp = post_exchange(app, "example-app-dev", valid_android_body("example-app-dev")).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let sent = capturing_sink.sent.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        let (topic, key, payload) = &sent[0];
+        assert_eq!(topic, "device-metadata");
+        assert_eq!(key, "a809b022-7934-4b53-90d2-bf7cb95a947d");
+
+        let event: serde_json::Value = serde_json::from_str(payload).expect("Valid JSON");
+        assert_eq!(event["log_index_prefix"], "mobile-devices-dev.femrek.exampleapp.dev");
+        assert_eq!(event["event_type"], "system_startup");
+        assert_eq!(event["app_id"], "dev.femrek.exampleapp.dev");
+        assert_eq!(event["device_uuid"], "a809b022-7934-4b53-90d2-bf7cb95a947d");
+        assert_eq!(event["metadata"]["os"], "Android");
+        assert_eq!(event["metadata"]["model"], "Pixel 6 Pro");
     }
 }

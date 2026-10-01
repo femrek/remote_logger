@@ -107,6 +107,8 @@ pub struct AuthExchangeResponse {
 /// registry from these events.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemStartupEvent {
+    /// Target OpenSearch index prefix (e.g. `mobile-devices-{app_id}`).
+    pub log_index_prefix: String,
     /// Always `"system_startup"` — used as a discriminator by consumers.
     pub event_type: String,
     pub app_id: String,

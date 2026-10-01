@@ -320,14 +320,15 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     //
     // Mirrors the pattern in scripts/send_logs.sh.
     eprintln!("[e2e] Exchanging attestation token for JWT …");
+    let test_device_uuid = format!("e2e-device-{}", epoch_ms());
     let auth_body = serde_json::json!({
         "platform": "android",
         "attestation_token": "mock",
         "tenant_id": "example_tenant",
-        "device_uuid": "e2e-test-device-0001",
+        "device_uuid": test_device_uuid,
         "device_metadata": {
             "timestamp": "2026-06-23T15:00:00Z",
-            "deviceUUID": "e2e-test-device-0001",
+            "deviceUUID": test_device_uuid,
             "sessionId": "session-123",
             "os": "Android",
             "osVersion": "13",
@@ -370,7 +371,7 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
         "message":    test_marker,
         "level":      "INFO",
         "zone":       "main",
-        "deviceUUID": "e2e-test-device-0001"
+        "deviceUUID": test_device_uuid
     });
 
     let log_response = match ureq::post(&format!("{gateway_url}/v1/logs/{channel}"))
@@ -401,7 +402,7 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     eprintln!("[e2e] Waiting 5 s for Fluent Bit flush (Flush=2) + indexing …");
     std::thread::sleep(Duration::from_secs(5));
 
-    // ── 7. Query OpenSearch for the test marker ───────────────────────────────
+    // ── 7. Query OpenSearch for the test marker in mobile-logs-* ──────────────
     //
     // The index name is `mobile-logs-{app_id}` plus Fluent Bit's date suffix
     // (Logstash_Format=On), e.g. `mobile-logs-dev.femrek.exampleapp.dev-2026.06.24`.
@@ -437,7 +438,7 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
         search_response["hits"]["total"]
     );
 
-    // ── 8. Assert document was indexed ───────────────────────────────────────
+    // ── 8. Assert document was indexed into mobile-logs-* ─────────────────────
     assert!(
         total_hits > 0,
         "Expected at least 1 document in OpenSearch with message '{}', but got 0 hits.\n\
@@ -445,7 +446,58 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
         test_marker
     );
 
-    eprintln!("[e2e] ✓ Found {total_hits} document(s) — E2E test passed!");
+    eprintln!("[e2e] ✓ Found {total_hits} document(s) in mobile-logs-*!");
+
+    // ── 9. Query OpenSearch for the device metadata in mobile-devices-* ───────
+    let device_search_url = format!(
+        "{opensearch_url}/mobile-devices-*/_search?q=device_uuid:{}",
+        test_device_uuid
+    );
+    eprintln!("[e2e] Querying OpenSearch for device metadata: {device_search_url}");
+
+    let mut device_search_response = serde_json::Value::Null;
+    let mut device_total_hits = 0;
+    let device_search_start = Instant::now();
+
+    while device_search_start.elapsed() < Duration::from_secs(30) {
+        if let Ok(resp) = ureq::get(&device_search_url)
+            .set("Authorization", &opensearch_auth)
+            .call()
+        {
+            if let Ok(json) = resp.into_json::<serde_json::Value>() {
+                device_search_response = json;
+                device_total_hits = device_search_response["hits"]["total"]["value"]
+                    .as_u64()
+                    .unwrap_or(0);
+                if device_total_hits > 0 {
+                    break;
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+
+    eprintln!(
+        "[e2e] OpenSearch device metadata response (hits.total): {}",
+        device_search_response["hits"]["total"]
+    );
+
+    // ── 10. Assert device metadata was indexed into mobile-devices-* ──────────
+    assert!(
+        device_total_hits > 0,
+        "Expected at least 1 document in OpenSearch in mobile-devices-* with device_uuid '{}', but got 0 hits.\n\
+         Full search response:\n{device_search_response:#}",
+        test_device_uuid
+    );
+
+    let hit_source = &device_search_response["hits"]["hits"][0]["_source"];
+    assert_eq!(hit_source["event_type"], "system_startup", "event_type must be system_startup");
+    assert_eq!(hit_source["log_index_prefix"], "mobile-devices-dev.femrek.exampleapp.dev", "log_index_prefix must match");
+    assert_eq!(hit_source["device_uuid"], test_device_uuid, "device_uuid must match");
+    assert_eq!(hit_source["metadata"]["os"], "Android", "metadata.os must match");
+    assert_eq!(hit_source["metadata"]["model"], "Pixel 6", "metadata.model must match");
+
+    eprintln!("[e2e] ✓ Found {device_total_hits} device document(s) in mobile-devices-* — E2E test passed!");
 
     // `_stack` is dropped here → `docker compose down -v` runs automatically.
 }

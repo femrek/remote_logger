@@ -70,11 +70,25 @@ data:
         HTTP_Listen   0.0.0.0
         HTTP_Port     2020
 
+    # --- FIRST TOPIC ---
     [INPUT]
         Name          kafka
         Brokers       broker:9094
         Topics        mobile-logs
-        Group_Id      fluentbit-ingestion-group
+        Group_Id      fluentbit-mobile-group
+        Tag           mobile.logs
+        Format        json
+        rdkafka.topic.metadata.refresh.interval.ms  5000
+        rdkafka.metadata.max.age.ms                 5000
+        rdkafka.auto.offset.reset                   earliest
+
+    # --- SECOND TOPIC ---
+    [INPUT]
+        Name          kafka
+        Brokers       broker:9094
+        Topics        device-metadata
+        Group_Id      fluentbit-web-group
+        Tag           device.metadata
         Format        json
         rdkafka.topic.metadata.refresh.interval.ms  5000
         rdkafka.metadata.max.age.ms                 5000

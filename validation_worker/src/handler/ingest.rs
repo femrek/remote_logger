@@ -243,6 +243,7 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             sink: Arc::new(NoopSink),
             kafka_topic: "test-topic".to_string(),
             metadata_topic: "device-metadata".to_string(),
+            device_index_prefix: "mobile-devices".to_string(),
             verifier: Arc::new(PlatformDispatchVerifier {
                 android: Box::new(NoopVerifier),
                 ios: Box::new(NoopVerifier),

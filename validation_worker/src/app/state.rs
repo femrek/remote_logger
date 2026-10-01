@@ -25,6 +25,9 @@ pub struct AppState {
     /// (`device-metadata`).
     pub metadata_topic: String,
 
+    /// OpenSearch index prefix for device metadata (default `"mobile-devices"`).
+    pub device_index_prefix: String,
+
     /// Hardware attestation verifier — platform-dispatching in production,
     /// `NoopVerifier` in unit tests.
     pub verifier: Arc<dyn AttestationVerifier>,

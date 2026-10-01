@@ -1,10 +1,23 @@
+import 'package:dart_network_layer_core/dart_network_layer_core.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:remote_logging/remote_logging.dart';
+import 'package:remote_logging/src/model/auth_exchange_response.dart';
+import 'package:remote_logging/src/remote/request/request_auth_exchange.dart';
 import 'package:test/test.dart';
 
 // RemoteLoggingInit._isInitialized is shared static state, so every test group
 // must call tearDown to reset it via stop() / initLocal stop().
 
+class _FakeAuthCommand extends Fake
+    implements RequestCommand<AuthExchangeResponse> {}
+
+class _MockNetworkInvoker extends Mock implements INetworkInvoker {}
+
 void main() {
+  setUpAll(() {
+    registerFallbackValue(_FakeAuthCommand());
+  });
+
   // Minimal config used across all tests.
   const config = RemoteLoggingConfig(
     gatewayUrl: 'http://test.example.com',
@@ -136,6 +149,67 @@ void main() {
       localLogging = RemoteLoggingInit.initLocal(
         config: const LocalLoggingConfig(),
       );
+    });
+  });
+
+  group('RemoteLogging.start eager session startup exchange', () {
+    test('eagerly calls invoker to exchange auth token on start', () async {
+      final mockInvoker = _MockNetworkInvoker();
+      when(() => mockInvoker.send<AuthExchangeResponse>(any())).thenAnswer(
+        (_) async => SuccessResponseResult<AuthExchangeResponse>(
+          data: const AuthExchangeResponse(
+            accessToken: 'test-access',
+            refreshToken: 'test-refresh',
+            accessExpiresIn: 900,
+            refreshExpiresIn: 604800,
+          ),
+          statusCode: 200,
+          headers: {},
+        ),
+      );
+
+      final logging = await RemoteLoggingInit.initRemote(
+        config: const RemoteLoggingConfig(
+          gatewayUrl: 'http://test.example.com',
+          channelId: 'test-channel',
+          enableRemoteLogging: true,
+        ),
+        deviceDataGenerator: AnonymousDeviceDataGenerator(),
+      );
+
+      await logging.start(mockInvoker);
+      verify(() => mockInvoker.send<AuthExchangeResponse>(any())).called(1);
+      await logging.stop(flush: false);
+    });
+
+    test('network error on start notifies onError without throwing', () async {
+      final mockInvoker = _MockNetworkInvoker();
+      Object? capturedError;
+      when(() => mockInvoker.send<AuthExchangeResponse>(any())).thenAnswer(
+        (_) async => NetworkErrorResult<AuthExchangeResponse>(
+          error: const NetworkError(
+            message: 'connection failed',
+            stackTrace: StackTrace.empty,
+          ),
+        ),
+      );
+
+      final logging = await RemoteLoggingInit.initRemote(
+        config: const RemoteLoggingConfig(
+          gatewayUrl: 'http://test.example.com',
+          channelId: 'test-channel',
+          enableRemoteLogging: true,
+        ),
+        deviceDataGenerator: AnonymousDeviceDataGenerator(),
+        onError: (err, _) {
+          capturedError = err;
+        },
+      );
+
+      // Must complete normally without throwing
+      await expectLater(logging.start(mockInvoker), completes);
+      expect(capturedError, isNotNull);
+      await logging.stop(flush: false);
     });
   });
 }
