@@ -52,13 +52,25 @@ pub async fn ingest_handler(
         })?
         .to_string();
 
+    let device_uuid = headers
+        .get("x-device-uuid")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    let session_id = headers
+        .get("x-session-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
     tracing::info!(
         app_id = %app_id,
         "Received ingest request"
     );
 
     // ── 2. Parse raw ServerLog body ───────────────────────────────────────────
-    let Json(log_payload) = match payload {
+    let Json(mut log_payload) = match payload {
         Ok(parsed) => parsed,
         Err(err) => {
             tracing::warn!(error = %err, "Failed to parse ServerLog JSON body");
@@ -68,6 +80,22 @@ pub async fn ingest_handler(
             return Err(AppError::BadRequest(format!("Invalid ServerLog body: {err}")));
         }
     };
+
+    // Populate device_uuid and session_id from verified JWT claims headers if available
+    if let Some(uuid) = device_uuid {
+        log_payload.device_uuid = uuid;
+    }
+    if let Some(sid) = session_id {
+        log_payload.session_id = Some(sid);
+    }
+
+    if log_payload.device_uuid.is_empty() {
+        tracing::warn!("device_uuid is missing from both headers and payload");
+        let elapsed = start.elapsed().as_secs_f64();
+        REQUESTS_TOTAL.with_label_values(&[&app_id, "400"]).inc();
+        REQUEST_DURATION_SECONDS.with_label_values(&[&app_id]).observe(elapsed);
+        return Err(AppError::BadRequest("Missing deviceUUID".to_string()));
+    }
 
     // ── 3. Assemble the flattened Kafka message ───────────────────────────────
     let kafka_payload = KafkaPayload {
@@ -124,6 +152,18 @@ pub async fn batch_ingest_handler(
         })?
         .to_string();
 
+    let device_uuid = headers
+        .get("x-device-uuid")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    let session_id = headers
+        .get("x-session-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
     tracing::info!(
         app_id = %app_id,
         "Received batch ingest request"
@@ -149,7 +189,22 @@ pub async fn batch_ingest_handler(
     }
 
     // ── 3. Assemble and deliver each log ──────────────────────────────────────
-    for log_payload in log_payloads {
+    for mut log_payload in log_payloads {
+        if let Some(ref uuid) = device_uuid {
+            log_payload.device_uuid = uuid.clone();
+        }
+        if let Some(ref sid) = session_id {
+            log_payload.session_id = Some(sid.clone());
+        }
+
+        if log_payload.device_uuid.is_empty() {
+            tracing::warn!("device_uuid is missing from both headers and payload in batch item");
+            let elapsed = start.elapsed().as_secs_f64();
+            REQUESTS_TOTAL.with_label_values(&[&app_id, "400"]).inc();
+            REQUEST_DURATION_SECONDS.with_label_values(&[&app_id]).observe(elapsed);
+            return Err(AppError::BadRequest("Missing deviceUUID in batch item".to_string()));
+        }
+
         let kafka_payload = KafkaPayload {
             app_id: app_id.clone(),
             log_index_prefix: format!("mobile-logs-{}", app_id),
@@ -480,5 +535,91 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[derive(Default)]
+    struct CapturingSink {
+        sent: std::sync::Mutex<Vec<(String, String, String)>>,
+    }
+
+    impl KafkaSink for CapturingSink {
+        fn send<'a>(
+            &'a self,
+            topic: &'a str,
+            key: &'a str,
+            payload: &'a str,
+        ) -> BoxFuture<'a, Result<(), KafkaSinkError>> {
+            self.sent
+                .lock()
+                .unwrap()
+                .push((topic.to_string(), key.to_string(), payload.to_string()));
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_ingest_populates_device_uuid_and_session_id_from_headers() {
+        let capturing_sink = Arc::new(CapturingSink::default());
+        let worker_config = Arc::new(ArcSwap::from_pointee(WorkerConfig {
+            channels: vec![WorkerChannelConfig {
+                id: "example-app-dev".to_string(),
+                app_id: "dev.femrek.exampleapp.dev".to_string(),
+                validate_attestation: false,
+                google_project_number: None,
+                apple_team_id: None,
+                require_apple_key_hash: false,
+            }],
+        }));
+        const TEST_PRIVATE_KEY_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/xzSZ8vFrWHzZjcl\n\
+zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
+5j5Vg2CEiQw2ZjYa1Wc4oCmcnqn6ruhdwE6qciYSDARvzdwN0w2nW8iq\n\
+-----END PRIVATE KEY-----";
+
+        let state = Arc::new(AppState {
+            sink: capturing_sink.clone(),
+            kafka_topic: "test-topic".to_string(),
+            metadata_topic: "device-metadata".to_string(),
+            device_index_prefix: "mobile-devices".to_string(),
+            verifier: Arc::new(PlatformDispatchVerifier {
+                android: Box::new(NoopVerifier),
+                ios: Box::new(NoopVerifier),
+            }),
+            worker_config,
+            jwt_private_key: TEST_PRIVATE_KEY_PEM.to_string(),
+            access_ttl_seconds: 900,
+            refresh_ttl_seconds: 604_800,
+            jwt_issuer: "logger-gateway".to_string(),
+        });
+        let app = build_app(state);
+
+        // Payload with no deviceUUID or sessionId in body
+        let body = serde_json::json!({
+            "timestamp":  "2026-06-23T15:00:00Z",
+            "loggerName": "AppDatabase",
+            "message":    "Connection established.",
+            "level":      "INFO",
+            "zone":       ""
+        });
+
+        let resp = post_json_with_headers(
+            app,
+            "/v1/logs/example-app-dev",
+            body,
+            &[
+                ("x-app-id", "dev.femrek.exampleapp.dev"),
+                ("x-device-uuid", "jwt-device-uuid-999"),
+                ("x-session-id", "jwt-session-id-888"),
+            ],
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let sent = capturing_sink.sent.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        let (_, _, payload) = &sent[0];
+        let kafka_json: serde_json::Value = serde_json::from_str(payload).unwrap();
+        assert_eq!(kafka_json["deviceUUID"], "jwt-device-uuid-999");
+        assert_eq!(kafka_json["sessionId"], "jwt-session-id-888");
     }
 }

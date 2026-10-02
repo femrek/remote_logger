@@ -16,20 +16,16 @@ import 'package:remote_logging/src/util/internal_logger.dart';
 /// during offline periods (FIFO eviction). Optionally stores unsent logs
 /// locally using [LocalLogRepository].
 final class LogSenderService {
-  /// Creates a [LogSenderService] with the given [config] and
-  /// [deviceDataGenerator].
+  /// Creates a [LogSenderService] with the given [config].
   LogSenderService({
     required RemoteLoggingConfig config,
-    required DeviceDataGenerator deviceDataGenerator,
     LocalLogRepository? localRepository,
     OnError? onError,
   }) : _config = config,
-       _deviceDataGenerator = deviceDataGenerator,
        _localRepository = localRepository,
        _onError = onError;
 
   final RemoteLoggingConfig _config;
-  final DeviceDataGenerator _deviceDataGenerator;
   final LocalLogRepository? _localRepository;
   final OnError? _onError;
 
@@ -55,7 +51,6 @@ final class LogSenderService {
   void enqueue(LogRecord logRecord) {
     final serverLog = ServerLog.fromLogRecord(
       logRecord,
-      _deviceDataGenerator,
       _config.truncation,
     );
 

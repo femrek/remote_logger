@@ -55,8 +55,6 @@ void main() {
         timestamp: DateTime.now(),
         loggerName: 'test',
         zone: 'root',
-        deviceUUID: 'device',
-        sessionId: 'session',
       ),
       ServerLog(
         id: '2',
@@ -65,8 +63,6 @@ void main() {
         timestamp: DateTime.now(),
         loggerName: 'test',
         zone: 'root',
-        deviceUUID: 'device',
-        sessionId: 'session',
       ),
     ];
 
@@ -85,8 +81,6 @@ void main() {
       timestamp: DateTime.now(),
       loggerName: 'test',
       zone: 'root',
-      deviceUUID: 'device',
-      sessionId: 'session',
     );
 
     await repository.saveLogs([log1]);
@@ -100,8 +94,6 @@ void main() {
       timestamp: DateTime.now(),
       loggerName: 'test',
       zone: 'root',
-      deviceUUID: 'device',
-      sessionId: 'session',
     );
 
     await repository.saveLogs([log1Updated]);
@@ -121,8 +113,6 @@ void main() {
       timestamp: DateTime.utc(2023),
       loggerName: 'test',
       zone: 'root',
-      deviceUUID: 'device',
-      sessionId: 'session',
     );
 
     await repository.saveLogs([log]);
@@ -151,8 +141,6 @@ void main() {
         timestamp: DateTime.now(),
         loggerName: 't',
         zone: 'z',
-        deviceUUID: 'd',
-        sessionId: 's',
       ),
       ServerLog(
         id: '2',
@@ -161,8 +149,6 @@ void main() {
         timestamp: DateTime.now(),
         loggerName: 't',
         zone: 'z',
-        deviceUUID: 'd',
-        sessionId: 's',
       ),
       ServerLog(
         id: '3',
@@ -171,8 +157,6 @@ void main() {
         timestamp: DateTime.now(),
         loggerName: 't',
         zone: 'z',
-        deviceUUID: 'd',
-        sessionId: 's',
       ),
     ];
 

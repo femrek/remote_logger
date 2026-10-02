@@ -370,8 +370,7 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
         "loggerName": "E2ETestLogger",
         "message":    test_marker,
         "level":      "INFO",
-        "zone":       "main",
-        "deviceUUID": test_device_uuid
+        "zone":       "main"
     });
 
     let log_response = match ureq::post(&format!("{gateway_url}/v1/logs/{channel}"))
@@ -446,7 +445,17 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
         test_marker
     );
 
-    eprintln!("[e2e] ✓ Found {total_hits} document(s) in mobile-logs-*!");
+    let log_hit_source = &search_response["hits"]["hits"][0]["_source"];
+    assert_eq!(
+        log_hit_source["deviceUUID"], test_device_uuid,
+        "deviceUUID in log must be stamped from JWT claims"
+    );
+    assert!(
+        log_hit_source["sessionId"].is_string() && !log_hit_source["sessionId"].as_str().unwrap().is_empty(),
+        "sessionId in log must be stamped from JWT claims"
+    );
+
+    eprintln!("[e2e] ✓ Found {total_hits} document(s) in mobile-logs-* with stamped deviceUUID and sessionId!");
 
     // ── 9. Query OpenSearch for the device metadata in mobile-devices-* ───────
     let device_search_url = format!(

@@ -1,36 +1,9 @@
-import 'dart:async';
 import 'package:remote_logging/remote_logging.dart';
 import 'package:test/test.dart';
 
-class MockDeviceDataGenerator implements DeviceDataGenerator {
-  @override
-  String get deviceId => 'test-device-uuid';
-
-  @override
-  String get sessionId => 'test-session-id';
-
-  @override
-  DeviceMetadata get deviceMetadata => const DeviceMetadata(
-    timestamp: '2023-01-01T12:00:00Z',
-    deviceId: 'test-device-uuid',
-    sessionId: 'test-session-id',
-    os: 'test-os',
-    osVersion: 'test-os-version',
-    model: 'test-model',
-    brand: 'test-brand',
-    device: 'test-device',
-    identifier: 'test-identifier',
-    manufacturer: 'test-manufacturer',
-    isPhysicalDevice: 'true',
-  );
-
-  @override
-  Future<void> init() async {}
-}
-
 void main() {
   group('ServerLog', () {
-    test('toJsonPayload contains all 6 required keys', () {
+    test('toJsonPayload contains all 5 required keys', () {
       final log = ServerLog(
         id: 'test-id',
         timestamp: DateTime.utc(2023),
@@ -38,8 +11,6 @@ void main() {
         message: 'Test message',
         level: 'INFO',
         zone: 'test-zone',
-        deviceUUID: 'device-123',
-        sessionId: 'session-456',
       );
       final json = log.toJsonPayload();
 
@@ -51,13 +22,12 @@ void main() {
           'message',
           'level',
           'zone',
-          'deviceUUID',
         ]),
       );
       expect(json['loggerName'], 'TestLogger');
     });
 
-    test('toJsonPayload does NOT contain sessionId', () {
+    test('toJsonPayload does NOT contain sessionId or deviceUUID', () {
       final log = ServerLog(
         id: 'test-id',
         timestamp: DateTime.utc(2023),
@@ -65,12 +35,11 @@ void main() {
         message: 'Test message',
         level: 'INFO',
         zone: 'test-zone',
-        deviceUUID: 'device-123',
-        sessionId: 'session-456',
       );
       final json = log.toJsonPayload();
 
       expect(json.containsKey('sessionId'), isFalse);
+      expect(json.containsKey('deviceUUID'), isFalse);
     });
 
     test('timestamp is serialised as UTC ISO 8601 string', () {
@@ -82,8 +51,6 @@ void main() {
         message: 'Test message',
         level: 'INFO',
         zone: 'test-zone',
-        deviceUUID: 'device-123',
-        sessionId: 'session-456',
       );
       final json = log.toJsonPayload();
 
@@ -103,8 +70,6 @@ void main() {
         message: 'Test message',
         level: 'INFO',
         zone: 'test-zone',
-        deviceUUID: 'device-123',
-        sessionId: 'session-456',
         error: exception,
       );
       final json = log.toJsonPayload();
@@ -122,8 +87,6 @@ void main() {
         message: 'Test message',
         level: 'INFO',
         zone: 'test-zone',
-        deviceUUID: 'device-123',
-        sessionId: 'session-456',
         stacktrace: stacktrace.toString(),
       );
       final json = log.toJsonPayload();
@@ -140,8 +103,6 @@ void main() {
         message: 'Test message',
         level: 'INFO',
         zone: 'test-zone',
-        deviceUUID: 'device-123',
-        sessionId: 'session-456',
       );
       final json = log.toJsonPayload();
 
@@ -150,7 +111,7 @@ void main() {
     });
 
     test(
-      'fromLogRecord maps all fields from LogRecord + IDeviceDataGenerator',
+      'fromLogRecord maps all fields from LogRecord',
       () {
         final record = LogRecord(
           Level.INFO,
@@ -159,18 +120,14 @@ void main() {
           Exception('test exception'),
           StackTrace.fromString('test stacktrace'),
         );
-        final generator = MockDeviceDataGenerator();
         final log = ServerLog.fromLogRecord(
           record,
-          generator,
           const LogTruncationConfig(),
         );
 
         expect(log.loggerName, 'TestLogger');
         expect(log.level, 'INFO');
         expect(log.zone, 'no-zone');
-        expect(log.deviceUUID, 'test-device-uuid');
-        expect(log.sessionId, 'test-session-id');
         expect(log.error, isNotNull);
         expect(log.stacktrace, isNotNull);
       },
@@ -184,8 +141,6 @@ void main() {
         message: 'Test message',
         level: 'INFO',
         zone: 'test-zone',
-        deviceUUID: 'device-123',
-        sessionId: 'session-456',
       );
       final json = log.toJsonPayload();
 
@@ -195,7 +150,6 @@ void main() {
         'message',
         'level',
         'zone',
-        'deviceUUID',
         'error',
         'stacktrace',
       };
@@ -211,8 +165,6 @@ void main() {
   });
 
   group('ServerLog truncation', () {
-    final deviceDataGenerator = AnonymousDeviceDataGenerator();
-
     test(
       'message is truncated when it exceeds maxMessageChars '
       '(append ...[truncated])',
@@ -221,7 +173,6 @@ void main() {
         const truncation = LogTruncationConfig(maxMessageChars: 5);
         final log = ServerLog.fromLogRecord(
           record,
-          deviceDataGenerator,
           truncation,
         );
 
@@ -234,7 +185,6 @@ void main() {
       const truncation = LogTruncationConfig(maxMessageChars: 10);
       final log = ServerLog.fromLogRecord(
         record,
-        deviceDataGenerator,
         truncation,
       );
 
@@ -246,7 +196,6 @@ void main() {
       const truncation = LogTruncationConfig(maxMessageChars: 0);
       final log = ServerLog.fromLogRecord(
         record,
-        deviceDataGenerator,
         truncation,
       );
 
@@ -263,7 +212,6 @@ void main() {
       const truncation = LogTruncationConfig(maxErrorChars: 10);
       final log = ServerLog.fromLogRecord(
         record,
-        deviceDataGenerator,
         truncation,
       );
 
@@ -284,7 +232,6 @@ void main() {
         const truncation = LogTruncationConfig(maxStacktraceLines: 2);
         final log = ServerLog.fromLogRecord(
           record,
-          deviceDataGenerator,
           truncation,
         );
 
@@ -306,7 +253,6 @@ void main() {
         const truncation = LogTruncationConfig(maxStacktraceLineChars: 5);
         final log = ServerLog.fromLogRecord(
           record,
-          deviceDataGenerator,
           truncation,
         );
 
@@ -333,7 +279,6 @@ void main() {
       );
       final log = ServerLog.fromLogRecord(
         record,
-        deviceDataGenerator,
         truncation,
       );
 
@@ -358,7 +303,6 @@ void main() {
       );
       final log = ServerLog.fromLogRecord(
         record,
-        deviceDataGenerator,
         truncation,
       );
 
@@ -376,7 +320,6 @@ void main() {
         final recordNoMsg = LogRecord(Level.INFO, '', 'log');
         final logNoMsg = ServerLog.fromLogRecord(
           recordNoMsg,
-          deviceDataGenerator,
           const LogTruncationConfig(),
         );
 
@@ -385,7 +328,6 @@ void main() {
         final record = LogRecord(Level.INFO, 'the message', 'log');
         final log = ServerLog.fromLogRecord(
           record,
-          deviceDataGenerator,
           const LogTruncationConfig(),
         );
 

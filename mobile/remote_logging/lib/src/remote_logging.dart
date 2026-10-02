@@ -136,7 +136,6 @@ final class RemoteLogging {
   }) async {
     final logSenderService = LogSenderService(
       config: remoteLoggingConfig,
-      deviceDataGenerator: deviceDataGenerator,
       localRepository: localLogRepository,
       onError: onError,
     );
@@ -180,8 +179,9 @@ final class RemoteLogging {
       onError: _onError,
     );
 
-    // Eagerly initiate token exchange and transmit device metadata at session start.
-    // If a connection or server error occurs, it is logged and reported without blocking app startup.
+    // Eagerly initiate token exchange and transmit device metadata at session
+    // start. If a connection or server error occurs, it is logged and reported
+    // without blocking app startup.
     try {
       await authService.exchangeAuthToken();
     } on Object catch (e, s) {

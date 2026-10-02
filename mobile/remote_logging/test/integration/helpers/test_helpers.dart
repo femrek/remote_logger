@@ -1,12 +1,16 @@
 import 'package:remote_logging/remote_logging.dart';
 import 'package:uuid/uuid.dart';
 
-RemoteLoggingConfig get testConfig => const RemoteLoggingConfig(
-  gatewayUrl: 'http://localhost:8080',
-  channelId: 'test-channel',
-  remoteLoggingLibraryLogPrintLevel: Level.FINEST,
-  logSendLevel: Level.FINEST,
-);
+RemoteLoggingConfig get testConfig {
+  hierarchicalLoggingEnabled = true;
+  Logger('DioNetworkInvoker').level = Level.OFF;
+  return const RemoteLoggingConfig(
+    gatewayUrl: 'http://localhost:8080',
+    channelId: 'test-channel',
+    remoteLoggingLibraryLogPrintLevel: Level.FINEST,
+    logSendLevel: Level.FINEST,
+  );
+}
 
 class TestDeviceDataGenerator implements DeviceDataGenerator {
   late final String _deviceIdCache;

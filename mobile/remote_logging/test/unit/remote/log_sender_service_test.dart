@@ -104,7 +104,6 @@ LogSenderService _makeService({
 }) =>
     LogSenderService(
       config: config,
-      deviceDataGenerator: AnonymousDeviceDataGenerator(),
       localRepository: localRepository,
       onError: onError,
     );
@@ -322,8 +321,6 @@ void main() {
           message: 'unsent',
           level: 'INFO',
           zone: 'root',
-          deviceUUID: 'dev-1',
-          sessionId: 'sess-1',
         );
 
         when(() => mockRepo.getUnsentLogs())

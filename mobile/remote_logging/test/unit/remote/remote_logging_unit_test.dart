@@ -1,8 +1,9 @@
+// ignore_for_file: avoid_redundant_argument_values see params clearly in test.
+
 import 'package:dart_network_layer_core/dart_network_layer_core.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:remote_logging/remote_logging.dart';
 import 'package:remote_logging/src/model/auth_exchange_response.dart';
-import 'package:remote_logging/src/remote/request/request_auth_exchange.dart';
 import 'package:test/test.dart';
 
 // RemoteLoggingInit._isInitialized is shared static state, so every test group

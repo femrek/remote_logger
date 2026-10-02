@@ -62,6 +62,10 @@ pub struct RequestContext {
     pub channel_id: String,
     /// Application bundle identifier (e.g., `"dev.femrek.exampleapp"`).
     pub app_id: Option<String>,
+    /// Device UUID extracted from validated JWT claims.
+    pub device_uuid: Option<String>,
+    /// Session ID extracted from validated JWT claims.
+    pub session_id: Option<String>,
 
     // ── Request classification ───────────────────────────────────────────────
     /// `true` when the path is `/auth/exchange` — headers must NOT be mutated.
@@ -88,6 +92,8 @@ impl Default for RequestContext {
         Self {
             channel_id: String::new(),
             app_id: None,
+            device_uuid: None,
+            session_id: None,
             is_auth_exchange: false,
             body_bytes_read: 0,
             max_body_bytes: 2 * 1024 * 1024,
@@ -245,6 +251,8 @@ impl ProxyHttp for LogGateway {
                 }
 
                 ctx.app_id = Some(claims.app);
+                ctx.device_uuid = Some(claims.device_uuid);
+                ctx.session_id = Some(claims.session_id);
             }
             Err(e) => {
                 let reason = if e.to_string().contains("expired") {
@@ -322,9 +330,15 @@ impl ProxyHttp for LogGateway {
         // to the internal validation-worker service.
         upstream_request.remove_header("authorization");
 
-        // Inject routing metadata using `&'static str` for the known static keys.
+        // Inject routing and client metadata using headers.
         if let Some(app_id) = &ctx.app_id {
             upstream_request.insert_header("x-app-id", app_id.as_str())?;
+        }
+        if let Some(device_uuid) = &ctx.device_uuid {
+            upstream_request.insert_header("x-device-uuid", device_uuid.as_str())?;
+        }
+        if let Some(session_id) = &ctx.session_id {
+            upstream_request.insert_header("x-session-id", session_id.as_str())?;
         }
 
         Ok(())

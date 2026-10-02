@@ -14,7 +14,7 @@ pub use crate::auth::attestation::Platform;
 /// Serde renames match the camelCase JSON keys the Dart client emits.
 /// Per spec report §3, `session_id` is `Option<String>` because the Dart
 /// client's `toJsonPayload()` never serialises the field.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ServerLog {
     pub timestamp: String,
     #[serde(rename = "loggerName")]
@@ -22,12 +22,11 @@ pub struct ServerLog {
     pub message: String,
     pub level: String,
     pub zone: String,
-    /// Made `Option` intentionally — the mobile client omits this field.
-    /// See spec report §3: "Missing sessionId Serialization on the Client".
-    #[serde(rename = "sessionId")]
+    /// Populated from x-session-id (JWT claims) or client body.
+    #[serde(rename = "sessionId", default)]
     pub session_id: Option<String>,
-    /// Required by the OpenAPI spec and present in every mobile payload.
-    #[serde(rename = "deviceUUID")]
+    /// Populated from x-device-uuid (JWT claims) or client body.
+    #[serde(rename = "deviceUUID", default)]
     pub device_uuid: String,
     pub error: Option<String>,
     pub stacktrace: Option<String>,
