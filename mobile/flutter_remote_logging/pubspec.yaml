@@ -1,6 +1,6 @@
 name: flutter_remote_logging
 description: "The flutter expansion of the remote_logging package to send logs to a self hosted remote server."
-version: 0.0.1
+version: 0.0.2
 homepage: https://github.com/femrek/remote_logger/tree/main/mobile/flutter_remote_logging
 repository: https://github.com/femrek/remote_logger
 issue_tracker: https://github.com/femrek/remote_logger/issues

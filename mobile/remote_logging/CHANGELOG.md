@@ -1,3 +1,7 @@
+## 0.0.5
+
+* Update interface and strategy naming.
+
 ## 0.0.4
 
 - refactor(remote_logging): make gatewayUrl and channelId required parameters
