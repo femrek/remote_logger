@@ -1,4 +1,4 @@
-name: Dart Tests
+name: Mobile CI (Dart & Flutter)
 
 on:
   push:
@@ -11,30 +11,47 @@ on:
       - '.github/workflows/dart_test.yml'
 
 jobs:
-  test:
+  lint-and-test:
     runs-on: ubuntu-latest
-    
+
     steps:
-      - uses: actions/checkout@v6
-      
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.x'
           channel: 'stable'
-          
+
       - name: Install dependencies (remote_logging)
         working-directory: mobile/remote_logging
         run: dart pub get
-        
+
+      - name: Verify formatting (remote_logging)
+        working-directory: mobile/remote_logging
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Analyze code (remote_logging)
+        working-directory: mobile/remote_logging
+        run: dart analyze --fatal-infos
+
       - name: Run tests (remote_logging)
         working-directory: mobile/remote_logging
         run: dart test
-        
+
       - name: Install dependencies (flutter_remote_logging)
         working-directory: mobile/flutter_remote_logging
         run: flutter pub get
-        
+
+      - name: Verify formatting (flutter_remote_logging)
+        working-directory: mobile/flutter_remote_logging
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Analyze code (flutter_remote_logging)
+        working-directory: mobile/flutter_remote_logging
+        run: flutter analyze --fatal-infos
+
       - name: Run tests (flutter_remote_logging)
         working-directory: mobile/flutter_remote_logging
         run: flutter test

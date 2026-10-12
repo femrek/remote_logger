@@ -8,7 +8,7 @@
 # 1. Copy this file: cp docker-compose-network.yaml.template docker-compose-network.yaml
 # 2. Update the network name 'example-network' to match your actual external network name.
 # 3. Ensure your .env file to include this file in the COMPOSE_FILE variable:
-#    COMPOSE_FILE=docker-compose.yaml:docker-compose-network.yaml
+#    COMPOSE_FILE=docker-compose.yaml:docker-compose-override.yaml
 #
 services:
   logger_gateway:

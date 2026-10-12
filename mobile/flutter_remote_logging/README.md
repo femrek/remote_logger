@@ -29,7 +29,7 @@ Add `flutter_remote_logging` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  flutter_remote_logging: ^0.0.1
+  flutter_remote_logging: ^0.0.2
 ```
 
 ---
@@ -50,7 +50,7 @@ void main() async {
   // Initialize Remote Logging for Flutter
   final remoteLogger = await FlutterRemoteLogging.initRemote(
     remoteLoggingConfig: const RemoteLoggingConfig(
-      gatewayUrl: 'https://logger.example.com/v1/logs',
+      gatewayUrl: 'https://logger.example.com',
       channelId: 'mobile-app-prod',
     ),
     getAttestationTokenCallback: () async {
@@ -124,9 +124,9 @@ When calling `FlutterRemoteLogging.initRemote(...)`, the library automatically:
 ```dart
 static Future<RemoteLogging> initRemote({
   required RemoteLoggingConfig remoteLoggingConfig,
-  IDeviceDataGenerator? deviceDataGenerator,
+  DeviceDataGenerator? deviceDataGenerator,
   GetAttestationTokenCallback? getAttestationTokenCallback,
-  ILocalLogRepository? localLogRepository,
+  LocalLogRepository? localLogRepository,
   bool enableDefaultLocalFallbackStorage = true,
   OnLog? onLog,
   OnError? onError,
@@ -136,9 +136,9 @@ static Future<RemoteLogging> initRemote({
 | Parameter                           | Type                           | Description                                                                                                    |
 |-------------------------------------|--------------------------------|----------------------------------------------------------------------------------------------------------------|
 | `remoteLoggingConfig`               | `RemoteLoggingConfig`          | Gateway configuration (URL, channel ID, batch size, flush interval).                                           |
-| `deviceDataGenerator`               | `IDeviceDataGenerator?`        | Optional custom generator. Defaults to `FlutterDeviceDataGenerator()`.                                         |
+| `deviceDataGenerator`               | `DeviceDataGenerator?`         | Optional custom generator. Defaults to `FlutterDeviceDataGenerator()`.                                         |
 | `getAttestationTokenCallback`       | `GetAttestationTokenCallback?` | Optional async callback returning an attestation token for gateway authentication.                             |
-| `localLogRepository`                | `ILocalLogRepository?`         | Optional custom storage repository. Defaults to `SqfliteLocalLogRepository()`.                                 |
+| `localLogRepository`                | `LocalLogRepository?`          | Optional custom storage repository. Defaults to `SqfliteLocalLogRepository()`.                                 |
 | `enableDefaultLocalFallbackStorage` | `bool`                         | Set to `false` to disable SQLite local fallback storage when `localLogRepository` is null. Defaults to `true`. |
 | `onLog`                             | `OnLog?`                       | Callback invoked when a log record is processed.                                                               |
 | `onError`                           | `OnError?`                     | Callback invoked on internal logging failures.                                                                 |
@@ -162,10 +162,10 @@ final localLogger = await FlutterRemoteLogging.initLocalOnly(
 
 ### Custom Device Data Generator
 
-You can provide your own `IDeviceDataGenerator` implementation if you need custom device metadata or custom device ID resolution:
+You can provide your own `DeviceDataGenerator` implementation if you need custom device metadata or custom device ID resolution:
 
 ```dart
-class CustomDeviceDataGenerator implements IDeviceDataGenerator {
+class CustomDeviceDataGenerator implements DeviceDataGenerator {
   @override
   Future<void> init() async { /* Custom init */ }
 

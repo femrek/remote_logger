@@ -1,447 +1,353 @@
-# Remote Logger Backend
+# Remote Logger
 
-A high-throughput, multi-tenant mobile log ingestion pipeline built in Rust.
-The system accepts structured log events from mobile clients, validates and
-routes them through a Kafka broker, and indexes them into OpenSearch for
-search and analysis.
+A high-throughput, multi-tenant mobile log ingestion and search pipeline built with **Rust**, **Apache Kafka**, and **OpenSearch**.
 
----
+Remote Logger enables mobile applications to stream telemetry and diagnostic logs securely at scale. Built with Cloudflare's **Pingora** reverse proxy and **Axum** microservices, the system enforces hardware attestation (Google Play Integrity & Apple App Attest), mints cryptographic ES256 session tokens, buffers events through Kafka, and indexes them into OpenSearch for real-time query and dashboard visualization.
 
-## Architecture
-
-```
-Mobile Client (Dart)
-        │  HTTP POST /v1/logs/{channel}
-        │  Bearer <session JWT>
-        ▼
-┌──────────────────────────────────────────────────────────────┐
-│  logger_gateway  (Pingora reverse proxy)  :8080              │
-│  • Terminates client TLS & manages load-balancing            │
-│  • Per-channel routing (gateway.yaml, hot-reloadable)        │
-│  • Verifies ingest JWT signature & strips auth headers       │
-│  • Injects x-tenant-id / x-app-id upstream identity headers  │
-└────────────────────────┬─────────────────────────────────────┘
-                         │  HTTP POST /v1/logs/{channel}
-                         │  x-tenant-id, x-app-id headers
-                         ▼
-┌──────────────────────────────────────────────────────────────┐
-│  validation_worker  (Axum microservice)  :8000  × 2 replicas │
-│  • Handles POST /auth/exchange (Attestation + JWT minting)   │
-│  • Deep-validates inner ServerLog schema                     │
-│  • Enriches with log_index_prefix (mobile-logs-{app_id})     │
-│  • Awaits Kafka ACK before responding (zero data loss)       │
-└────────────────────────┬─────────────────────────────────────┘
-                         │  Kafka produce → "mobile-logs" topic
-                         ▼
-              Apache Kafka  (KRaft mode)  :9092 / :9094
-                         │
-                         │  Kafka consume
-                         ▼
-              Fluent Bit  (Flush every 2 s)
-                         │  Bulk POST
-                         ▼
-              OpenSearch  :9200
-              OpenSearch Dashboards  :5601
-```
-
-### Services at a glance
-
-| Service | Image / Source | Exposed Port | Role |
-|---|---|---|---|
-| `logger_gateway` | `./logger_gateway` (Rust/Pingora) | `8080`, `9090` (metrics) | Auth, routing, attestation |
-| `validation_worker` | `./validation_worker` (Rust/Axum) | `8000` (API), `9091` (metrics) | Validation, Kafka publish |
-| `broker` | `apache/kafka:4.3.0` | internal | Message broker |
-| `fluent-bit` | `fluent/fluent-bit:latest` | `2020` (metrics) | Kafka → OpenSearch forwarder |
-| `opensearch` | `opensearchproject/opensearch:latest` | `9200` | Log index & search |
-| `opensearch-dashboards` | `opensearchproject/opensearch-dashboards:latest` | `5601` | Kibana-compatible log explorer UI |
-| `kafka-ui` | `provectuslabs/kafka-ui:latest` | `127.0.0.1:1234` | Kafka topic browser |
-| `prometheus` | `prom/prometheus:v2.52.0` | `127.0.0.1:9091` | Metrics scraper & TSDB |
-| `grafana` | `grafana/grafana:11.0.0` | `3000` | Dashboards & visualisation |
-| `kafka-exporter` | `danielqsj/kafka-exporter` | internal | Kafka metrics → Prometheus |
-| `opensearch-exporter` | `prometheuscommunity/elasticsearch-exporter` | internal | OpenSearch metrics → Prometheus |
+Includes native client SDKs for **Dart** and **Flutter** with built-in batching, truncation, and offline persistence.
 
 ---
 
-## Project Structure
+## 📑 Table of Contents
 
-```
-remote_logger_backend/
-├── logger_gateway/          # Pingora reverse proxy (binary crate)
-│   ├── src/
-│   │   ├── auth/            # JWT issuance + attestation verifiers
-│   │   ├── config/          # YAML config loader + hot-reload watcher
-│   │   ├── discovery.rs     # File-based dynamic worker discovery
-│   │   ├── envelope/        # IngestEnvelope construction
-│   │   ├── metrics/         # Prometheus endpoint (:9090)
-│   │   ├── proxy/           # ProxyHttp implementation (routing logic)
-│   │   └── main.rs
-│   └── config/
-│       └── gateway.yaml     # Channel routing table (hot-reloadable)
-│
-├── validation_worker/       # Axum microservice (lib + bin crate)
-│   ├── src/
-│   │   ├── metrics/         # Prometheus endpoint (:9091)
-│   │   ├── handler/         # ingest + auth handlers (instrumented)
-│   │   ├── kafka/           # RdkafkaSink (instrumented)
-│   │   ├── lib.rs           # KafkaSink trait, handlers, domain types, unit tests
-│   │   └── main.rs          # Binary entry-point (thin wrapper)
-│   └── tests/
-│       └── integration_test.rs   # Tier-2 tests (testcontainers Kafka)
-│
-├── e2e/                     # Standalone E2E test crate
-│   ├── tests/
-│   │   └── e2e_test.rs      # Tier-3 full-stack test (docker compose)
-│   └── .env.test            # E2E environment variables
-│
-├── docker/
-│   ├── docker-compose.yaml   # Full local stack definition (includes monitoring)
-│   ├── fluent-bit.conf       # Kafka input → OpenSearch output config
-│   ├── workers.txt           # Validation worker addresses (discovery file)
-│   ├── monitoring/
-│   │   ├── prometheus.yml    # Prometheus scrape config (5 targets)
-│   │   └── grafana/
-│   │       ├── provisioning/ # Auto-provisioned datasource + dashboard provider
-│   │       └── dashboards/   # Pre-built logger-backend.json dashboard
-│   ├── .env                  # Active environment (gitignored)
-│   └── .env.template         # Copy → .env and fill in secrets
-│
-├── kubernetes/
-│   ├── monitoring/           # Prometheus + Grafana + exporters manifests
-│   │   ├── prometheus/       # Deployment, ConfigMap, RBAC
-│   │   ├── grafana/          # Deployment, Secret, ConfigMaps
-│   │   ├── kafka-exporter/   # Deployment + Service
-│   │   └── opensearch-exporter/ # Deployment + Service
-│   └── DEPLOYMENT.md
-│
-├── scripts/
-│   ├── send_logs.sh          # Manual smoke-test helper
-│   └── verify_metrics.sh     # Smoke-tests all Prometheus /metrics endpoints
-│
-├── mobile/                  # Dart client library
-└── log_data_specification_report.md   # Schema & discrepancy analysis
-```
+- [Key Features](#-key-features)
+- [Roadmap / TODO](#-roadmap--todo)
+- [High-Level Architecture](#high-level-architecture)
+- [Prerequisites](#prerequisites)
+- [Local Development Setup](#local-development-setup)
+- [Configuration & Channel Management](#configuration--channel-management)
+- [Authentication & Cryptography](#authentication--cryptography)
+- [Log Ingestion Format](#log-ingestion-format)
+- [Running Tests](#running-tests)
+- [Environment Variables](#environment-variables)
+- [Security](#security)
+- [License](#license)
+
+---
+
+## 🚀 Key Features
+
+- 🛡️ **Hardware Attestation**: Enforce authentic application builds via Google Play Integrity and Apple App Attest before granting ingest access.
+- ⚡  **High-Performance Ingestion**: Powered by Pingora and Axum for zero-copy streaming, sub-millisecond overhead, and memory efficiency.
+- 🔒 **Stateless ES256 Authentication**: Short-lived ECDSA P-256 session tokens with channel binding and identity enrichment.
+- 📡 **Zero-Data-Loss Reliability**: Kafka producer pipeline waits for broker ACKs prior to client response.
+- 🔄 **Dynamic Hot-Reloading**: Channels, attestation rules, and routing live in HashiCorp Consul KV with zero-downtime subscriber updates.
+- 📱 **Ready-to-Use Mobile SDKs**: First-class Dart core and Flutter plugins with local SQLite offline caching and queue recovery.
+- 📊 **Turnkey Observability**: Out-of-the-box Prometheus metrics, Grafana dashboards, and OpenSearch log search UIs.
+
+---
+
+## 📌 Roadmap / TODO
+
+- [ ] **Split Auth Service from Validation Worker**: Decouple hardware attestation and session JWT issuance (`/auth/exchange`) into a dedicated authentication microservice, keeping `validation_worker` focused strictly on log validation and Kafka ingestion.
+- [ ] **Hardware Attestation Production Readiness & Documentation**: Finalize end-to-end verification workflows for Google Play Integrity (Android) and Apple App Attest (iOS) with complete setup guides and configuration documentation.
 
 ---
 
 ## Prerequisites
 
-| Tool | Minimum version | Notes |
-|---|---|---|
-| Rust + Cargo | 1.82 | `rustup update stable` |
-| Docker Engine | 24 | Docker Desktop works too |
-| Docker Compose | v2 (`docker compose`) | Bundled with Docker Desktop |
-| cmake | any | Required to compile `rdkafka` (`cmake-build` feature) |
+| Tool           | Minimum Version          | Notes                                               |
+|----------------|--------------------------|-----------------------------------------------------|
+| Rust + Cargo   | 1.82+                    | `rustup update stable`                              |
+| Docker Engine  | 24+                      | Required for local container stack                  |
+| Docker Compose | v2 (`docker compose`)    | Bundled with Docker Desktop                         |
+| CMake          | any                      | Required if compiling `rdkafka` locally from source |
+| Dart / Flutter | Dart 3.10+ / Flutter 3.x | Required for mobile package development             |
 
 ---
 
-## Deployment
+## High-Level Architecture
 
-| Method | Guide |
-|---|---|
-| **Docker Compose** (local / dev) | See [Local Development Setup](#local-development-setup) below |
-| **Kubernetes** (staging / production) | [`kubernetes/DEPLOYMENT.md`](kubernetes/DEPLOYMENT.md) |
+The platform decouples edge ingestion from compute-intensive indexing using an event-driven streaming pipeline:
+
+```
+Mobile Clients ──▶ logger_gateway (:8080) ──▶ validation_worker (:8000) ──▶ Apache Kafka ──▶ Fluent Bit ──▶ OpenSearch (:9200)
+```
+
+- **Data Plane:** Mobile clients send traffic to Cloudflare Pingora (`logger_gateway`), which validates ES256 session tokens and proxies to Axum (`validation_worker`) instances. Workers validate payload schemas and publish directly to Apache Kafka. Fluent Bit consumes Kafka streams and bulk-indexes into OpenSearch.
+- **Control Plane:** HashiCorp Consul provides dynamic worker discovery and stores channel definitions in KV, managed via the `logger_admin` dashboard (:8082).
+
+📖 **For detailed architecture diagrams, service roles, and project layout, see [ARCHITECTURE.md](ARCHITECTURE.md).**
 
 ---
 
 ## Local Development Setup
 
-### 1. Clone and prepare environment
+### 1. Clone Repository and Prepare Environment
 
 ```bash
-git clone <repo-url>
-cd remote_logger_backend
+git clone https://github.com/femrek/remote_logger.git
+cd remote_logger
 
-# Copy the env template
+# Copy the environment template
 cp docker/.env.template docker/.env
 
-# Edit docker/.env — at minimum set GATEWAY_JWT_SECRET
-# (any non-empty string works for local dev)
+# Generate a strong Admin Token for logger_admin UI/API
+# and set it in docker/.env:
+# GATEWAY_ADMIN_TOKEN=<your-token>
 vim docker/.env
 ```
 
-### 2. Start the full stack
+The repository provides pre-generated development ECDSA P-256 keys inside `docker/keys/` (`private.pem` and
+`public.pem`). For production, generate a fresh pair:
 
-Depending on your audience, choose one of the options below:
+```bash
+openssl ecparam -name prime256v1 -genkey -noout -out docker/keys/private.pem
+openssl ec -in docker/keys/private.pem -pubout -out docker/keys/public.pem
+```
 
-#### Option A: Run stable public images (For Users)
-To run the pre-built latest stable images pulled from the registry:
+### 2. Start the Stack
+
+#### Option A: Pull and Run Stable Pre-built Images
+
 ```bash
 cd docker
 docker compose up -d
 ```
 
-#### Option B: Build and run local code (For Contributors / Developers)
-To run and develop using local code changes with live-reloading (via overrides and volumes):
+#### Option B: Build Local Code with Live-Reloading
+
 ```bash
 cd docker
-docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d --build
+docker compose -f docker-compose.yaml -f docker-compose-dev.yaml up -d --build
 ```
-Or use the native `watch` capability:
+
+Wait for services to reach healthy status:
+
 ```bash
-docker compose -f docker-compose.yaml -f docker-compose.dev.yaml watch
+docker compose ps
 ```
 
-`docker compose up --wait` (or adding `--wait` to the commands above) can be used to block until all service healthchecks pass.
+---
 
-### 3. Send a test log
+### 3. Send a Test Log
 
-**Single request:**
+**Single Request via CLI Helper:**
+
 ```bash
 bash scripts/send_logs.sh
 ```
 
-**Load test** (generates real traffic visible in Grafana):
+This script exchanges an attestation payload for an ES256 session token and POSTs a log event to the default
+`example-app-dev` channel.
 
-*Option A: Lightweight Bash Tool*
+**Bulk Request:**
+
 ```bash
-# 200 requests, 10 concurrent — default
+bash scripts/send_logs.sh --bulk 10
+```
+
+**Run Load Tests:**
+
+```bash
+# Lightweight curl-based concurrency test (200 requests, 10 workers)
 bash load_tests/load_test.sh
 
-# Custom: 1000 requests, 20 concurrent
-bash load_tests/load_test.sh -n 1000 -c 20
+# Advanced step-by-step k6 stress test (runs in Docker)
+bash load_tests/run_k6.sh -q
 ```
-This lightweight helper exchanges a mock attestation token for a JWT, warms up, and fires traffic concurrently.
 
-*Option B: Advanced k6 Step-by-Step Stress Test (Dockerized)*
-```bash
-# Run step-by-step stress test against local stack (joins default compose network automatically)
-bash load_tests/run_k6.sh
+See [`load_tests/README.md`](load_tests/README.md) for full configuration options.
 
-# Target remote dev deployment (bypasses local network joining)
-bash load_tests/run_k6.sh -n "" -u "http://<DEV_IP>:8080"
-```
-See [load_tests/README.md](file:///Users/femrek/projects/exclusive/remote_logger_backend/load_tests/README.md) for full k6 details, configuration flags, and testing strategy.
+---
 
-### 4. Inspect results
+### 4. Inspect Results
 
-| UI | URL | Credentials |
-|---|---|---|
-| **Grafana Dashboards** | http://localhost:3000 | `admin` / `admin` (set `GRAFANA_ADMIN_PASSWORD` in `.env`) |
-| **Prometheus** | http://localhost:9091 | — |
-| OpenSearch Dashboards | http://localhost:5601 | — |
-| Kafka UI | http://localhost:1234 | — |
-| OpenSearch REST | http://localhost:9200/mobile-logs-*/_search | — |
-| Gateway metrics (raw) | http://localhost:9095/metrics | — |
-| Worker metrics (raw) | http://localhost:9091/metrics | — |
+| Service                   | URL                                         | Credentials / Access                               |
+|---------------------------|---------------------------------------------|----------------------------------------------------|
+| **Grafana Dashboards**    | http://localhost:3000                       | `admin` / (set `GRAFANA_ADMIN_PASSWORD` in `.env`) |
+| **Logger Admin UI**       | http://localhost:8082                       | Enter `GATEWAY_ADMIN_TOKEN` when prompted          |
+| **Consul UI**             | http://localhost:8500                       | Open catalog to view healthy services & KV keys    |
+| **OpenSearch Dashboards** | http://localhost:5601                       | Browse indexed log entries                         |
+| **Kafka UI**              | http://localhost:8081                       | Inspect `mobile-logs` and `device-metadata` topics |
+| **OpenSearch REST API**   | http://localhost:9200/mobile-logs-*/_search | Direct JSON query API                              |
+| **Prometheus Targets**    | http://localhost:9090/targets               | Check scrape health of all components              |
 
-> **Grafana** opens directly to the pre-built **Logger Backend — Full Stack** dashboard.
-> Navigate to **Status → Targets** in Prometheus to confirm all 5 scrape targets are **UP**.
-
-You can also run the automated smoke test to verify every metrics endpoint:
+To run an automated health check against all metrics endpoints:
 
 ```bash
 bash scripts/verify_metrics.sh
 ```
 
-### 5. Tear down
+### 5. Tear Down
 
 ```bash
 cd docker
-docker compose down -v   # -v removes the OpenSearch data volume
+docker compose down -v   # -v cleans named volumes (OpenSearch index, Kafka data)
 ```
 
 ---
 
-## Gateway Configuration
+## Configuration & Channel Management
 
-Channel routing is defined in [`logger_gateway/config/gateway.yaml`](logger_gateway/config/gateway.yaml).
-The file is **hot-reloadable** — saving it triggers a zero-downtime config reload.
+Channel routing, attestation enforcement, and gateway parameters are dynamic and stored in **Consul KV**. Both the
+gateway and validation workers subscribe to changes via Consul HTTP blocking queries, reloading configurations with zero
+downtime.
 
-```yaml
-channels:
-  - id: "example-app-dev"
-    path_prefix: "/v1/logs/example-app-dev"
-    app_id: "dev.femrek.exampleapp.dev"
-    validate_attestation: false   # skip attestation in dev
-```
+### Managing via Logger Admin UI
 
-**JWT settings** (`gateway.jwt`):
+Open `http://localhost:8082` in your browser and enter your `GATEWAY_ADMIN_TOKEN`. The UI allows you to:
 
-| Key | Default | Description |
-|---|---|---|
-| `secret_env` | `GATEWAY_JWT_SECRET` | Env var holding the HMAC secret |
-| `ttl_seconds` | `300` | Session token lifetime (5 minutes) |
+- Configure global settings (e.g. `max_body_bytes`, `jwt.issuer`).
+- Create and edit application channels:
+    - `id`: Routing channel slug (e.g. `my-app-prod`).
+    - `app_id`: Application bundle ID (e.g. `com.company.app`).
+    - `validate_attestation`: Toggle cryptographic hardware attestation.
+    - `google_project_number`: GCP project number for Android Play Integrity.
+    - `apple_team_id`: Apple Developer Team ID for iOS App Attest.
+    - `require_apple_key_hash`: Enforce client public key binding for iOS.
+
+### Consul KV Key Structure
+
+- `gateway/config/global`: JSON object containing global settings:
+  ```json
+  {
+    "jwt": { "issuer": "logger-gateway", "ttl_seconds": 900 },
+    "max_body_bytes": 2097152
+  }
+  ```
+- `gateway/config/channels/{id}`: JSON object for each registered channel:
+  ```json
+  {
+    "id": "example-app-dev",
+    "app_id": "dev.femrek.exampleapp.dev",
+    "validate_attestation": false,
+    "require_apple_key_hash": false
+  }
+  ```
 
 ---
 
-## Log Payload Format
+## Authentication & Cryptography
 
-> See [`log_data_specification_report.md`](log_data_specification_report.md) for the full schema and a detailed discrepancy analysis.
+The pipeline enforces separation between network transport encryption and application session security:
 
-The validation worker expects a raw **`ServerLog`** object payload matching the mobile client's log export format:
+1. **Session Token Authentication (Mandatory):**
+    - Ingest requests require `Authorization: Bearer <token>`.
+    - The token is an **ES256 (ECDSA P-256)** JWT minted exclusively by `validation_worker` during
+      `POST /auth/exchange`.
+    - `validation_worker` signs tokens using `GATEWAY_PRIVATE_KEY_PATH` (`private.pem`).
+    - `logger_gateway` verifies tokens using `GATEWAY_PUBLIC_KEY_PATH` (`public.pem`).
+    - The token embeds `sub` (channel ID), `app` (application bundle ID), `device_uuid`, and `session_id`.
+    - `logger_gateway` verifies that `claims.sub` exactly matches the channel slug in the URL path.
+2. **Transport Layer Security (Optional):**
+    - Pingora supports TLS termination directly at the gateway listener.
+    - Configure `GATEWAY_TLS_CERT_PATH` (`server.crt`) and `GATEWAY_TLS_KEY_PATH` (`server.key`). If either variable is
+      omitted, plain HTTP is used.
+
+---
+
+## Log Ingestion Format
+
+### Endpoints
+
+- **Single Record Ingestion:**
+  `POST /v1/logs/{channel}`
+- **Batch Record Ingestion:**
+  `POST /v1/logs/{channel}/batch`
+
+### Ingestion Headers
+
+- `Authorization: Bearer <session_jwt>` (Required)
+- `Content-Type: application/json`
+
+### Record Schema (`ServerLog`)
 
 ```json
 {
-  "timestamp":  "2026-06-23T15:00:00Z",
-  "loggerName": "AppDatabase",
-  "message":    "Connection established.",
-  "level":      "INFO",
-  "zone":       "",
-  "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
-  "sessionId":  "session-123"
+  "timestamp": "2026-10-02T12:00:00Z",
+  "loggerName": "DatabaseService",
+  "message": "Connection pool initialized.",
+  "level": "INFO",
+  "zone": "",
+  "error": null,
+  "stacktrace": null
 }
 ```
 
-The gateway injects `x-tenant-id` and `x-app-id` headers derived from the requested channel configuration. The worker validates the raw `ServerLog` strictly against its schema and flattens it with the injected identities before forwarding it to Kafka.
+> **Identity Binding:** The gateway extracts verified `device_uuid` and `session_id` directly from the validated JWT
+> claims and forwards them upstream in internal `x-device-uuid` and `x-session-id` headers. The client body does not need
+> to duplicate them.
+
+For batch requests, wrap multiple records in a JSON array: `[ { ... }, { ... } ]`.
 
 ---
 
 ## Running Tests
 
-The test suite is split into three tiers with increasing infrastructure requirements.
+### Tier 1 — Unit Tests *(In-process, ~0 ms)*
 
-### Tier 1 — Unit Tests *(no Docker, ~0 ms)*
-
-Tests the `validation_worker` handler logic entirely in-process using a
-`NoopSink` (no real Kafka connection). Covers valid payloads, all 400 error
-paths, and the routing quirks documented in the spec report.
+Tests validation rules, error handling, and routing using an in-memory `NoopSink`:
 
 ```bash
 cd validation_worker
 cargo test --lib
 ```
 
-Expected output:
-```
-running 9 tests
-test tests::test_valid_envelope_returns_200 ... ok
-test tests::test_ingest_alias_route_returns_200 ... ok
-test tests::test_missing_device_uuid_returns_400 ... ok
-test tests::test_invalid_json_returns_400 ... ok
-test tests::test_missing_app_id_header_returns_401 ... ok
-test tests::test_session_id_is_optional_and_omission_returns_200 ... ok
-test tests::test_valid_server_log_with_headers_returns_200 ... ok
-test tests::test_optional_error_and_stacktrace_fields_accepted ... ok
-test tests::test_path_with_log_suffix_returns_404 ... ok
-test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured
-```
+### Tier 2 — Integration Tests *(Requires Docker, ~30 s)*
 
-To skip: not applicable — these tests have no external dependencies.
-
----
-
-### Tier 2 — Integration Tests *(Docker required, ~30 s)*
-
-Spins up an **ephemeral Kafka container** via
-[testcontainers](https://github.com/testcontainers/testcontainers-rs), then:
-
-1. Builds the real Axum app connected to that container.
-2. Sends HTTP requests via `reqwest`.
-3. Consumes from the `mobile-logs` topic with an rdkafka `StreamConsumer`.
-4. Asserts the **flattened** `KafkaPayload` structure field-by-field (no nested
-   `payload` key — spec report §4).
+Spins up an ephemeral Kafka container via `testcontainers-rs`, runs the Axum application, produces records, and asserts
+Kafka messages:
 
 ```bash
 cd validation_worker
 cargo test --test integration_test
-```
 
-To skip without removing the tests:
-
-```bash
+# To skip:
 SKIP_INTEGRATION=1 cargo test --test integration_test
 ```
 
-> **Note:** The Confluent Kafka image used by testcontainers is downloaded on
-> first run (~700 MB) and cached by Docker for subsequent runs.
+### Tier 3 — End-to-End Tests *(Full stack, ~3 min)*
 
----
-
-### Tier 3 — E2E Tests *(Docker + full stack, ~3 min)*
-
-Exercises the **entire pipeline** from HTTP POST through to an OpenSearch index
-assertion. The test:
-
-1. Reads `e2e/.env.test` for configuration.
-2. Runs `docker compose` with both `docker-compose.yaml` and `docker-compose.dev.yaml` (if it exists) using `up -d --wait` to start the
-   full stack (gateway, workers, Kafka, Fluent Bit, OpenSearch).
-3. Calls `POST /auth/exchange` to obtain a real session JWT.
-4. Posts a log with a unique timestamp-based message marker to
-   `POST /v1/logs/example-app-dev`.
-5. Waits 5 seconds for Fluent Bit's 2-second flush cycle to complete.
-6. Queries `GET /mobile-logs-*/_search?q=message:<marker>` and asserts
-   `hits.total.value > 0`.
-7. Runs `docker compose down -v` on exit (even if the test fails).
-
-**Setup — do this once:**
-
-```bash
-# Edit e2e/.env.test and set your JWT secret
-# It must match the GATEWAY_JWT_SECRET in docker/.env
-vim e2e/.env.test
-```
-
-```ini
-# e2e/.env.test
-SKIP_E2E=0
-GATEWAY_JWT_SECRET=your-secret-here
-```
-
-**Run:**
+Spins up the complete pipeline (Gateway, Workers, Kafka, Fluent Bit, OpenSearch), exchanges tokens, posts unique log
+markers, and queries OpenSearch REST:
 
 ```bash
 cd e2e
 cargo test --test e2e_test
-```
 
-To skip (e.g. in CI without Docker):
-
-```bash
+# To skip:
 SKIP_E2E=1 cargo test --test e2e_test
-# — or — set SKIP_E2E=1 in e2e/.env.test
 ```
 
-> **Important:** The E2E test will call `docker compose down -v` on completion,
-> which removes the `opensearch-data` named volume. Any data indexed during a
-> previous manual run will be lost.
-
----
-
-### Quick reference — all tiers
+### Mobile SDK Tests
 
 ```bash
-# Tier 1: unit (no Docker needed)
-cd validation_worker && cargo test --lib
-
-# Tier 2: integration (Docker needed)
-cd validation_worker && cargo test --test integration_test
-SKIP_INTEGRATION=1 cargo test --test integration_test   # skip
-
-# Tier 3: E2E (Docker + full stack)
-cd e2e && cargo test --test e2e_test
-SKIP_E2E=1 cargo test --test e2e_test                   # skip
+cd mobile/remote_logging && dart test
+cd ../flutter_remote_logging && flutter test
 ```
 
 ---
 
 ## Environment Variables
 
-| Variable | Default | Service | Description |
-|---|---|---|---|
-| `GATEWAY_JWT_SECRET` | — | `logger_gateway`, `validation_worker` | HMAC-SHA256 secret for JWT signing/verification. **Required.** |
-| `RUST_LOG` | `info` | both | Tracing filter (e.g. `info,logger_gateway=debug`) |
-| `WORKERS_FILE` | `config/workers_list.json` | `logger_gateway` | Path to the dynamic worker address file |
-| `KAFKA_BROKERS` | `localhost:9092` | `validation_worker` | Comma-separated Kafka bootstrap servers |
-| `PORT` | `3000` | `validation_worker` | HTTP API listener port |
-| `METRICS_PORT` | `9091` | `validation_worker` | Prometheus `/metrics` listener port |
-| `GRAFANA_ADMIN_PASSWORD` | `admin` | `grafana` | Grafana admin password (change before any non-local deploy) |
-| `SKIP_INTEGRATION` | unset | tests | Set to `1` to skip Tier-2 integration tests |
-| `SKIP_E2E` | `0` | tests | Set to `1` to skip Tier-3 E2E tests |
+| Variable                   | Default                        | Service             | Description                                          |
+|----------------------------|--------------------------------|---------------------|------------------------------------------------------|
+| `GATEWAY_PRIVATE_KEY_PATH` | `/etc/logger/keys/private.pem` | `validation_worker` | Path to ECDSA P-256 private key for JWT minting      |
+| `GATEWAY_PUBLIC_KEY_PATH`  | `/etc/logger/keys/public.pem`  | `logger_gateway`    | Path to ECDSA P-256 public key for JWT verification  |
+| `GATEWAY_BIND_ADDR`        | `0.0.0.0:8080`                 | `logger_gateway`    | Gateway HTTP listener address                        |
+| `GATEWAY_ADMIN_TOKEN`      | —                              | `logger_admin`      | Bearer secret required for Admin UI & API operations |
+| `CONSUL_HTTP_ADDR`         | `http://consul:8500`           | all services        | Consul agent HTTP address for discovery and KV sync  |
+| `KAFKA_BROKERS`            | `broker:9094`                  | `validation_worker` | Comma-separated Kafka bootstrap servers              |
+| `PORT`                     | `8000`                         | `validation_worker` | Worker internal API port                             |
+| `METRICS_PORT`             | `9091`                         | `validation_worker` | Worker Prometheus metrics port                       |
+| `GATEWAY_TLS_CERT_PATH`    | —                              | `logger_gateway`    | Optional SSL/TLS certificate path                    |
+| `GATEWAY_TLS_KEY_PATH`     | —                              | `logger_gateway`    | Optional SSL/TLS private key path                    |
+| `RUST_LOG`                 | `info`                         | all services        | Tracing log filter directives                        |
+| `GRAFANA_ADMIN_PASSWORD`   | `admin`                        | `grafana`           | Grafana administrator credentials                    |
 
 ---
 
-## Known Limitations
+## Security
 
-These are documented in detail in [`log_data_specification_report.md`](log_data_specification_report.md).
+If you discover a security vulnerability or sensitive flaw related to authentication, hardware attestation, or network
+proxying, **please do not open a public issue**.
 
-1. **Route mismatch (§1):** The validation worker listens on `/v1/logs/:channel`
-   (no trailing `/log`). Requests to `/v1/logs/:channel/log` return 404. Use the
-   path without the suffix.
+Instead, please report it privately via GitHub Security Advisories or email the maintainer directly at
+`faruk.eksioglu@hotmail.com`.
 
-2. **Raw `ServerLog` Body (§2):** The worker expects the raw `ServerLog` directly, with identity managed via gateway headers. The payload must not be wrapped.
+---
 
-3. **`sessionId` missing from mobile client (§3):** The Dart client never
-   serialises `sessionId`. It is stored as `null` in OpenSearch.
+## License
 
-4. **Fluent Bit `nest/lift` filter is a no-op (§4):** The worker flattens
-   `ServerLog` into the Kafka message root; there is no `payload` key to lift.
+This project is licensed under the [MIT License](LICENSE).

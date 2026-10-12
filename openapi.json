@@ -15,7 +15,7 @@
     "/auth/exchange": {
       "post": {
         "summary": "Exchange device attestation for gateway session token",
-        "description": "Validates a mobile hardware attestation token (Google Play Integrity on Android or Apple App Attest on iOS) for a specific routing channel. Upon successful validation, issues a short-lived HMAC-SHA256 (HS256) session JWT to be used for authenticating subsequent log ingestion requests.\n\nIf the targeted channel's configuration has `validate_attestation: false`, the attestation validation step is skipped, but the session token is still issued.",
+        "description": "Validates a mobile hardware attestation token (Google Play Integrity on Android or Apple App Attest on iOS) for a specific routing channel. Upon successful validation, issues a short-lived ECDSA P-256 (ES256) session JWT to be used for authenticating subsequent log ingestion requests.\n\nIf the targeted channel's configuration has `validate_attestation: false`, the attestation validation step is skipped, but the session token is still issued.",
         "parameters": [
           {
             "name": "X-Channel-Id",
@@ -346,7 +346,6 @@
         "required": [
           "platform",
           "attestation_token",
-          "tenant_id",
           "device_uuid",
           "device_metadata"
         ],

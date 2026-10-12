@@ -8,7 +8,7 @@ services:
       - GATEWAY_PUBLIC_KEY_PATH=${GATEWAY_PUBLIC_KEY_PATH:-/etc/logger/keys/public.pem}
       - GATEWAY_BIND_ADDR=${GATEWAY_BIND_ADDR:-0.0.0.0:8080}
       - GATEWAY_METRICS_ADDR=${GATEWAY_METRICS_ADDR:-0.0.0.0:9090}
-      # Uncomment to enable TLS termination:
+      # configure in docker-compose-override.yaml to enable TLS termination:
       # - GATEWAY_TLS_CERT_PATH=/etc/certs/server.crt
       # - GATEWAY_TLS_KEY_PATH=/etc/certs/server.key
     volumes:

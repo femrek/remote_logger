@@ -1,6 +1,6 @@
 # Kubernetes Deployment Guide
 
-This guide covers how to deploy the **Remote Logger Backend** on any Kubernetes cluster — including local development clusters (Minikube, Kind, Docker Desktop) and cloud providers (GKE, EKS, AKS).
+This guide covers how to deploy the **Remote Logger** pipeline on any Kubernetes cluster — including local clusters (Minikube, Kind, Docker Desktop) and cloud providers (GKE, EKS, AKS).
 
 ---
 
@@ -9,13 +9,13 @@ This guide covers how to deploy the **Remote Logger Backend** on any Kubernetes 
 - [Architecture Overview](#architecture-overview)
 - [Prerequisites](#prerequisites)
 - [Folder Structure](#folder-structure)
-- [Step 1 — Set the JWT Secret](#step-1--set-the-jwt-secret)
-- [Step 2 — Configure Your Channels](#step-2--configure-your-channels)
+- [Step 1 — Prepare Secrets & Environment Files](#step-1--prepare-secrets--environment-files)
+- [Step 2 — Configure Routing & Consul Channels](#step-2--configure-routing--consul-channels)
 - [Step 3 — Deploy the Stack](#step-3--deploy-the-stack)
 - [Step 4 — Verify the Deployment](#step-4--verify-the-deployment)
 - [Step 5 — Access the Services](#step-5--access-the-services)
 - [Step 6 — Send a Test Log](#step-6--send-a-test-log)
-- [Scaling the Validation Worker](#scaling-the-validation-worker)
+- [Scaling Validation Workers](#scaling-validation-workers)
 - [Persistent Storage (Production)](#persistent-storage-production)
 - [Tearing Down](#tearing-down)
 - [Troubleshooting](#troubleshooting)
@@ -25,52 +25,51 @@ This guide covers how to deploy the **Remote Logger Backend** on any Kubernetes 
 ## Architecture Overview
 
 ```
-Internet / Mobile Client
+Internet / Mobile Clients
         │  HTTP :8080
         ▼
-  logger-gateway            (LoadBalancer)
-   Pingora Proxy            - JWT verification
-                            - Per-channel routing
-                            - Load balances across workers
+  logger-gateway            (LoadBalancer / NodePort :30080)
+   Pingora Proxy            • ES256 JWT signature verification
+                            • Discovers workers via Consul catalog
+                            • Streams logs to active workers
         │
+        ├── POST /auth/exchange (Proxied to worker)
         ▼
-  validation-worker-{0,1}   (StatefulSet, 2 replicas)
-   Axum microservice        - Schema validation
-                            - JWT minting (/auth/exchange)
-                            - Kafka producer (zero data loss)
+  validation-worker         (Deployment, 2 replicas)
+   Axum microservice        • Google Play Integrity / Apple App Attest
+                            • ES256 session JWT minting (private.pem)
+                            • Schema validation & enrichments
+                            • Produces to Kafka with broker ACK
         │
         ▼
   broker                    (StatefulSet, KRaft mode)
-   Apache Kafka             - Message bus
+   Apache Kafka             • Distributed high-throughput log bus
         │
         ▼
   fluent-bit                (Deployment)
-   Log forwarder            - Consumes Kafka → bulk POSTs to OpenSearch
+   Log forwarder            • Consumes Kafka topic → bulk POSTs to OpenSearch
         │
         ▼
   opensearch                (StatefulSet)
-   Search & Analytics       :9200
+   Search & Analytics       • Indexes documents (:9200)
         │
-  opensearch-dashboards     (Deployment)   :5601
-  kafka-ui                  (Deployment)   :30081
+  opensearch-dashboards     (Deployment, :5601)
+  consul                    (Deployment, :8500)
+  kafka-ui                  (Deployment, NodePort :30081)
 ```
 
 ---
 
 ## Prerequisites
 
-| Tool | Minimum version | Notes |
+| Tool | Minimum Version | Notes |
 |---|---|---|
-| `kubectl` | 1.25 | [Install guide](https://kubernetes.io/docs/tasks/tools/) |
-| A running Kubernetes cluster | 1.25 | Minikube, Kind, Docker Desktop, GKE, EKS, AKS |
-| `kustomize` | bundled in `kubectl` v1.14+ | Used via `kubectl apply -k` |
+| `kubectl` | 1.25+ | [Kubernetes CLI install guide](https://kubernetes.io/docs/tasks/tools/) |
+| A running Kubernetes cluster | 1.25+ | Minikube, Kind, Docker Desktop, GKE, EKS, AKS |
+| `kustomize` | Bundled in `kubectl` | Used via `kubectl apply -k` |
 
-> **Local cluster options:**
-> - **Docker Desktop** — Enable Kubernetes in _Settings → Kubernetes_.
-> - **Minikube** — `minikube start --memory=4096`
-> - **Kind** — `kind create cluster`
->
-> OpenSearch is memory-hungry. Allocate **at least 4 GB RAM** to your local cluster node.
+> [!NOTE]
+> OpenSearch requires sufficient memory. Allocate **at least 4 GB RAM** to your cluster node when running locally.
 
 ---
 
@@ -78,132 +77,111 @@ Internet / Mobile Client
 
 ```
 kubernetes/
-├── kustomization.yaml              ← entry point for kubectl apply -k
-├── namespace.yaml
+├── kustomization.yaml              ← Entry point for kubectl apply -k
+├── namespace.yaml                  ← Namespace definition (logger-backend)
 ├── config/
-│   ├── secrets.yaml                ← GATEWAY_JWT_SECRET (edit before deploying)
-│   └── configmaps.yaml             ← gateway.yaml, workers.txt, channels.yaml, fluent-bit.conf
+│   ├── configmaps.yaml             ← ConfigMaps for gateway and fluent-bit
+│   ├── secrets.env.example         ← Environment template for logger-secrets
+│   └── docker-config.json.example  ← Template for image pull secrets (GHCR)
+├── consul/
+│   └── consul.yaml                 ← Consul agent deployment & service
 ├── broker/
-│   └── kafka.yaml
+│   └── kafka.yaml                  ← Apache Kafka KRaft cluster
 ├── opensearch/
-│   └── opensearch.yaml
+│   ├── opensearch.yaml             ← OpenSearch & Dashboards manifests
+│   ├── opensearch.env.example      ← OpenSearch credentials template
+│   └── htpasswd.example            ← OpenSearch Dashboards HTTP basic auth template
 ├── fluent-bit/
-│   └── fluent-bit.yaml
+│   └── fluent-bit.yaml             ← Fluent Bit forwarder deployment
 ├── validation-worker/
-│   └── validation-worker.yaml
+│   └── validation-worker.yaml      ← Axum validation worker deployment & service
 ├── gateway/
-│   └── logger-gateway.yaml
-└── kafka-ui/
-    └── kafka-ui.yaml
+│   └── logger-gateway.yaml         ← Pingora proxy deployment & LoadBalancer service
+├── kafka-ui/
+│   └── kafka-ui.yaml               ← Kafka web UI deployment
+├── monitoring/                     ← Prometheus, Grafana, exporters manifests
+│   ├── prometheus/
+│   ├── grafana/
+│   ├── kafka-exporter/
+│   ├── opensearch-exporter/
+│   └── consul-exporter/
+└── DEPLOYMENT.md
 ```
 
 ---
 
-## Step 1 — Set the JWT Secret
+## Step 1 — Prepare Secrets & Environment Files
 
-The `GATEWAY_JWT_SECRET` is the HMAC key shared between the gateway (which **validates** ingest JWTs) and the validation worker (which **mints** them). It must be set before deploying.
+Kustomize generates the required Secrets using environment template files. Before deploying, copy each `.example` file to its active filename and fill in values:
 
-> [!CAUTION]
-> The file `kubernetes/config/secrets.yaml` contains a placeholder secret. **Never deploy the placeholder to a real environment.** Replace it with a strong random value.
-
-### Option A — Edit the file directly (simple, dev-only)
-
-Generate a random secret and base64-encode it:
-
+### 1. Application Secrets (`config/secrets.env`)
 ```bash
-echo -n "$(openssl rand -hex 32)" | base64
+cp kubernetes/config/secrets.env.example kubernetes/config/secrets.env
 ```
+Generate an Admin Token for `logger_admin` and set `GATEWAY_ADMIN_TOKEN`.
 
-Open `kubernetes/config/secrets.yaml` and replace the value:
-
-```yaml
-data:
-  GATEWAY_JWT_SECRET: <paste-your-base64-value-here>
-```
-
-### Option B — Create the secret with kubectl (recommended for all environments)
-
-Skip editing `secrets.yaml` and instead use `kubectl` directly. First, **remove** `config/secrets.yaml` from `kubernetes/kustomization.yaml`, then run:
-
+### 2. OpenSearch Credentials
 ```bash
-kubectl create secret generic logger-secrets \
-  --from-literal=GATEWAY_JWT_SECRET="$(openssl rand -hex 32)" \
-  --namespace logger-backend
+cp kubernetes/opensearch/opensearch.env.example kubernetes/opensearch/opensearch.env
+cp kubernetes/monitoring/opensearch.env.example kubernetes/monitoring/opensearch.env
+cp kubernetes/opensearch/htpasswd.example kubernetes/opensearch/htpasswd
+```
+Set strong passwords for OpenSearch cluster access and Grafana dashboards.
+
+### 3. Container Registry Pull Secret (Optional)
+If pulling private images from GitHub Container Registry (GHCR):
+```bash
+cp kubernetes/config/docker-config.json.example kubernetes/config/docker-config.json
+# Fill in your base64-encoded docker credentials
 ```
 
-> [!NOTE]
-> If you choose Option B, run `kubectl create namespace logger-backend` first (or apply only `namespace.yaml`) before creating the secret.
+### 4. ECDSA P-256 Key Pair (JWT Authentication)
+The pipeline uses **ES256 (ECDSA P-256)** for session JWT minting and verification. Generate a production key pair:
+```bash
+openssl ecparam -name prime256v1 -genkey -noout -out private.pem
+openssl ec -in private.pem -pubout -out public.pem
+```
+Mount `private.pem` into the `validation-worker` pod (configured via `GATEWAY_PRIVATE_KEY_PATH`) and `public.pem` into the `logger-gateway` pod (configured via `GATEWAY_PUBLIC_KEY_PATH`).
 
 ---
 
-## Step 2 — Configure Your Channels
+## Step 2 — Configure Routing & Consul Channels
 
-A **channel** maps a URL path to an application. Each channel has its own app identity and attestation settings.
+Dynamic channel routing and attestation rules are managed through **Consul KV** at `gateway/config/channels/<channel-id>`.
 
-Edit the two channel config blocks inside `kubernetes/config/configmaps.yaml`.
+When Consul starts, you can register channels via the `logger_admin` API or direct Consul HTTP API calls:
 
-### `gateway-config` → `gateway.yaml` section
-
-This controls routing at the gateway level:
-
-```yaml
-channels:
-  - id: "my-app-prod"
-    path_prefix: "/v1/logs/my-app-prod"    # URL prefix clients POST to
-    app_id: "com.example.myapp"
+```bash
+# Example: Seed a development channel via Consul HTTP API
+curl -X PUT "http://consul.logger-backend.svc.cluster.local:8500/v1/kv/gateway/config/channels/example-app-dev" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "example-app-dev",
+    "app_id": "dev.femrek.exampleapp.dev",
+    "validate_attestation": false,
+    "require_apple_key_hash": false
+  }'
 ```
 
-### `validation-worker-config` → `channels.yaml` section
-
-This controls attestation policy per channel:
-
-```yaml
-channels:
-  - id: "my-app-prod"
-    app_id: "com.example.myapp"
-    validate_attestation: true           # Enforce Play Integrity / App Attest
-    google_project_number: "YOUR_GCP_PROJECT_NUMBER"
-    apple_team_id: "YOUR_APPLE_TEAM_ID"
-    require_apple_key_hash: true
-
-  - id: "my-app-dev"
-    app_id: "com.example.myapp.dev"
-    validate_attestation: false          # Safe to disable in development/CI
-    require_apple_key_hash: false
-```
-
-> [!IMPORTANT]
-> The `id` field must match between `gateway.yaml` and `channels.yaml` for the same logical channel.
-
-### `gateway-config` → `workers.txt` section
-
-This file tells the gateway where to find the validation worker pods. By default it has 2 entries matching the StatefulSet pod FQDNs:
-
-```
-validation-worker-0.validation-worker-service.logger-backend.svc.cluster.local:8000
-validation-worker-1.validation-worker-service.logger-backend.svc.cluster.local:8000
-```
-
-If you change the replica count (see [Scaling](#scaling-the-validation-worker)), add or remove lines here to match.
+Both `logger-gateway` and `validation-worker` watch Consul KV using HTTP blocking queries and hot-reload changes without pod restarts.
 
 ---
 
 ## Step 3 — Deploy the Stack
 
-Apply all resources with a single command from the repository root:
+Deploy all resources in a single command using Kustomize from the repository root:
 
 ```bash
 kubectl apply -k kubernetes/
 ```
 
-This creates the namespace, secrets, ConfigMaps, and all workloads in the correct order.
-
-### Check rollout status
+### Check Rollout Status
 
 ```bash
 kubectl rollout status statefulset/broker            -n logger-backend
+kubectl rollout status deployment/consul             -n logger-backend
 kubectl rollout status statefulset/opensearch        -n logger-backend
-kubectl rollout status statefulset/validation-worker -n logger-backend
+kubectl rollout status deployment/validation-worker  -n logger-backend
 kubectl rollout status deployment/fluent-bit         -n logger-backend
 kubectl rollout status deployment/logger-gateway     -n logger-backend
 ```
@@ -219,250 +197,152 @@ kubectl get pods -n logger-backend
 ```
 
 Expected output:
-
 ```
 NAME                                  READY   STATUS    RESTARTS   AGE
 broker-0                              1/1     Running   0          2m
+consul-xxxxxxxxx-xxxxx                1/1     Running   0          2m
 fluent-bit-xxxxxxxxx-xxxxx            1/1     Running   0          2m
 kafka-ui-xxxxxxxxx-xxxxx              1/1     Running   0          2m
 logger-gateway-xxxxxxxxx-xxxxx        1/1     Running   0          2m
 opensearch-0                          1/1     Running   0          2m
 opensearch-dashboards-xxxxxxxx-xxxxx  1/1     Running   0          2m
-validation-worker-0                   1/1     Running   0          2m
-validation-worker-1                   1/1     Running   0          2m
-```
-
-> [!NOTE]
-> OpenSearch takes ~60–90 seconds to become `Ready` on first start. The `fluent-bit` and `logger-gateway` pods may restart once while waiting for it — this is normal.
-
-Check pod logs if something isn't starting:
-
-```bash
-kubectl logs -n logger-backend statefulset/broker
-kubectl logs -n logger-backend deployment/logger-gateway
-kubectl logs -n logger-backend statefulset/validation-worker
+validation-worker-xxxxxxxx-xxxxx      1/1     Running   0          2m
+validation-worker-xxxxxxxx-xxxxx      1/1     Running   0          2m
 ```
 
 ---
 
 ## Step 5 — Access the Services
 
-### Logger Gateway (the ingest endpoint)
+### Logger Gateway (Ingest Endpoint)
+The gateway is exposed via a `LoadBalancer` Service on port `8080` (NodePort `30080` on local clusters):
 
-The gateway is exposed via a `LoadBalancer` service on port `8080`.
+- **Cloud (GKE/EKS/AKS):** Use external IP from `kubectl get svc logger-gateway -n logger-backend`.
+- **Minikube:** Access via NodePort: `http://$(minikube ip):30080`.
+- **Docker Desktop / Kind:** `http://localhost:30080` or `http://localhost:8080`.
 
-**On a cloud cluster**, get the external IP:
-
-```bash
-kubectl get svc logger-gateway -n logger-backend
-# Look for the EXTERNAL-IP column. It may take a minute to provision.
-```
-
-**On a local cluster (Minikube)**, use the NodePort `30080`:
-
-```bash
-# Minikube
-minikube service logger-gateway -n logger-backend
-
-# Or access directly via NodePort:
-curl http://$(minikube ip):30080/
-```
-
-**On Docker Desktop**, `localhost:30080` works out of the box.
-
-### Internal UIs (via port-forward)
-
-The following services are cluster-internal. Use `kubectl port-forward` to access them locally:
+### Cluster UIs (via Port-Forward)
 
 | Service | Command | Local URL |
 |---|---|---|
 | OpenSearch Dashboards | `kubectl port-forward svc/opensearch-dashboards 5601:5601 -n logger-backend` | http://localhost:5601 |
-| Kafka UI | Accessible via NodePort | http://localhost:30081 |
-| OpenSearch REST API | `kubectl port-forward svc/opensearch 9200:9200 -n logger-backend` | http://localhost:9200 |
-| Gateway Prometheus metrics | `kubectl port-forward svc/logger-gateway-metrics 9090:9090 -n logger-backend` | http://localhost:9090/metrics |
+| Consul UI | `kubectl port-forward svc/consul 8500:8500 -n logger-backend` | http://localhost:8500 |
+| Kafka UI | NodePort `30081` or port-forward | http://localhost:30081 |
+| Grafana | `kubectl port-forward svc/grafana 3000:3000 -n monitoring` | http://localhost:3000 |
+| Prometheus | `kubectl port-forward svc/prometheus 9090:9090 -n monitoring` | http://localhost:9090 |
 
 ---
 
 ## Step 6 — Send a Test Log
 
-### 1. Exchange an attestation token for a JWT
+### 1. Exchange Hardware Attestation for a Session JWT
+
+Send the attestation exchange request to `/auth/exchange` with the required `X-Channel-Id` header:
 
 ```bash
-GATEWAY_HOST="http://localhost:30080"  # adjust for your cluster
+GATEWAY_HOST="http://localhost:30080"  # Adjust for your cluster endpoint
 
-curl -s -X POST "$GATEWAY_HOST/v1/logs/example-app-dev/auth/exchange" \
+curl -s -X POST "$GATEWAY_HOST/auth/exchange" \
   -H "Content-Type: application/json" \
+  -H "X-Channel-Id: example-app-dev" \
   -d '{
-    "channel_id": "example-app-dev",
-    "attestation_token": "dev-bypass-token",
-    "device_uuid": "test-device-001"
+    "platform": "android",
+    "attestation_token": "mock-token",
+    "device_uuid": "test-device-001",
+    "device_metadata": {
+      "timestamp": "2026-10-02T12:00:00Z",
+      "deviceUUID": "test-device-001",
+      "sessionId": "session-k8s-001",
+      "os": "Android",
+      "osVersion": "14",
+      "model": "K8s-Test",
+      "brand": "Cluster",
+      "device": "node",
+      "identifier": "test-build-1",
+      "manufacturer": "Cluster",
+      "isPhysicalDevice": "false"
+    }
   }' | tee /tmp/auth_response.json
 ```
 
-Extract the access token:
+Extract the minted access token:
 ```bash
 ACCESS_TOKEN=$(jq -r '.access_token' /tmp/auth_response.json)
 ```
 
-### 2. Post a log entry
+### 2. Post a Log Record
 
 ```bash
 curl -s -X POST "$GATEWAY_HOST/v1/logs/example-app-dev" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "timestamp":  "2026-01-01T12:00:00Z",
-    "loggerName": "AppDatabase",
-    "message":    "Hello from Kubernetes!",
+    "timestamp":  "2026-10-02T12:00:00Z",
+    "loggerName": "KubernetesTester",
+    "message":    "Hello from Kubernetes deployment!",
     "level":      "INFO",
-    "zone":       "",
-    "deviceUUID": "test-device-001",
-    "sessionId":  "session-k8s-test"
+    "zone":       ""
   }'
 ```
 
-A `200 OK` response confirms the log was validated and acknowledged by Kafka.
+A `200 OK` response confirms the log was received by the gateway, validated by the worker, and acknowledged by Kafka.
 
 ### 3. Verify in OpenSearch
 
 ```bash
-# After ~5 seconds (Fluent Bit flush interval)
 kubectl port-forward svc/opensearch 9200:9200 -n logger-backend &
+sleep 2
 
 curl "http://localhost:9200/mobile-logs-*/_search?q=message:Kubernetes&pretty"
 ```
 
 ---
 
-## Scaling the Validation Worker
+## Scaling Validation Workers
 
-To change the number of worker replicas, edit `kubernetes/validation-worker/validation-worker.yaml`:
-
-```yaml
-spec:
-  replicas: 3   # change from 2 to desired count
-```
-
-Then add the new pod's FQDN to `workers.txt` in `kubernetes/config/configmaps.yaml`:
-
-```
-validation-worker-0.validation-worker-service.logger-backend.svc.cluster.local:8000
-validation-worker-1.validation-worker-service.logger-backend.svc.cluster.local:8000
-validation-worker-2.validation-worker-service.logger-backend.svc.cluster.local:8000
-```
-
-Re-apply to update the cluster:
+Validation workers register dynamically in Consul. To scale the worker deployment:
 
 ```bash
-kubectl apply -k kubernetes/
+kubectl scale deployment/validation-worker --replicas=4 -n logger-backend
 ```
 
-The gateway's file-watcher detects the ConfigMap update and reloads the worker list automatically (no gateway restart needed).
-
-> [!NOTE]
-> Kubernetes ConfigMap volume mounts are updated eventually — allow up to 60 seconds for the gateway to pick up new worker entries.
+As new worker pods become ready, they register with Consul and `logger-gateway` automatically adds them to its Pingora round-robin upstream pool. No configuration changes or gateway restarts are needed.
 
 ---
 
 ## Persistent Storage (Production)
 
-By default, Kafka and OpenSearch use `emptyDir` volumes, meaning **data is lost when pods restart**. For production deployments, switch to PersistentVolumeClaims.
+For production, configure `PersistentVolumeClaims` with dynamic StorageClasses:
 
-### Kafka
-
-In `kubernetes/broker/kafka.yaml`, comment out the `emptyDir` volume and uncomment `volumeClaimTemplates`:
-
-```yaml
-  volumeClaimTemplates:
-    - metadata:
-        name: kafka-storage
-      spec:
-        accessModes: [ "ReadWriteOnce" ]
-        resources:
-          requests:
-            storage: 10Gi
-```
-
-Also remove the corresponding entry from `spec.template.spec.volumes`.
-
-### OpenSearch
-
-In `kubernetes/opensearch/opensearch.yaml`, do the same:
-
-```yaml
-  volumeClaimTemplates:
-    - metadata:
-        name: opensearch-data
-      spec:
-        accessModes: [ "ReadWriteOnce" ]
-        resources:
-          requests:
-            storage: 20Gi
-```
-
-> [!IMPORTANT]
-> Your cluster must have a StorageClass that supports dynamic provisioning. Cloud providers (GKE, EKS, AKS) provide this by default. For Minikube, use `minikube addons enable storage-provisioner`.
+- **Kafka:** In `kubernetes/broker/kafka.yaml`, uncomment `volumeClaimTemplates` for `kafka-storage`.
+- **OpenSearch:** In `kubernetes/opensearch/opensearch.yaml`, uncomment `volumeClaimTemplates` for `opensearch-data`.
 
 ---
 
 ## Tearing Down
 
-Remove all resources created in the `logger-backend` namespace:
-
-```bash
-kubectl delete namespace logger-backend
-```
-
-This deletes all Pods, Services, ConfigMaps, Secrets, and PersistentVolumeClaims in the namespace.
-
-To remove only the workloads while keeping the namespace:
+To remove all resources and data from the cluster:
 
 ```bash
 kubectl delete -k kubernetes/
+```
+
+To remove only workloads while retaining the namespace:
+```bash
+kubectl delete namespace logger-backend monitoring
 ```
 
 ---
 
 ## Troubleshooting
 
-### Pod stuck in `Pending`
+### `502 Bad Gateway` on Ingest Requests
+- Verify that `consul` is healthy: `kubectl logs deployment/consul -n logger-backend`.
+- Verify that `validation-worker` pods are registered in Consul:
+  ```bash
+  kubectl exec deployment/logger-gateway -n logger-backend -- \
+    curl -s http://consul.logger-backend.svc.cluster.local:8500/v1/health/service/validation_worker?passing=true
+  ```
 
-```bash
-kubectl describe pod <pod-name> -n logger-backend
-```
-
-Common causes:
-- **Insufficient resources** — Your cluster node doesn't have enough CPU/memory. OpenSearch needs at least 2 GB RAM.
-- **No StorageClass** — Only affects persistent volume setups. Verify with `kubectl get storageclass`.
-
-### `validation-worker` pods not connecting to Kafka
-
-Kafka starts slowly. The workers will retry automatically. Check Kafka is healthy first:
-
-```bash
-kubectl logs broker-0 -n logger-backend | tail -20
-```
-
-### Gateway returns `502 Bad Gateway`
-
-The workers may not be ready yet, or the `workers.txt` ConfigMap has incorrect hostnames. Verify:
-
-```bash
-kubectl exec -n logger-backend deployment/logger-gateway -- cat /docker/workers.txt
-```
-
-The entries must exactly match:
-```
-validation-worker-0.validation-worker-service.logger-backend.svc.cluster.local:8000
-validation-worker-1.validation-worker-service.logger-backend.svc.cluster.local:8000
-```
-
-### OpenSearch Dashboards shows "Server is not ready yet"
-
-OpenSearch itself is still initialising. This message disappears once the `opensearch-0` pod passes its readiness check. Wait 1–2 minutes and refresh.
-
-### Viewing all events in the namespace
-
-```bash
-kubectl get events -n logger-backend --sort-by='.lastTimestamp'
-```
+### Workers Failing to Mint Tokens
+- Confirm that ECDSA P-256 keys are mounted. Workers look for `private.pem` via `GATEWAY_PRIVATE_KEY_PATH`.

@@ -1,5 +1,5 @@
 .env
 gateway.yaml
 deploy.sh
-docker-compose-network.yaml
-docker-compose-override.yaml
+docker-compose-*.yaml
+!docker-compose-dev.yaml
