@@ -31,15 +31,20 @@ Internet / Mobile Clients
   logger-gateway            (LoadBalancer / NodePort :30080)
    Pingora Proxy            • ES256 JWT signature verification
                             • Discovers workers via Consul catalog
-                            • Streams logs to active workers
+                            • Routes auth vs ingest traffic
         │
-        ├── POST /auth/exchange (Proxied to worker)
-        ▼
-  validation-worker         (Deployment, 2 replicas)
-   Axum microservice        • Google Play Integrity / Apple App Attest
-                            • ES256 session JWT minting (private.pem)
-                            • Schema validation & enrichments
-                            • Produces to Kafka with broker ACK
+        ├── POST /auth/exchange (Proxied to auth-worker)
+        │   ▼
+        │ auth-worker              (Deployment, 2 replicas)
+        │  Axum microservice       • Google Play Integrity / Apple App Attest
+        │                          • ES256 session JWT minting (private.pem)
+        │                          • Startup metadata published to Kafka
+        │
+        └── POST /v1/logs/:channel (Proxied to validation-worker)
+            ▼
+      validation-worker         (Deployment, 2 replicas)
+       Axum microservice        • Schema validation & enrichments
+                                • Produces to Kafka with broker ACK
         │
         ▼
   broker                    (StatefulSet, KRaft mode)

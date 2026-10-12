@@ -33,6 +33,31 @@ services:
       consul:
         condition: service_healthy
 
+  auth_worker:
+    image: ghcr.io/femrek/auth_worker:latest
+    environment:
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-broker:9094}
+      - PORT=${AUTH_PORT:-8000}
+      - METRICS_PORT=9091
+      - KAFKA_METADATA_TOPIC=${KAFKA_METADATA_TOPIC:-device-metadata}
+      - GATEWAY_PRIVATE_KEY_PATH=${GATEWAY_PRIVATE_KEY_PATH:-/etc/logger/keys/private.pem}
+      - ACCESS_JWT_TTL_SECONDS=${ACCESS_JWT_TTL_SECONDS:-900}
+      - REFRESH_JWT_TTL_SECONDS=${REFRESH_JWT_TTL_SECONDS:-604800}
+      - JWT_ISSUER=${JWT_ISSUER:-logger-gateway}
+      - RUST_LOG=${RUST_LOG:-info,auth_worker=debug}
+      - CONSUL_HTTP_ADDR=http://consul:8500
+      - ADVERTISED_IP=auto
+      - NODE_ID=auto
+    volumes:
+      - ./keys/private.pem:/etc/logger/keys/private.pem:ro
+    networks:
+      - logger_network
+    depends_on:
+      broker:
+        condition: service_started
+      consul:
+        condition: service_healthy
+
   validation_worker:
     image: ghcr.io/femrek/validation_worker:latest
     deploy:
@@ -41,18 +66,11 @@ services:
       - KAFKA_BROKERS=${KAFKA_BROKERS:-broker:9094}
       - PORT=${PORT:-8000}
       - KAFKA_TOPIC=${KAFKA_TOPIC:-mobile-logs}
-      - KAFKA_METADATA_TOPIC=${KAFKA_METADATA_TOPIC:-device-metadata}
-      - GATEWAY_PRIVATE_KEY_PATH=${GATEWAY_PRIVATE_KEY_PATH:-/etc/logger/keys/private.pem}
-      - ACCESS_JWT_TTL_SECONDS=${ACCESS_JWT_TTL_SECONDS:-900}
-      - REFRESH_JWT_TTL_SECONDS=${REFRESH_JWT_TTL_SECONDS:-604800}
-      - JWT_ISSUER=${JWT_ISSUER:-logger-gateway}
       - RUST_LOG=${RUST_LOG:-info,validation_worker=debug}
       - METRICS_PORT=9091
       - CONSUL_HTTP_ADDR=http://consul:8500
       - ADVERTISED_IP=auto
       - NODE_ID=auto
-    volumes:
-      - ./keys/private.pem:/etc/logger/keys/private.pem:ro
     networks:
       - logger_network
     depends_on:

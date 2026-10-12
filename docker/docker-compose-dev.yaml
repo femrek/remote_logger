@@ -17,7 +17,7 @@ services:
         - path: ../logger_gateway/Cargo.lock
           action: rebuild
 
-  logger_admin:
+  gateway_admin:
     build:
       context: ../logger_admin
       dockerfile: Dockerfile
@@ -32,6 +32,20 @@ services:
         - path: ../logger_admin/Cargo.toml
           action: rebuild
         - path: ../logger_admin/Cargo.lock
+          action: rebuild
+
+  auth_worker:
+    build:
+      context: ../auth_worker
+    volumes:
+      - ../auth_worker:/usr/src/auth_worker
+    develop:
+      watch:
+        - path: ../auth_worker/src
+          action: rebuild
+        - path: ../auth_worker/Cargo.toml
+          action: rebuild
+        - path: ../auth_worker/Cargo.lock
           action: rebuild
 
   validation_worker:

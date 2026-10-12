@@ -14,8 +14,8 @@ scrape_configs:
           service: 'logger_gateway'
 
   # ── Validation Workers (Axum) ────────────────────────────────────────────────
-  # Custom worker metrics: requests, latency, Kafka produce rate/latency,
-  # JWT minting outcomes. Docker DNS resolves to all replica IPs round-robin.
+  # Custom worker metrics: requests, latency, Kafka produce rate/latency.
+  # Docker DNS resolves to all replica IPs round-robin.
   - job_name: 'validation_worker'
     metrics_path: '/metrics'
     consul_sd_configs:
@@ -28,6 +28,21 @@ scrape_configs:
         replacement: '${1}:9091'
       - target_label: service
         replacement: 'validation_worker'
+
+  # ── Auth Workers (Axum) ──────────────────────────────────────────────────────
+  # Custom auth metrics: requests, latency, JWT minting outcomes.
+  - job_name: 'auth_worker'
+    metrics_path: '/metrics'
+    consul_sd_configs:
+      - server: 'consul:8500'
+        services: ['auth_worker']
+    relabel_configs:
+      - source_labels: [__meta_consul_service_address]
+        action: replace
+        target_label: __address__
+        replacement: '${1}:9091'
+      - target_label: service
+        replacement: 'auth_worker'
 
   # ── Kafka Broker (via kafka-exporter) ────────────────────────────────────────
   # Broker metrics: messages in/sec, consumer group lag, partition offsets,

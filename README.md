@@ -39,7 +39,7 @@ Includes native client SDKs for **Dart** and **Flutter** with built-in batching,
 
 ## 📌 Roadmap / TODO
 
-- [ ] **Split Auth Service from Validation Worker**: Decouple hardware attestation and session JWT issuance (`/auth/exchange`) into a dedicated authentication microservice, keeping `validation_worker` focused strictly on log validation and Kafka ingestion.
+- [x] **Split Auth Service from Validation Worker**: Decouple hardware attestation and session JWT issuance (`/auth/exchange`) into a dedicated authentication microservice (`auth_worker`), keeping `validation_worker` focused strictly on log validation and Kafka ingestion.
 - [ ] **Hardware Attestation Production Readiness & Documentation**: Finalize end-to-end verification workflows for Google Play Integrity (Android) and Apple App Attest (iOS) with complete setup guides and configuration documentation.
 
 ---
@@ -61,10 +61,11 @@ Includes native client SDKs for **Dart** and **Flutter** with built-in batching,
 The platform decouples edge ingestion from compute-intensive indexing using an event-driven streaming pipeline:
 
 ```
-Mobile Clients ──▶ logger_gateway (:8080) ──▶ validation_worker (:8000) ──▶ Apache Kafka ──▶ Fluent Bit ──▶ OpenSearch (:9200)
+Mobile Clients ──▶ logger_gateway (:8080) ──┬──▶ auth_worker (:8001 / :8000) (Attestation & JWT)
+                                            └──▶ validation_worker (:8000) ──▶ Apache Kafka ──▶ Fluent Bit ──▶ OpenSearch (:9200)
 ```
 
-- **Data Plane:** Mobile clients send traffic to Cloudflare Pingora (`logger_gateway`), which validates ES256 session tokens and proxies to Axum (`validation_worker`) instances. Workers validate payload schemas and publish directly to Apache Kafka. Fluent Bit consumes Kafka streams and bulk-indexes into OpenSearch.
+- **Data Plane:** Mobile clients authenticate and ingest logs via Cloudflare Pingora (`logger_gateway`). `/auth/exchange` requests are routed to `auth_worker` for hardware attestation and ES256 session token issuance. Ingestion requests are validated for bearer tokens and routed to Axum (`validation_worker`) instances, which validate payload schemas and publish directly to Apache Kafka. Fluent Bit consumes Kafka streams and bulk-indexes into OpenSearch.
 - **Control Plane:** HashiCorp Consul provides dynamic worker discovery and stores channel definitions in KV, managed via the `logger_admin` dashboard (:8082).
 
 📖 **For detailed architecture diagrams, service roles, and project layout, see [ARCHITECTURE.md](ARCHITECTURE.md).**
@@ -323,14 +324,14 @@ cd ../flutter_remote_logging && flutter test
 
 | Variable                   | Default                        | Service             | Description                                          |
 |----------------------------|--------------------------------|---------------------|------------------------------------------------------|
-| `GATEWAY_PRIVATE_KEY_PATH` | `/etc/logger/keys/private.pem` | `validation_worker` | Path to ECDSA P-256 private key for JWT minting      |
+| `GATEWAY_PRIVATE_KEY_PATH` | `/etc/logger/keys/private.pem` | `auth_worker`       | Path to ECDSA P-256 private key for JWT minting      |
 | `GATEWAY_PUBLIC_KEY_PATH`  | `/etc/logger/keys/public.pem`  | `logger_gateway`    | Path to ECDSA P-256 public key for JWT verification  |
 | `GATEWAY_BIND_ADDR`        | `0.0.0.0:8080`                 | `logger_gateway`    | Gateway HTTP listener address                        |
 | `GATEWAY_ADMIN_TOKEN`      | —                              | `logger_admin`      | Bearer secret required for Admin UI & API operations |
 | `CONSUL_HTTP_ADDR`         | `http://consul:8500`           | all services        | Consul agent HTTP address for discovery and KV sync  |
-| `KAFKA_BROKERS`            | `broker:9094`                  | `validation_worker` | Comma-separated Kafka bootstrap servers              |
-| `PORT`                     | `8000`                         | `validation_worker` | Worker internal API port                             |
-| `METRICS_PORT`             | `9091`                         | `validation_worker` | Worker Prometheus metrics port                       |
+| `KAFKA_BROKERS`            | `broker:9094`                  | workers             | Comma-separated Kafka bootstrap servers              |
+| `PORT`                     | `8000` (`8001` auth native)    | workers             | Internal API port                                    |
+| `METRICS_PORT`             | `9091` (`9092` auth native)    | workers             | Worker Prometheus metrics port                       |
 | `GATEWAY_TLS_CERT_PATH`    | —                              | `logger_gateway`    | Optional SSL/TLS certificate path                    |
 | `GATEWAY_TLS_KEY_PATH`     | —                              | `logger_gateway`    | Optional SSL/TLS private key path                    |
 | `RUST_LOG`                 | `info`                         | all services        | Tracing log filter directives                        |

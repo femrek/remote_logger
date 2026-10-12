@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Mobile Log Ingestion Gateway",
-    "description": "Pingora-based multi-tenant mobile log ingestion gateway. It terminates client-facing SSL/TLS connections, validates mobile hardware attestations (Google Play Integrity or Apple App Attest) to verify that requests originate from official app builds, issues short-lived session JWT tokens, and forwards authenticated telemetry payloads to internal Kafka-writer backends.",
+    "description": "Pingora-based multi-tenant mobile log ingestion gateway. It terminates client-facing SSL/TLS connections, routes hardware attestation requests to a dedicated Auth Worker to verify authentic app builds and mint session JWT tokens, and forwards authenticated telemetry payloads to high-throughput Validation Workers producing to Kafka.",
     "version": "0.1.0"
   },
   "servers": [

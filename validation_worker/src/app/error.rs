@@ -7,17 +7,11 @@ use axum::{
 };
 use serde_json::json;
 
-// ── Error type ────────────────────────────────────────────────────────────────
-
 pub enum AppError {
     /// 400 — malformed request body or missing required fields.
     BadRequest(String),
     /// 401 — missing gateway-injected headers (authentication bypassed).
     Unauthorized,
-    /// 403 — hardware attestation verification failed.
-    AttestationFailed(String),
-    /// 404 — unknown channel ID.
-    NotFound(String),
     /// 503 — Kafka delivery failure.
     ServiceUnavailable,
     /// 500 — unexpected internal error.
@@ -33,10 +27,6 @@ impl IntoResponse for AppError {
                 "UNAUTHORIZED",
                 "x-tenant-id and x-app-id headers are required".to_string(),
             ),
-            AppError::AttestationFailed(msg) => {
-                (StatusCode::FORBIDDEN, "ATTESTATION_FAILED", msg)
-            }
-            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, "NOT_FOUND", msg),
             AppError::ServiceUnavailable => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "SERVICE_UNAVAILABLE",

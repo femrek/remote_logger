@@ -74,21 +74,6 @@ lazy_static! {
         &["topic"],
     )
     .expect("Failed to create KAFKA_PRODUCE_DURATION_SECONDS metric");
-
-    // ── JWT operations ────────────────────────────────────────────────────────
-
-    /// JWT minting outcomes, labelled by operation and result.
-    ///
-    /// `operation` values: `mint_access` | `mint_refresh`
-    /// `result`    values: `ok` | `err`
-    pub static ref JWT_OPERATIONS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new(
-            "worker_jwt_operations_total",
-            "JWT minting operations performed by the validation worker",
-        ),
-        &["operation", "result"],
-    )
-    .expect("Failed to create JWT_OPERATIONS_TOTAL metric");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -104,7 +89,6 @@ pub fn register_all() -> anyhow::Result<()> {
     REGISTRY.register(Box::new(REQUEST_DURATION_SECONDS.clone()))?;
     REGISTRY.register(Box::new(KAFKA_PRODUCE_TOTAL.clone()))?;
     REGISTRY.register(Box::new(KAFKA_PRODUCE_DURATION_SECONDS.clone()))?;
-    REGISTRY.register(Box::new(JWT_OPERATIONS_TOTAL.clone()))?;
     Ok(())
 }
 

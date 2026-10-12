@@ -23,18 +23,9 @@ use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::kafka::Kafka;
 use tokio::net::TcpListener;
 use validation_worker::{
-    auth::attestation::NoopVerifier,
     build_app,
-    config::WorkerConfig,
     AppState, RdkafkaSink,
 };
-use arc_swap::ArcSwap;
-
-const TEST_PRIVATE_KEY_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
-MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/xzSZ8vFrWHzZjcl\n\
-zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
-5j5Vg2CEiQw2ZjYa1Wc4oCmcnqn6ruhdwE6qciYSDARvzdwN0w2nW8iq\n\
------END PRIVATE KEY-----";
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
@@ -121,14 +112,6 @@ async fn integration_valid_payload_returns_200_and_reaches_kafka() {
     let state = Arc::new(AppState {
         sink: Arc::new(sink),
         kafka_topic: "mobile-logs".to_string(),
-        metadata_topic: "device-metadata".to_string(),
-        device_index_prefix: "mobile-devices".to_string(),
-        verifier: Arc::new(NoopVerifier),
-        worker_config: Arc::new(ArcSwap::from_pointee(WorkerConfig { channels: vec![] })),
-        jwt_private_key: TEST_PRIVATE_KEY_PEM.to_string(),
-        access_ttl_seconds: 900,
-        refresh_ttl_seconds: 604800,
-        jwt_issuer: "test".to_string(),
     });
     let app = build_app(state);
 
@@ -278,14 +261,6 @@ async fn integration_invalid_payloads_return_400() {
     let state = Arc::new(AppState {
         sink: Arc::new(sink),
         kafka_topic: "mobile-logs".to_string(),
-        metadata_topic: "device-metadata".to_string(),
-        device_index_prefix: "mobile-devices".to_string(),
-        verifier: Arc::new(NoopVerifier),
-        worker_config: Arc::new(ArcSwap::from_pointee(WorkerConfig { channels: vec![] })),
-        jwt_private_key: TEST_PRIVATE_KEY_PEM.to_string(),
-        access_ttl_seconds: 900,
-        refresh_ttl_seconds: 604800,
-        jwt_issuer: "test".to_string(),
     });
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let server_port = listener.local_addr().unwrap().port();

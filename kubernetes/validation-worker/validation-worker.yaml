@@ -55,21 +55,6 @@ spec:
               value: "8000"
             - name: KAFKA_TOPIC
               value: "mobile-logs"
-            - name: KAFKA_METADATA_TOPIC
-              value: "device-metadata"
-            - name: GATEWAY_JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: logger-secrets
-                  key: GATEWAY_JWT_SECRET
-            - name: ACCESS_JWT_TTL_SECONDS
-              value: "900"
-            - name: REFRESH_JWT_TTL_SECONDS
-              value: "604800"
-            - name: JWT_ISSUER
-              value: "logger-gateway"
-            - name: WORKER_CONFIG
-              value: "/app/config/channels.yaml"
             - name: RUST_LOG
               value: "info,validation_worker=debug"
             - name: METRICS_PORT
@@ -98,13 +83,6 @@ spec:
             limits:
               cpu: "500m"
               memory: "512Mi"
-          volumeMounts:
-            - name: config
-              mountPath: /app/config
-      volumes:
-        - name: config
-          configMap:
-            name: validation-worker-config
 
 ---
 # Separate internal-only ClusterIP service for Prometheus metrics scraping.

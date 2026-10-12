@@ -1,13 +1,5 @@
 //! Worker channel configuration — loaded from Consul KV, hot-reloaded via
 //! Consul blocking queries.
-//!
-//! The unified channel schema lives at `gateway/config/channels/<id>` in Consul
-//! and is managed by `logger_admin`. Workers read the same keys as the gateway
-//! but deserialize the full schema including attestation-specific fields.
-//!
-//! ## Hot-reload
-//! `spawn_kv_watcher` runs a Consul blocking-query loop (identical in structure
-//! to the gateway's KV watcher). Config swaps are atomic via `ArcSwap::store`.
 
 use anyhow::Context;
 use arc_swap::ArcSwap;
@@ -32,9 +24,6 @@ impl WorkerConfig {
 }
 
 /// Unified channel config — stored at `gateway/config/channels/<id>` in Consul.
-///
-/// The `id` and `app_id` fields are shared with the gateway.
-/// All other fields are worker-specific attestation policy.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkerChannelConfig {
     /// Unique channel identifier — matches the JWT `sub` claim.
@@ -80,20 +69,7 @@ struct ConsulKvEntry {
     modify_index: u64,
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared config pointer
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// A reference-counted, atomically-swappable config pointer.
-///
-/// `ArcSwap::store` is lock-free for writers and wait-free for readers.
-/// Handler tasks call `shared.load()` on every request — they see either the
-/// old or the new config, never a partial read.
 pub type SharedWorkerConfig = Arc<ArcSwap<WorkerConfig>>;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Parse
-// ─────────────────────────────────────────────────────────────────────────────
 
 fn base64_decode(s: &str) -> anyhow::Result<Vec<u8>> {
     use base64::Engine;
@@ -102,10 +78,6 @@ fn base64_decode(s: &str) -> anyhow::Result<Vec<u8>> {
         .context("base64 decode failed")
 }
 
-/// Parse the raw Consul KV list response into a [`WorkerConfig`].
-///
-/// Processes every `gateway/config/channels/<id>` key and deserializes it as
-/// a [`WorkerChannelConfig`]. Unknown keys are silently ignored.
 fn parse_kv_entries(entries: Vec<ConsulKvEntry>) -> anyhow::Result<WorkerConfig> {
     let mut channels = Vec::new();
 
@@ -144,14 +116,6 @@ fn parse_kv_entries(entries: Vec<ConsulKvEntry>) -> anyhow::Result<WorkerConfig>
     Ok(WorkerConfig { channels })
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Load (initial, blocking)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Fetch the current channel config from Consul KV and return it as a [`WorkerConfig`].
-///
-/// One-shot async call used at startup. `spawn_kv_watcher` takes over for
-/// hot-reloading afterwards.
 pub async fn load_config_from_consul(consul_addr: &str) -> anyhow::Result<WorkerConfig> {
     let client = reqwest::Client::new();
     let url = format!("{}/v1/kv/gateway/config/channels/?recurse=true", consul_addr);
@@ -178,27 +142,11 @@ pub async fn load_config_from_consul(consul_addr: &str) -> anyhow::Result<Worker
     parse_kv_entries(entries)
 }
 
-/// Load the initial config from Consul KV and wrap it in a [`SharedWorkerConfig`].
-///
-/// Call this once at process startup before the Axum server starts accepting
-/// connections.
 pub async fn bootstrap(consul_addr: &str) -> anyhow::Result<SharedWorkerConfig> {
     let cfg = load_config_from_consul(consul_addr).await?;
     Ok(Arc::new(ArcSwap::from_pointee(cfg)))
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Hot-reload watcher (Consul KV blocking query)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Spawn a background Tokio task that watches `gateway/config/channels/` in
-/// Consul KV using HTTP blocking queries and atomically hot-reloads the channel
-/// configuration.
-///
-/// ## Safety properties
-/// - A failed reload logs the error and **leaves the current live config
-///   untouched** — the worker continues serving with the last-known-good config.
-/// - The `ArcSwap::store` call is atomic; no handler ever sees a partially-updated config.
 pub async fn spawn_kv_watcher(
     consul_addr: String,
     shared: SharedWorkerConfig,

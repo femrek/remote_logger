@@ -285,12 +285,25 @@ impl ProxyHttp for LogGateway {
     where
         Self::CTX: Send + Sync,
     {
-        let lb = self.discovery.load_balancer.load();
+        let lb = if ctx.is_auth_exchange {
+            self.discovery.auth_lb.load()
+        } else {
+            self.discovery.worker_lb.load()
+        };
 
         // Round-robin selection. The key/hash parameters are ignored by RoundRobin.
         let backend = lb
             .select(b"", 256)
-            .ok_or_else(|| pingora::Error::explain(pingora::ErrorType::HTTPStatus(503), "No available backends in load balancer"))?;
+            .ok_or_else(|| {
+                pingora::Error::explain(
+                    pingora::ErrorType::HTTPStatus(503),
+                    if ctx.is_auth_exchange {
+                        "No available auth backends in load balancer"
+                    } else {
+                        "No available validation worker backends in load balancer"
+                    },
+                )
+            })?;
 
         // Internal workers are plain TCP without TLS/SNI.
         let peer = HttpPeer::new(backend.addr.clone(), false, String::new());
@@ -298,6 +311,7 @@ impl ProxyHttp for LogGateway {
         tracing::debug!(
             channel = %ctx.channel_id,
             backend = %backend.addr,
+            is_auth = ctx.is_auth_exchange,
             "Routing request to upstream"
         );
 

@@ -21,34 +21,35 @@ The platform separates fast edge ingestion from search indexing using an event-d
 ### Data Plane Pipeline
 
 The data plane processes all inbound authentication and log ingestion requests:
-1. **`logger_gateway` (Pingora)** terminates client HTTP connections, validates ES256 session JWT signatures against `public.pem`, verifies channel path bindings, and balances traffic across worker replicas.
-2. **`validation_worker` (Axum)** performs deep `ServerLog` schema validation (single or batch), enriches payloads with identity headers (`x-app-id`, `x-device-uuid`, `x-session-id`), and publishes to Kafka.
-3. **Apache Kafka (KRaft)** acts as a resilient buffer topic (`mobile-logs`). Workers await broker ACKs before responding `200 OK`.
-4. **Fluent Bit** consumes log streams from Kafka and bulk POSTs to OpenSearch every 2 seconds.
-5. **OpenSearch & Dashboards** provides document indexing, search APIs, and Kibana-compatible visualization.
+1. **`logger_gateway` (Pingora)** terminates client HTTP connections, validates ES256 session JWT signatures against `public.pem`, verifies channel path bindings, and dynamically routes traffic to `auth_worker` or `validation_worker` based on Consul service discovery.
+2. **`auth_worker` (Axum)** performs hardware attestation (Google Play Integrity & Apple App Attest), mints short-lived access and long-lived refresh JWTs signed with `private.pem`, and publishes `SystemStartupEvent` device metadata to Kafka (`device-metadata`).
+3. **`validation_worker` (Axum)** performs high-throughput `ServerLog` schema validation (single or batch), enriches payloads with gateway-injected identity headers (`x-app-id`, `x-device-uuid`, `x-session-id`), and publishes to Kafka (`mobile-logs`).
+4. **Apache Kafka (KRaft)** acts as a resilient buffer topic (`mobile-logs` and `device-metadata`). Workers await broker ACKs before responding `200 OK`.
+5. **Fluent Bit** consumes log streams from Kafka and bulk POSTs to OpenSearch every 2 seconds.
+6. **OpenSearch & Dashboards** provides document indexing, search APIs, and Kibana-compatible visualization.
 
 ```
                        Mobile Clients (Dart / Flutter)
                                       │
-                Auth & Ingest Traffic │  HTTP :8080
+                                      │  HTTP :8080
                                       ▼
                           ┌───────────────────────┐
                           │    logger_gateway     │
                           │    (Pingora Proxy)    │
-                          └───────────┬───────────┘
-                                      │
-                          Round-robin │ Load Balanced
-                                      ▼
-                          ┌───────────────────────┐
-                          │   validation_worker   │
-                          │   (Axum Microservice) │
-                          └───────────┬───────────┘
-                                      │ Produce
-                                      ▼
-                          ┌───────────────────────┐
-                          │     Apache Kafka      │
-                          │      (KRaft Bus)      │
-                          └───────────┬───────────┘
+                          └───┬───────────────┬───┘
+          /auth/exchange      │               │  /v1/logs/:channel (JWT validated)
+          (blind proxy)       ▼               ▼
+        ┌─────────────────────────┐       ┌─────────────────────────┐
+        │       auth_worker       │       │    validation_worker    │
+        │   (Attestation & JWT)   │       │   (Log Schema & Sink)   │
+        └────────────┬────────────┘       └────────────┬────────────┘
+                     │                                 │
+                     │ Produce                         │ Produce
+                     │ (device-metadata)               │ (mobile-logs)
+                     ▼                                 ▼
+        ┌───────────────────────────────────────────────────────────┐
+        │                 Apache Kafka (KRaft Bus)                  │
+        └─────────────────────────────┬─────────────────────────────┘
                                       │ Consume
                                       ▼
                           ┌───────────────────────┐
@@ -68,7 +69,7 @@ The data plane processes all inbound authentication and log ingestion requests:
 The control plane coordinates service discovery and hot-reloadable channel routing:
 1. **HashiCorp Consul** acts as the service registry and configuration KV store (`gateway/config/global` and `gateway/config/channels/{id}`).
 2. **`logger_admin` (Axum + Web UI)** provides an intuitive dashboard on `:8082` (secured by `ADMIN_TOKEN`) to manage channels and attestation policies.
-3. **Hot-Reloading:** Both `logger_gateway` and `validation_worker` run background tasks watching Consul KV using HTTP blocking queries, propagating configuration changes in real time without downtime.
+3. **Hot-Reloading:** `auth_worker` runs a background task watching Consul KV using HTTP blocking queries, propagating attestation policy changes in real time without downtime. `logger_gateway` watches Consul service health to dynamically discover replicas of both `auth_worker` and `validation_worker`.
 
 ```
   ┌────────────────────────┐         ┌────────────────────────┐
@@ -77,7 +78,7 @@ The control plane coordinates service discovery and hot-reloadable channel routi
   └────────────────────────┘         └───────────┬────────────┘
                                                  │
                                                  ├── Dynamic Discovery ──▶ logger_gateway
-                                                 └── Channel Config KV ──▶ validation_worker
+                                                 └── Channel Config KV ──▶ auth_worker
 ```
 
 ---
@@ -87,7 +88,8 @@ The control plane coordinates service discovery and hot-reloadable channel routi
 | Service                 | Source / Image                                   | Exposed Port                            | Role                                                          |
 |-------------------------|--------------------------------------------------|-----------------------------------------|---------------------------------------------------------------|
 | `logger_gateway`        | `./logger_gateway` (Pingora)                     | `8080` (API), `9090` (internal metrics) | Client-facing proxy, JWT validation, Consul discovery         |
-| `validation_worker`     | `./validation_worker` (Axum)                     | `8000` (API), `9091` (metrics)          | Attestation verification, ES256 JWT minting, Kafka producer   |
+| `auth_worker`           | `./auth_worker` (Axum)                           | `8001` (API native) / `8000` (Docker)   | Attestation verification, ES256 JWT minting, startup metadata |
+| `validation_worker`     | `./validation_worker` (Axum)                     | `8000` (API), `9091` (metrics)          | Stateless log schema validation, Kafka producer (`mobile-logs`)|
 | `logger_admin`          | `./logger_admin` (Axum + Web UI)                 | `8082`                                  | Channel configuration UI & REST API for Consul KV             |
 | `consul`                | `hashicorp/consul:1.15`                          | `8500` (UI & API)                       | Dynamic service discovery and hot-reloadable configuration KV |
 | `broker`                | `apache/kafka:4.3.0`                             | `9092` (host), `9094` (internal)        | KRaft distributed message bus                                 |
@@ -110,20 +112,29 @@ remote_logger/
 │   ├── src/
 │   │   ├── auth/             # ES256 JWT validation
 │   │   ├── config/           # Consul KV config loader & blocking watcher
-│   │   ├── discovery.rs      # Consul health service discovery & load balancer
+│   │   ├── discovery.rs      # Consul health service discovery & load balancers
 │   │   ├── metrics/          # Prometheus metrics exporter
-│   │   ├── proxy/            # ProxyHttp implementation (header enrichment, streaming)
+│   │   ├── proxy/            # ProxyHttp implementation (header enrichment, dynamic routing)
 │   │   └── main.rs
 │   └── config/
 │
-├── validation_worker/        # Stateless validation service (Rust lib + bin crate)
+├── auth_worker/              # Dedicated authentication service (Rust lib + bin crate)
 │   ├── src/
 │   │   ├── auth/             # Play Integrity & App Attest verifiers, ES256 minting
 │   │   ├── config/           # Consul KV channel subscriber
-│   │   ├── domain/           # Shared models (ServerLog, DeviceMetadata, KafkaPayload)
-│   │   ├── handler/          # Ingestion (/v1/logs/:channel, /batch) and /auth/exchange
+│   │   ├── domain/           # Models (AuthExchangeRequest, DeviceMetadata, SystemStartupEvent)
+│   │   ├── handler/          # Attestation & JWT exchange (/auth/exchange)
+│   │   ├── kafka/            # Rdkafka sink for device-metadata topic
+│   │   └── main.rs
+│   └── Dockerfile
+│
+├── validation_worker/        # Stateless log ingestion worker (Rust lib + bin crate)
+│   ├── src/
+│   │   ├── domain/           # Shared models (ServerLog, KafkaPayload)
+│   │   ├── handler/          # Ingestion (/v1/logs/:channel, /batch, /ingest)
 │   │   ├── kafka/            # Rdkafka sink with acknowledgment guarantees
 │   │   └── main.rs
+│   ├── Dockerfile
 │   └── tests/
 │       └── integration_test.rs # Ephemeral testcontainers Kafka integration suite
 │

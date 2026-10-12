@@ -1,26 +1,4 @@
 //! Hardware attestation verifier trait and platform-specific implementations.
-//!
-//! Migrated from `logger_gateway::auth::attestation` and extended with
-//! the `device_public_key` parameter needed for stateless Apple refresh tokens.
-//!
-//! ## Production implementation checklist
-//!
-//! ### Google Play Integrity
-//! 1. Authenticate with a Google Cloud service account (`yup-oauth2` or `google-authz`).
-//! 2. POST the token to:
-//!    `https://playintegrity.googleapis.com/v1/{package_name}:decodeIntegrityToken`
-//! 3. Verify `requestDetails.requestPackageName` matches your app.
-//! 4. Check `appIntegrity.appRecognitionVerdict == "PLAY_RECOGNIZED"`.
-//! 5. Evaluate `deviceIntegrity.deviceRecognitionVerdict` against your risk threshold.
-//! 6. Optionally validate the nonce against a server-generated challenge (replay protection).
-//!
-//! ### Apple App Attest
-//! 1. Decode the CBOR-encoded attestation object (use the `ciborium` crate).
-//! 2. Verify the X.509 certificate chain up to Apple's root CA
-//!    (`Apple App Attestation Root CA`).
-//! 3. Verify `SHA-256(clientDataHash || nonce)` matches the cert extension.
-//! 4. Extract the `credCert.publicKey` (this is what `device_public_key` represents).
-//! 5. For subsequent assertion requests, use `DCAppAttestService.generateAssertion`.
 
 use std::{future::Future, pin::Pin};
 use thiserror::Error;
@@ -63,11 +41,6 @@ pub enum AttestationError {
 // Object-safe boxed future
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Object-safe pinned future returned by [`AttestationVerifier::verify`].
-///
-/// Mirroring the `KafkaSink` pattern: using a manually-boxed future avoids the
-/// `async_trait` macro while keeping the trait dyn-compatible so tests can
-/// inject `NoopVerifier` via `Arc<dyn AttestationVerifier>`.
 pub type VerifyFuture<'a> =
     Pin<Box<dyn Future<Output = Result<(), AttestationError>> + Send + 'a>>;
 
@@ -76,9 +49,6 @@ pub type VerifyFuture<'a> =
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Object-safe, async attestation verifier.
-///
-/// Returns a boxed future so the trait is dyn-compatible and can be stored
-/// behind `Arc<dyn AttestationVerifier>`.
 pub trait AttestationVerifier: Send + Sync {
     fn verify<'a>(
         &'a self,
@@ -136,7 +106,6 @@ impl AttestationVerifier for GooglePlayIntegrityVerifier {
                 )
             })?;
 
-            // TODO: replace stub with real Google Play Integrity API call.
             tracing::warn!(
                 token_prefix = &token[..token.len().min(12)],
                 project_number = %project_number,
@@ -174,7 +143,6 @@ impl AttestationVerifier for AppleAppAttestVerifier {
                 )
             })?;
 
-            // TODO: replace stub with real CBOR decode + certificate chain verification.
             tracing::warn!(
                 token_prefix = &token[..token.len().min(12)],
                 team_id = %team_id,
@@ -190,8 +158,6 @@ impl AttestationVerifier for AppleAppAttestVerifier {
 // Platform dispatcher — selects the right verifier by platform
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Routes attestation calls to the correct platform verifier.
-/// Construct once at startup and share via `Arc`.
 pub struct PlatformDispatchVerifier {
     pub android: Box<dyn AttestationVerifier>,
     pub ios: Box<dyn AttestationVerifier>,

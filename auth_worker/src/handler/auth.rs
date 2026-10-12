@@ -1,22 +1,4 @@
-//! `POST /auth/exchange` handler.
-//!
-//! ## Processing pipeline
-//!
-//! ```text
-//! 1. Read X-Channel-Id header → look up WorkerChannelConfig → 400/404
-//! 2. Deserialize AuthExchangeRequest from JSON body → 400 on failure
-//! 3. If channel.require_apple_key_hash && platform == ios
-//!      → device_public_key must be present → 400 if missing
-//! 4. If channel.validate_attestation
-//!      → PlatformDispatchVerifier::verify(...) → 403 on failure
-//! 5. Generate session_id (UUID v4) server-side
-//! 6. Mint access JWT  (token_type = "access",  TTL = access_ttl_seconds)
-//! 7. Mint refresh JWT (token_type = "refresh", TTL = refresh_ttl_seconds,
-//!      apk_hash = hex(sha256(device_public_key)) if enabled)
-//! 8. Serialize SystemStartupEvent → Kafka topic device-metadata
-//! 9. Return AuthExchangeResponse { access_token, refresh_token,
-//!      access_expires_in, refresh_expires_in }
-//! ```
+//! `POST /auth/exchange` handler for Auth Worker.
 
 use std::sync::Arc;
 
@@ -38,8 +20,6 @@ use crate::{
     domain::{AuthExchangeRequest, AuthExchangeResponse, SystemStartupEvent},
     metrics::JWT_OPERATIONS_TOTAL,
 };
-
-// ── Request handler ───────────────────────────────────────────────────────────
 
 /// `POST /auth/exchange` handler.
 pub async fn auth_exchange_handler(
@@ -69,7 +49,6 @@ pub async fn auth_exchange_handler(
     let require_apple_key_hash = channel.require_apple_key_hash;
     let google_project_number = channel.google_project_number.clone();
     let apple_team_id = channel.apple_team_id.clone();
-    // Drop config guard before any async work
     drop(cfg);
 
     // ── 2. Parse request body ─────────────────────────────────────────────────
@@ -127,7 +106,6 @@ pub async fn auth_exchange_handler(
     let apk_hash: Option<String> = if require_apple_key_hash
         && req.platform == Platform::Ios
     {
-        // device_public_key presence already enforced in step 3.
         let key_b64 = req.device_public_key.as_deref().unwrap_or_default();
         match BASE64.decode(key_b64) {
             Ok(key_bytes) => Some(sha256_hex(&key_bytes)),
@@ -280,7 +258,6 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
         let worker_config = Arc::new(ArcSwap::from_pointee(WorkerConfig { channels }));
         Arc::new(AppState {
             sink: Arc::new(NoopSink),
-            kafka_topic: "mobile-logs".to_string(),
             metadata_topic: "device-metadata".to_string(),
             device_index_prefix: "mobile-devices".to_string(),
             verifier: Arc::new(PlatformDispatchVerifier {
@@ -427,7 +404,6 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
                 "manufacturer": "Apple",
                 "isPhysicalDevice": "true"
             }
-            // device_public_key intentionally absent
         });
 
         let resp = post_exchange(app, "example-ios-prod", body).await;
@@ -439,7 +415,6 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
         let state = make_state(vec![ios_channel_with_key_hash()]);
         let app = build_app(state);
 
-        // Base64-encode some fake key bytes
         let fake_key = base64::engine::general_purpose::STANDARD.encode(b"fake-apple-public-key");
 
         let body = serde_json::json!({
@@ -514,7 +489,6 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
         }));
         let state = Arc::new(AppState {
             sink: capturing_sink.clone(),
-            kafka_topic: "mobile-logs".to_string(),
             metadata_topic: "device-metadata".to_string(),
             device_index_prefix: "mobile-devices".to_string(),
             verifier: Arc::new(PlatformDispatchVerifier {

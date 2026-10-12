@@ -15,7 +15,7 @@ mod metrics;
 mod proxy;
 
 use config::{SharedConfig, SystemConfig, bootstrap, spawn_kv_watcher};
-use discovery::{ServiceDiscovery, load_initial_workers, spawn_discovery_watcher};
+use discovery::{ServiceDiscovery, create_empty_lb, spawn_discovery_watcher};
 use proxy::LogGateway;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -135,9 +135,11 @@ fn main() -> anyhow::Result<()> {
     server.bootstrap();
 
     // ── Service Discovery ─────────────────────────────────────────────────────
-    let lb = load_initial_workers(&cli.consul)
-        .with_context(|| format!("Initializing Consul load balancer for '{}'", cli.consul))?;
-    let discovery = Arc::new(ServiceDiscovery::new(lb));
+    let worker_lb = create_empty_lb()
+        .with_context(|| format!("Initializing worker load balancer for '{}'", cli.consul))?;
+    let auth_lb = create_empty_lb()
+        .with_context(|| format!("Initializing auth load balancer for '{}'", cli.consul))?;
+    let discovery = Arc::new(ServiceDiscovery::new(worker_lb, auth_lb));
 
     // ── Proxy service ─────────────────────────────────────────────────────────
     let gateway = LogGateway {

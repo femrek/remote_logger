@@ -1,0 +1,117 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-worker-service
+  namespace: logger-backend
+  labels:
+    app: auth-worker
+spec:
+  type: ClusterIP
+  selector:
+    app: auth-worker
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-worker
+  namespace: logger-backend
+  labels:
+    app: auth-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: auth-worker
+  template:
+    metadata:
+      labels:
+        app: auth-worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "9091"
+        prometheus.io/path:   "/metrics"
+    spec:
+      imagePullSecrets:
+        - name: ghcr-registry-key
+      containers:
+        - name: auth-worker
+          image: ghcr.io/femrek/auth_worker:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+            - containerPort: 9091
+              name: metrics
+          env:
+            - name: KAFKA_BROKERS
+              value: "broker:9094"
+            - name: PORT
+              value: "8000"
+            - name: METRICS_PORT
+              value: "9091"
+            - name: KAFKA_METADATA_TOPIC
+              value: "device-metadata"
+            - name: GATEWAY_PRIVATE_KEY_PATH
+              value: "/etc/logger/keys/private.pem"
+            - name: ACCESS_JWT_TTL_SECONDS
+              value: "900"
+            - name: REFRESH_JWT_TTL_SECONDS
+              value: "604800"
+            - name: JWT_ISSUER
+              value: "logger-gateway"
+            - name: RUST_LOG
+              value: "info,auth_worker=debug"
+            - name: CONSUL_HTTP_ADDR
+              value: "http://consul.logger-backend.svc.cluster.local:8500"
+            - name: ADVERTISED_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          volumeMounts:
+            - name: jwt-keys
+              mountPath: /etc/logger/keys
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: jwt-keys
+          secret:
+            secretName: logger-jwt-keys
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-worker-metrics
+  namespace: logger-backend
+  labels:
+    app: auth-worker
+spec:
+  type: ClusterIP
+  selector:
+    app: auth-worker
+  ports:
+    - name: metrics
+      port: 9091
+      targetPort: 9091

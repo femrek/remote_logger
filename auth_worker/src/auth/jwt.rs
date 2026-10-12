@@ -1,17 +1,4 @@
-//! JWT minting for the validation worker.
-//!
-//! The worker mints two token types at `/auth/exchange`:
-//! - **Access token** — short-lived (default 15 min), accepted by the gateway
-//!   on ingest routes.
-//! - **Refresh token** — long-lived (default 7 days), used to obtain new access
-//!   tokens without re-running hardware attestation. For iOS channels with
-//!   `require_apple_key_hash: true`, the refresh token embeds
-//!   `hex(sha256(device_public_key))` in the `apk_hash` claim so any worker
-//!   replica can statelessly verify the device's identity on refresh.
-//!
-//! Both tokens are signed with **HS256** using the `GATEWAY_JWT_SECRET` env var —
-//! the same secret the Pingora gateway uses to validate access tokens on ingest
-//! routes.
+//! JWT minting for the auth worker.
 
 use chrono::Utc;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
@@ -22,7 +9,6 @@ use thiserror::Error;
 // Config
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// JWT configuration resolved from the `AppState` (originally from env vars).
 pub struct JwtConfig<'a> {
     pub private_key: &'a str,
     pub access_ttl_seconds: u64,
@@ -34,10 +20,6 @@ pub struct JwtConfig<'a> {
 // Claims
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Claims embedded in every worker-issued JWT (both access and refresh).
-///
-/// The gateway's `GatewayClaims` struct must mirror the shape of this struct
-/// for `validate_jwt` to succeed on ingest routes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkerClaims {
     /// Subject — the channel `id` (e.g., `"example-app-prod"`).
@@ -50,8 +32,7 @@ pub struct WorkerClaims {
     pub device_uuid: String,
     /// Session ID generated server-side (UUID v4).
     pub session_id: String,
-    /// `"access"` or `"refresh"`. The gateway rejects non-access tokens on
-    /// ingest routes.
+    /// `"access"` or `"refresh"`.
     pub token_type: String,
     /// SHA-256 hash (hex) of the iOS device public key — only present in
     /// refresh tokens when the channel has `require_apple_key_hash: true`.
@@ -79,10 +60,6 @@ pub enum JwtError {
 // Minting — access token
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Mint a short-lived ES256 **access** token.
-///
-/// The gateway's `validate_jwt` checks that `token_type == "access"`, so
-/// refresh tokens are automatically rejected on ingest routes.
 pub fn issue_access_jwt(
     channel_id: &str,
     platform: &str,
@@ -117,13 +94,6 @@ pub fn issue_access_jwt(
 // Minting — refresh token
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Mint a long-lived ES256 **refresh** token.
-///
-/// When `apk_hash` is `Some`, the hash is embedded in the JWT claims so any
-/// worker replica can statelessly verify that subsequent refresh requests come
-/// from the same iOS device (by re-hashing the presented public key and
-/// comparing). When `None`, the refresh token is opaque with respect to the
-/// device key.
 pub fn issue_refresh_jwt(
     channel_id: &str,
     platform: &str,
@@ -159,7 +129,6 @@ pub fn issue_refresh_jwt(
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Compute `hex(sha256(bytes))` — used to hash the Apple device public key.
 pub fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(bytes);

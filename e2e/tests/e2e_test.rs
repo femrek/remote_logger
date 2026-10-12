@@ -208,17 +208,17 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     
     let mut compose_file = docker_dir.join("docker-compose.yaml");
     if !compose_file.exists() {
-        compose_file = docker_dir.join("docker-compose.yaml");
+        compose_file = docker_dir.join("docker-compose.yml");
     }
 
-    let mut compose_dev_file = docker_dir.join("docker-compose.dev.yaml");
+    let mut compose_dev_file = docker_dir.join("docker-compose-dev.yaml");
     if !compose_dev_file.exists() {
         compose_dev_file = docker_dir.join("docker-compose.dev.yaml");
     }
 
     assert!(
         compose_file.exists(),
-        "docker-compose.yaml or docker-compose.yaml not found at {:?}",
+        "docker-compose.yaml not found at {:?}",
         docker_dir
     );
 

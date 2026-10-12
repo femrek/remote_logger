@@ -10,6 +10,7 @@ resources:
   - opensearch/opensearch.yaml
   - fluent-bit/fluent-bit.yaml
   - validation-worker/validation-worker.yaml
+  - auth-worker/auth-worker.yaml
   - gateway/logger-gateway.yaml
   - kafka-ui/kafka-ui.yaml
   - consul/consul.yaml

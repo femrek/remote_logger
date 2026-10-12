@@ -255,11 +255,8 @@ mod tests {
 
     use crate::{
         app::{AppState, build_app},
-        auth::attestation::{NoopVerifier, PlatformDispatchVerifier},
-        config::{WorkerChannelConfig, WorkerConfig},
         kafka::{BoxFuture, KafkaSink, KafkaSinkError},
     };
-    use arc_swap::ArcSwap;
 
     // ── No-op sink ────────────────────────────────────────────────────────────
 
@@ -278,36 +275,9 @@ mod tests {
     // ── Test helpers ──────────────────────────────────────────────────────────
 
     fn test_app() -> axum::Router {
-        let worker_config = Arc::new(ArcSwap::from_pointee(WorkerConfig {
-            channels: vec![WorkerChannelConfig {
-                id: "example-app-dev".to_string(),
-                app_id: "dev.femrek.exampleapp.dev".to_string(),
-                validate_attestation: false,
-                google_project_number: None,
-                apple_team_id: None,
-                require_apple_key_hash: false,
-            }],
-        }));
-        const TEST_PRIVATE_KEY_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
-MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/xzSZ8vFrWHzZjcl\n\
-zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
-5j5Vg2CEiQw2ZjYa1Wc4oCmcnqn6ruhdwE6qciYSDARvzdwN0w2nW8iq\n\
------END PRIVATE KEY-----";
-
         let state = Arc::new(AppState {
             sink: Arc::new(NoopSink),
             kafka_topic: "test-topic".to_string(),
-            metadata_topic: "device-metadata".to_string(),
-            device_index_prefix: "mobile-devices".to_string(),
-            verifier: Arc::new(PlatformDispatchVerifier {
-                android: Box::new(NoopVerifier),
-                ios: Box::new(NoopVerifier),
-            }),
-            worker_config,
-            jwt_private_key: TEST_PRIVATE_KEY_PEM.to_string(),
-            access_ttl_seconds: 900,
-            refresh_ttl_seconds: 604_800,
-            jwt_issuer: "logger-gateway".to_string(),
         });
         build_app(state)
     }
@@ -560,36 +530,9 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
     #[tokio::test]
     async fn test_ingest_populates_device_uuid_and_session_id_from_headers() {
         let capturing_sink = Arc::new(CapturingSink::default());
-        let worker_config = Arc::new(ArcSwap::from_pointee(WorkerConfig {
-            channels: vec![WorkerChannelConfig {
-                id: "example-app-dev".to_string(),
-                app_id: "dev.femrek.exampleapp.dev".to_string(),
-                validate_attestation: false,
-                google_project_number: None,
-                apple_team_id: None,
-                require_apple_key_hash: false,
-            }],
-        }));
-        const TEST_PRIVATE_KEY_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
-MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/xzSZ8vFrWHzZjcl\n\
-zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
-5j5Vg2CEiQw2ZjYa1Wc4oCmcnqn6ruhdwE6qciYSDARvzdwN0w2nW8iq\n\
------END PRIVATE KEY-----";
-
         let state = Arc::new(AppState {
             sink: capturing_sink.clone(),
             kafka_topic: "test-topic".to_string(),
-            metadata_topic: "device-metadata".to_string(),
-            device_index_prefix: "mobile-devices".to_string(),
-            verifier: Arc::new(PlatformDispatchVerifier {
-                android: Box::new(NoopVerifier),
-                ios: Box::new(NoopVerifier),
-            }),
-            worker_config,
-            jwt_private_key: TEST_PRIVATE_KEY_PEM.to_string(),
-            access_ttl_seconds: 900,
-            refresh_ttl_seconds: 604_800,
-            jwt_issuer: "logger-gateway".to_string(),
         });
         let app = build_app(state);
 

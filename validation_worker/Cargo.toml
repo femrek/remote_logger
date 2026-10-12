@@ -22,23 +22,13 @@ rdkafka           = { version = "0.36", features = ["cmake-build"] }
 http              = "1.0"
 tracing           = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror         = "1"
 
-# ── Auth & crypto ─────────────────────────────────────────────────────────────
-jsonwebtoken = "9"
-chrono       = { version = "0.4", features = ["serde"] }
-sha2         = "0.10"
-hex          = "0.4"
-uuid         = { version = "1", features = ["v4"] }
-thiserror    = "1"
-base64       = "0.22"
-
-# ── Hot-reload config & Discovery ─────────────────────────────────────────────
-arc-swap   = "1"
-anyhow     = "1"
-async-trait = "0.1"
+# ── Discovery & Metrics ───────────────────────────────────────────────────────
+anyhow      = "1"
 prometheus  = "0.13"
 lazy_static = "1"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest     = { version = "0.12", features = ["json"] }
 
 # ── Test-only dependencies ────────────────────────────────────────────────────
 [dev-dependencies]
