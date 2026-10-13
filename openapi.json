@@ -346,7 +346,7 @@
         "required": [
           "platform",
           "attestation_token",
-          "device_uuid",
+          "device_id",
           "device_metadata"
         ],
         "properties": {
@@ -368,7 +368,7 @@
             "description": "The tenant ID identifier claimed by the client.",
             "example": "example_tenant"
           },
-          "device_uuid": {
+          "device_id": {
             "type": "string",
             "description": "Unique client-generated device ID.",
             "example": "a809b022-7934-4b53-90d2-bf7cb95a947d"
@@ -451,7 +451,7 @@
         "type": "object",
         "required": [
           "timestamp",
-          "deviceUUID",
+          "deviceId",
           "sessionId",
           "os",
           "osVersion",
@@ -469,7 +469,7 @@
             "description": "Timestamp when metadata was collected in UTC ISO 8601.",
             "example": "2026-06-21T03:55:14Z"
           },
-          "deviceUUID": {
+          "deviceId": {
             "type": "string",
             "description": "Unique client-generated device ID.",
             "example": "a809b022-7934-4b53-90d2-bf7cb95a947d"
@@ -533,7 +533,7 @@
           "message",
           "level",
           "zone",
-          "deviceUUID"
+          "deviceId"
         ],
         "properties": {
           "timestamp": {
@@ -562,7 +562,7 @@
             "description": "Dart execution zone name.",
             "example": ""
           },
-          "deviceUUID": {
+          "deviceId": {
             "type": "string",
             "description": "Unique client-generated device ID.",
             "example": "a809b022-7934-4b53-90d2-bf7cb95a947d"

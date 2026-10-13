@@ -229,8 +229,7 @@ The pipeline enforces separation between network transport encryption and applic
       `POST /auth/exchange`.
     - `validation_worker` signs tokens using `GATEWAY_PRIVATE_KEY_PATH` (`private.pem`).
     - `logger_gateway` verifies tokens using `GATEWAY_PUBLIC_KEY_PATH` (`public.pem`).
-    - The token embeds `sub` (channel ID), `app` (application bundle ID), `device_uuid`, and `session_id`.
-    - `logger_gateway` verifies that `claims.sub` exactly matches the channel slug in the URL path.
+    - The token embeds `sub` (device ID), `app` (application bundle ID), and `session_id`.
 2. **Transport Layer Security (Optional):**
     - Pingora supports TLS termination directly at the gateway listener.
     - Configure `GATEWAY_TLS_CERT_PATH` (`server.crt`) and `GATEWAY_TLS_KEY_PATH` (`server.key`). If either variable is
@@ -266,8 +265,8 @@ The pipeline enforces separation between network transport encryption and applic
 }
 ```
 
-> **Identity Binding:** The gateway extracts verified `device_uuid` and `session_id` directly from the validated JWT
-> claims and forwards them upstream in internal `x-device-uuid` and `x-session-id` headers. The client body does not need
+> **Identity Binding:** The gateway extracts verified `device_id` (from `claims.sub`) and `session_id` directly from the validated JWT
+> claims and forwards them upstream in internal `x-device-id` and `x-session-id` headers. The client body does not need
 > to duplicate them.
 
 For batch requests, wrap multiple records in a JSON array: `[ { ... }, { ... } ]`.

@@ -96,10 +96,10 @@ fetch_new_token() {
       "platform": "android",
       "attestation_token": "mock",
       "tenant_id": "example_tenant",
-      "device_uuid": "a809b022-7934-4b53-90d2-bf7cb95a947d",
+      "device_id": "a809b022-7934-4b53-90d2-bf7cb95a947d",
       "device_metadata": {
         "timestamp": "'"$(date -u +'%Y-%m-%dT%H:%M:%SZ')"'",
-        "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
+        "deviceId": "a809b022-7934-4b53-90d2-bf7cb95a947d",
         "sessionId": "3f338d38-9588-46d4-83b6-96d5395a12ef",
         "os": "Android",
         "osVersion": "13",
@@ -155,7 +155,7 @@ send_logs() {
       "message": "'"${MESSAGE}"'",
       "level": "'"${LEVEL}"'",
       "zone": "'"${ZONE}"'",
-      "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
+      "deviceId": "a809b022-7934-4b53-90d2-bf7cb95a947d",
       "sessionId": "3f338d38-9588-46d4-83b6-96d5395a12ef"
     }'
     
@@ -179,7 +179,7 @@ send_logs() {
       "message": "'"${MESSAGE}"'",
       "level": "'"${LEVEL}"'",
       "zone": "'"${ZONE}"'",
-      "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
+      "deviceId": "a809b022-7934-4b53-90d2-bf7cb95a947d",
       "sessionId": "3f338d38-9588-46d4-83b6-96d5395a12ef"
     }'
   fi

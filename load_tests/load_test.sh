@@ -108,10 +108,10 @@ get_token() {
       "platform": "android",
       "attestation_token": "mock",
       "tenant_id": "load_test_tenant",
-      "device_uuid": "b7d2a1e0-0000-4000-a000-000000000001",
+      "device_id": "b7d2a1e0-0000-4000-a000-000000000001",
       "device_metadata": {
         "timestamp": "'"$(date -u +'%Y-%m-%dT%H:%M:%SZ')"'",
-        "deviceUUID": "b7d2a1e0-0000-4000-a000-000000000001",
+        "deviceId": "b7d2a1e0-0000-4000-a000-000000000001",
         "sessionId": "load-test-session",
         "os": "Android",
         "osVersion": "14",
@@ -156,7 +156,7 @@ send_one() {
       "message":    "Load test request '"${idx}"' — stress testing the pipeline",
       "level":      "'"${level}"'",
       "zone":       "load-test",
-      "deviceUUID": "b7d2a1e0-0000-4000-a000-'"$(printf '%012d' "$idx")"'",
+      "deviceId":   "b7d2a1e0-0000-4000-a000-'"$(printf '%012d' "$idx")"'",
       "sessionId":  "load-test-'"${idx}"'"
     }' 2>/dev/null) || http_code="ERR"
   echo "$http_code"
@@ -233,7 +233,7 @@ CODE=\$(curl -sf -o /dev/null -w "%{http_code}" \\
     "message":    "Load test request '"\${IDX}"'",
     "level":      "'\${LEVEL}'",
     "zone":       "load-test",
-    "deviceUUID": "b7d2a1e0-0000-4000-a000-'\$(printf '%012d' "\${IDX}")'",
+    "deviceId": "b7d2a1e0-0000-4000-a000-'\$(printf '%012d' "\${IDX}")'",
     "sessionId":  "lt-'"\${IDX}"'"
   }' 2>/dev/null) || CODE="ERR"
 

@@ -23,7 +23,7 @@ void main() {
         json.keys,
         containsAll([
           'timestamp',
-          'deviceUUID',
+          'deviceId',
           'sessionId',
           'os',
           'osVersion',
@@ -37,7 +37,7 @@ void main() {
       );
     });
 
-    test('deviceId field maps to JSON key "deviceUUID"', () {
+    test('deviceId field maps to JSON key "deviceId"', () {
       const metadata = DeviceMetadata(
         timestamp: '2023-01-01T12:00:00Z',
         deviceId: 'device-123',
@@ -53,8 +53,7 @@ void main() {
       );
       final json = metadata.toJsonPayload();
 
-      expect(json['deviceUUID'], 'device-123');
-      expect(json.containsKey('deviceId'), isFalse);
+      expect(json['deviceId'], 'device-123');
     });
 
     test('isPhysicalDevice is serialised as String "true" or "false"', () {

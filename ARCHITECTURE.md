@@ -23,7 +23,7 @@ The platform separates fast edge ingestion from search indexing using an event-d
 The data plane processes all inbound authentication and log ingestion requests:
 1. **`logger_gateway` (Pingora)** terminates client HTTP connections, validates ES256 session JWT signatures against `public.pem`, verifies channel path bindings, and dynamically routes traffic to `auth_worker` or `validation_worker` based on Consul service discovery.
 2. **`auth_worker` (Axum)** performs hardware attestation (Google Play Integrity & Apple App Attest), mints short-lived access and long-lived refresh JWTs signed with `private.pem`, and publishes `SystemStartupEvent` device metadata to Kafka (`device-metadata`).
-3. **`validation_worker` (Axum)** performs high-throughput `ServerLog` schema validation (single or batch), enriches payloads with gateway-injected identity headers (`x-app-id`, `x-device-uuid`, `x-session-id`), and publishes to Kafka (`mobile-logs`).
+3. **`validation_worker` (Axum)** performs high-throughput `ServerLog` schema validation (single or batch), enriches payloads with gateway-injected identity headers (`x-app-id`, `x-device-id`, `x-session-id`), and publishes to Kafka (`mobile-logs`).
 4. **Apache Kafka (KRaft)** acts as a resilient buffer topic (`mobile-logs` and `device-metadata`). Workers await broker ACKs before responding `200 OK`.
 5. **Fluent Bit** consumes log streams from Kafka and bulk POSTs to OpenSearch every 2 seconds.
 6. **OpenSearch & Dashboards** provides document indexing, search APIs, and Kibana-compatible visualization.

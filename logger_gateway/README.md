@@ -12,8 +12,8 @@ A high-performance reverse proxy and entry boundary for the Remote Logger pipeli
    - Intercepts log ingestion paths (`/v1/logs/:channel` and `/v1/logs/:channel/batch`).
 2. **ES256 JWT Authentication**:
    - Validates the `Authorization: Bearer <token>` header against an ECDSA P-256 public key (`GATEWAY_PUBLIC_KEY_PATH`).
-   - Verifies channel URL binding (`claims.sub == channel`).
-   - Strips client `Authorization` headers and injects internal identity headers (`x-app-id`, `x-device-uuid`, `x-session-id`) for upstream services.
+   - Extracts verified device identity from `claims.sub`.
+   - Strips client `Authorization` headers and injects internal identity headers (`x-app-id`, `x-device-id`, `x-session-id`) for upstream services.
 3. **Dynamic Upstream Discovery**:
    - Discovers healthy `validation_worker` instances via HashiCorp Consul (`/v1/health/service/validation_worker?passing=true`).
    - Manages round-robin load balancing across healthy worker instances.

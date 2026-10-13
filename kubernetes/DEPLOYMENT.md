@@ -253,10 +253,10 @@ curl -s -X POST "$GATEWAY_HOST/auth/exchange" \
   -d '{
     "platform": "android",
     "attestation_token": "mock-token",
-    "device_uuid": "test-device-001",
+    "device_id": "test-device-001",
     "device_metadata": {
       "timestamp": "2026-10-02T12:00:00Z",
-      "deviceUUID": "test-device-001",
+      "deviceId": "test-device-001",
       "sessionId": "session-k8s-001",
       "os": "Android",
       "osVersion": "14",

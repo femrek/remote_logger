@@ -62,8 +62,8 @@ pub struct RequestContext {
     pub channel_id: String,
     /// Application bundle identifier (e.g., `"dev.femrek.exampleapp"`).
     pub app_id: Option<String>,
-    /// Device UUID extracted from validated JWT claims.
-    pub device_uuid: Option<String>,
+    /// Device ID extracted from validated JWT subject claim.
+    pub device_id: Option<String>,
     /// Session ID extracted from validated JWT claims.
     pub session_id: Option<String>,
 
@@ -92,7 +92,7 @@ impl Default for RequestContext {
         Self {
             channel_id: String::new(),
             app_id: None,
-            device_uuid: None,
+            device_id: None,
             session_id: None,
             is_auth_exchange: false,
             body_bytes_read: 0,
@@ -232,26 +232,8 @@ impl ProxyHttp for LogGateway {
                     .with_label_values(&[&ctx.channel_id, "ok"])
                     .inc();
 
-                // Enforce that the JWT subject matches the channel ID from the URL.
-                // This prevents token reuse across channels.
-                // The app claim is NOT re-checked here: if the JWT signature is valid,
-                // the app claim is already trustworthy (only workers can mint JWTs
-                // and they already validated app_id against channel config at mint time).
-                if claims.sub != channel_id {
-                    JWT_VALIDATIONS_TOTAL
-                        .with_label_values(&[&ctx.channel_id, "channel_mismatch"])
-                        .inc();
-                    return send_error(
-                        session,
-                        403,
-                        "JWT_CHANNEL_MISMATCH",
-                        "Token was not issued for this channel",
-                    )
-                    .await;
-                }
-
                 ctx.app_id = Some(claims.app);
-                ctx.device_uuid = Some(claims.device_uuid);
+                ctx.device_id = Some(claims.sub);
                 ctx.session_id = Some(claims.session_id);
             }
             Err(e) => {
@@ -348,8 +330,8 @@ impl ProxyHttp for LogGateway {
         if let Some(app_id) = &ctx.app_id {
             upstream_request.insert_header("x-app-id", app_id.as_str())?;
         }
-        if let Some(device_uuid) = &ctx.device_uuid {
-            upstream_request.insert_header("x-device-uuid", device_uuid.as_str())?;
+        if let Some(device_id) = &ctx.device_id {
+            upstream_request.insert_header("x-device-id", device_id.as_str())?;
         }
         if let Some(session_id) = &ctx.session_id {
             upstream_request.insert_header("x-session-id", session_id.as_str())?;

@@ -22,14 +22,12 @@ pub struct JwtConfig<'a> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkerClaims {
-    /// Subject — the channel `id` (e.g., `"example-app-prod"`).
+    /// Subject — the device ID (`device_id`).
     pub sub: String,
     /// Mobile platform the token was issued for (`"android"` | `"ios"`).
     pub plt: String,
     /// Application bundle ID.
     pub app: String,
-    /// Device UUID provided by the client.
-    pub device_uuid: String,
     /// Session ID generated server-side (UUID v4).
     pub session_id: String,
     /// `"access"` or `"refresh"`.
@@ -61,19 +59,17 @@ pub enum JwtError {
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn issue_access_jwt(
-    channel_id: &str,
     platform: &str,
     app_id: &str,
-    device_uuid: &str,
+    device_id: &str,
     session_id: &str,
     cfg: &JwtConfig<'_>,
 ) -> Result<String, JwtError> {
     let now = Utc::now().timestamp() as usize;
     let claims = WorkerClaims {
-        sub: channel_id.to_owned(),
+        sub: device_id.to_owned(),
         plt: platform.to_owned(),
         app: app_id.to_owned(),
-        device_uuid: device_uuid.to_owned(),
         session_id: session_id.to_owned(),
         token_type: "access".to_owned(),
         apk_hash: None,
@@ -95,20 +91,18 @@ pub fn issue_access_jwt(
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn issue_refresh_jwt(
-    channel_id: &str,
     platform: &str,
     app_id: &str,
-    device_uuid: &str,
+    device_id: &str,
     session_id: &str,
     apk_hash: Option<String>,
     cfg: &JwtConfig<'_>,
 ) -> Result<String, JwtError> {
     let now = Utc::now().timestamp() as usize;
     let claims = WorkerClaims {
-        sub: channel_id.to_owned(),
+        sub: device_id.to_owned(),
         plt: platform.to_owned(),
         app: app_id.to_owned(),
-        device_uuid: device_uuid.to_owned(),
         session_id: session_id.to_owned(),
         token_type: "refresh".to_owned(),
         apk_hash,
@@ -164,7 +158,7 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
     fn access_token_has_correct_type() {
         let cfg = test_cfg();
         let token =
-            issue_access_jwt("ch-1", "android", "app-1", "dev-uuid", "sess-uuid", &cfg)
+            issue_access_jwt("android", "app-1", "dev-id", "sess-uuid", &cfg)
                 .unwrap();
 
         let mut v = Validation::new(Algorithm::ES256);
@@ -175,6 +169,7 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
             &v,
         )
         .unwrap();
+        assert_eq!(data.claims.sub, "dev-id");
         assert_eq!(data.claims.token_type, "access");
         assert!(data.claims.apk_hash.is_none());
     }
@@ -184,10 +179,9 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
         let cfg = test_cfg();
         let hash = sha256_hex(b"fake-public-key-bytes");
         let token = issue_refresh_jwt(
-            "ch-1",
             "ios",
             "app-1",
-            "dev-uuid",
+            "dev-id",
             "sess-uuid",
             Some(hash.clone()),
             &cfg,
@@ -202,6 +196,7 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
             &v,
         )
         .unwrap();
+        assert_eq!(data.claims.sub, "dev-id");
         assert_eq!(data.claims.token_type, "refresh");
         assert_eq!(data.claims.apk_hash.as_deref(), Some(hash.as_str()));
     }
@@ -210,7 +205,7 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
     fn refresh_token_without_apk_hash() {
         let cfg = test_cfg();
         let token =
-            issue_refresh_jwt("ch-1", "android", "a", "d", "s", None, &cfg).unwrap();
+            issue_refresh_jwt("android", "a", "d", "s", None, &cfg).unwrap();
 
         let mut v = Validation::new(Algorithm::ES256);
         v.set_issuer(&["logger-gateway"]);
@@ -220,6 +215,7 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
             &v,
         )
         .unwrap();
+        assert_eq!(data.claims.sub, "d");
         assert!(data.claims.apk_hash.is_none());
     }
 

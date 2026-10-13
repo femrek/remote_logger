@@ -142,7 +142,7 @@ async fn integration_valid_payload_returns_200_and_reaches_kafka() {
         "message":    "Integration test log entry.",
         "level":      "INFO",
         "zone":       "main",
-        "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d"
+        "deviceId":   "a809b022-7934-4b53-90d2-bf7cb95a947d"
     });
 
     let response = client
@@ -202,9 +202,9 @@ async fn integration_valid_payload_returns_200_and_reaches_kafka() {
 
     // ServerLog fields are FLATTENED into the root — verify camelCase renames.
     assert_eq!(
-        kafka_json["deviceUUID"],
+        kafka_json["deviceId"],
         "a809b022-7934-4b53-90d2-bf7cb95a947d",
-        "deviceUUID must be flattened to root level"
+        "deviceId must be flattened to root level"
     );
     assert_eq!(kafka_json["loggerName"], "IntegrationTestLogger", "loggerName");
     assert_eq!(kafka_json["level"],      "INFO",                  "level");
@@ -283,14 +283,14 @@ async fn integration_invalid_payloads_return_400() {
         "Case A: Empty payload must be rejected"
     );
 
-    // Case B — Spec report §2: valid payload but `deviceUUID` missing
+    // Case B — Spec report §2: valid payload but `deviceId` missing
     let missing_uuid = serde_json::json!({
         "timestamp":  "2026-06-23T15:00:00Z",
         "loggerName": "TestLogger",
         "message":    "missing uuid",
         "level":      "DEBUG",
         "zone":       ""
-        // "deviceUUID" intentionally omitted
+        // "deviceId" intentionally omitted
     });
     let resp = client
         .post(&base_url)
@@ -302,7 +302,7 @@ async fn integration_invalid_payloads_return_400() {
     assert_eq!(
         resp.status(),
         StatusCode::BAD_REQUEST,
-        "Case B: Missing deviceUUID must be rejected"
+        "Case B: Missing deviceId must be rejected"
     );
 
     // Case C — Empty identifiers in headers
@@ -312,7 +312,7 @@ async fn integration_invalid_payloads_return_400() {
         "message":    "no identity",
         "level":      "DEBUG",
         "zone":       "",
-        "deviceUUID": "some-uuid"
+        "deviceId":   "some-uuid"
     });
     let resp = client.post(&base_url)
         .header("x-app-id", "")

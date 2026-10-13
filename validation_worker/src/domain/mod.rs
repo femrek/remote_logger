@@ -16,9 +16,9 @@ pub struct ServerLog {
     /// Populated from x-session-id (JWT claims) or client body.
     #[serde(rename = "sessionId", default)]
     pub session_id: Option<String>,
-    /// Populated from x-device-uuid (JWT claims) or client body.
-    #[serde(rename = "deviceUUID", default)]
-    pub device_uuid: String,
+    /// Populated from x-device-id (JWT claims) or client body.
+    #[serde(rename = "deviceId", alias = "deviceUUID", alias = "device_id", default)]
+    pub device_id: String,
     pub error: Option<String>,
     pub stacktrace: Option<String>,
 }

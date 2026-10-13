@@ -320,15 +320,15 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     //
     // Mirrors the pattern in scripts/send_logs.sh.
     eprintln!("[e2e] Exchanging attestation token for JWT …");
-    let test_device_uuid = format!("e2e-device-{}", epoch_ms());
+    let test_device_id = format!("e2e-device-{}", epoch_ms());
     let auth_body = serde_json::json!({
         "platform": "android",
         "attestation_token": "mock",
         "tenant_id": "example_tenant",
-        "device_uuid": test_device_uuid,
+        "device_id": test_device_id,
         "device_metadata": {
             "timestamp": "2026-06-23T15:00:00Z",
-            "deviceUUID": test_device_uuid,
+            "deviceId": test_device_id,
             "sessionId": "session-123",
             "os": "Android",
             "osVersion": "13",
@@ -447,20 +447,20 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
 
     let log_hit_source = &search_response["hits"]["hits"][0]["_source"];
     assert_eq!(
-        log_hit_source["deviceUUID"], test_device_uuid,
-        "deviceUUID in log must be stamped from JWT claims"
+        log_hit_source["deviceId"], test_device_id,
+        "deviceId in log must be stamped from JWT claims"
     );
     assert!(
         log_hit_source["sessionId"].is_string() && !log_hit_source["sessionId"].as_str().unwrap().is_empty(),
         "sessionId in log must be stamped from JWT claims"
     );
 
-    eprintln!("[e2e] ✓ Found {total_hits} document(s) in mobile-logs-* with stamped deviceUUID and sessionId!");
+    eprintln!("[e2e] ✓ Found {total_hits} document(s) in mobile-logs-* with stamped deviceId and sessionId!");
 
     // ── 9. Query OpenSearch for the device metadata in mobile-devices-* ───────
     let device_search_url = format!(
-        "{opensearch_url}/mobile-devices-*/_search?q=device_uuid:{}",
-        test_device_uuid
+        "{opensearch_url}/mobile-devices-*/_search?q=device_id:{}",
+        test_device_id
     );
     eprintln!("[e2e] Querying OpenSearch for device metadata: {device_search_url}");
 
@@ -494,15 +494,15 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     // ── 10. Assert device metadata was indexed into mobile-devices-* ──────────
     assert!(
         device_total_hits > 0,
-        "Expected at least 1 document in OpenSearch in mobile-devices-* with device_uuid '{}', but got 0 hits.\n\
+        "Expected at least 1 document in OpenSearch in mobile-devices-* with device_id '{}', but got 0 hits.\n\
          Full search response:\n{device_search_response:#}",
-        test_device_uuid
+        test_device_id
     );
 
     let hit_source = &device_search_response["hits"]["hits"][0]["_source"];
     assert_eq!(hit_source["event_type"], "system_startup", "event_type must be system_startup");
     assert_eq!(hit_source["log_index_prefix"], "mobile-devices-dev.femrek.exampleapp.dev", "log_index_prefix must match");
-    assert_eq!(hit_source["device_uuid"], test_device_uuid, "device_uuid must match");
+    assert_eq!(hit_source["device_id"], test_device_id, "device_id must match");
     assert_eq!(hit_source["metadata"]["os"], "Android", "metadata.os must match");
     assert_eq!(hit_source["metadata"]["model"], "Pixel 6", "metadata.model must match");
 

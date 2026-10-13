@@ -51,16 +51,16 @@ const TOKEN_REFRESH_INTERVAL = 720; // 12 minutes (safe margin before 15m expira
 // Helper to exchange attestation token for a Bearer JWT session token
 function getAuthToken(vuId) {
   const url = `${GATEWAY_URL}/auth/exchange`;
-  const deviceUuid = `b7d2a1e0-0000-4000-a000-${String(vuId).padStart(12, '0')}`;
+  const deviceId = `b7d2a1e0-0000-4000-a000-${String(vuId).padStart(12, '0')}`;
   
   const payload = JSON.stringify({
     platform: 'android',
     attestation_token: 'mock',
     tenant_id: 'load_test_tenant',
-    device_uuid: deviceUuid,
+    device_id: deviceId,
     device_metadata: {
       timestamp: new Date().toISOString(),
-      deviceUUID: deviceUuid,
+      deviceId: deviceId,
       sessionId: `session-${vuId}`,
       os: 'Android',
       osVersion: '14',
@@ -119,7 +119,7 @@ export default function () {
   const level = levels[(__ITER + __VU) % levels.length];
 
   const ingestUrl = `${GATEWAY_URL}/v1/logs/${CHANNEL}`;
-  const deviceUuid = `b7d2a1e0-0000-4000-a000-${String(__VU).padStart(12, '0')}`;
+  const deviceId = `b7d2a1e0-0000-4000-a000-${String(__VU).padStart(12, '0')}`;
   
   const payload = JSON.stringify({
     timestamp: new Date().toISOString(),
@@ -127,7 +127,7 @@ export default function () {
     message: `k6 stress test event. VU: ${__VU}, Iter: ${__ITER}, Level: ${level}`,
     level: level,
     zone: 'k6-stress-test',
-    deviceUUID: deviceUuid,
+    deviceId: deviceId,
     sessionId: `k6-session-${__VU}-${__ITER}`
   });
 

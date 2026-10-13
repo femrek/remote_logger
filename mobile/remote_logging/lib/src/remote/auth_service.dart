@@ -51,7 +51,7 @@ class AuthService {
     final request = AuthExchangeRequest(
       platform: platform,
       attestationToken: token,
-      deviceUuid: deviceMetadata.deviceId,
+      deviceId: deviceMetadata.deviceId,
       deviceMetadata: deviceMetadata,
       devicePublicKey: config.appleDevicePublicKey,
     );

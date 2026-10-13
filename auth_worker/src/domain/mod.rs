@@ -15,8 +15,8 @@ pub use crate::auth::attestation::Platform;
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DeviceMetadata {
     pub timestamp: String,
-    #[serde(rename = "deviceUUID")]
-    pub device_uuid: String,
+    #[serde(rename = "deviceId", alias = "deviceUUID", alias = "device_id")]
+    pub device_id: String,
     #[serde(rename = "sessionId")]
     pub session_id: String,
     pub os: String,
@@ -44,8 +44,9 @@ pub struct AuthExchangeRequest {
     pub platform: Platform,
     /// Raw attestation blob from Google Play Integrity or Apple App Attest.
     pub attestation_token: String,
-    /// Client-generated device UUID — embedded in both JWTs.
-    pub device_uuid: String,
+    /// Client-generated device ID — embedded in JWT subject `sub`.
+    #[serde(alias = "device_uuid")]
+    pub device_id: String,
     /// Full device metadata — serialised to Kafka, NOT embedded in the JWT.
     pub device_metadata: DeviceMetadata,
     /// Base64-encoded DER public key from Apple's `DCAppAttestService`.
@@ -83,7 +84,7 @@ pub struct SystemStartupEvent {
     /// Always `"system_startup"` — used as a discriminator by consumers.
     pub event_type: String,
     pub app_id: String,
-    pub device_uuid: String,
+    pub device_id: String,
     pub session_id: String,
     pub platform: String,
     pub metadata: DeviceMetadata,

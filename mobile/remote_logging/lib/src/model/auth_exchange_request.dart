@@ -7,7 +7,7 @@ class AuthExchangeRequest extends JsonRequestSchema {
   const AuthExchangeRequest({
     required this.platform,
     required this.attestationToken,
-    required this.deviceUuid,
+    required this.deviceId,
     required this.deviceMetadata,
     this.devicePublicKey,
   }) : assert(
@@ -22,7 +22,7 @@ class AuthExchangeRequest extends JsonRequestSchema {
   final String attestationToken;
 
   /// Unique device identifier
-  final String deviceUuid;
+  final String deviceId;
 
   /// Metadata about the device
   final DeviceMetadata deviceMetadata;
@@ -34,7 +34,7 @@ class AuthExchangeRequest extends JsonRequestSchema {
   Map<String, dynamic> toJsonPayload() => {
     'platform': platform,
     'attestation_token': attestationToken,
-    'device_uuid': deviceUuid,
+    'device_id': deviceId,
     'device_metadata': deviceMetadata.toJsonPayload(),
     if (devicePublicKey != null) 'device_public_key': devicePublicKey,
   };

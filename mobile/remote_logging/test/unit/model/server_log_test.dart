@@ -27,7 +27,7 @@ void main() {
       expect(json['loggerName'], 'TestLogger');
     });
 
-    test('toJsonPayload does NOT contain sessionId or deviceUUID', () {
+    test('toJsonPayload does NOT contain sessionId or deviceId', () {
       final log = ServerLog(
         id: 'test-id',
         timestamp: DateTime.utc(2023),
@@ -39,7 +39,7 @@ void main() {
       final json = log.toJsonPayload();
 
       expect(json.containsKey('sessionId'), isFalse);
-      expect(json.containsKey('deviceUUID'), isFalse);
+      expect(json.containsKey('deviceId'), isFalse);
     });
 
     test('timestamp is serialised as UTC ISO 8601 string', () {

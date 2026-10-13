@@ -55,7 +55,7 @@ class DeviceMetadata extends JsonRequestSchema {
   @override
   Map<String, dynamic> toJsonPayload() => {
     'timestamp': timestamp,
-    'deviceUUID': deviceId,
+    'deviceId': deviceId,
     'sessionId': sessionId,
     'os': os,
     'osVersion': osVersion,

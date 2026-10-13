@@ -127,7 +127,7 @@ class MyDeviceDataGenerator implements DeviceDataGenerator {
   Future<void> init() async {}
 
   @override
-  String get deviceId => 'custom-device-uuid';
+  String get deviceId => 'custom-device-id';
 
   @override
   String get sessionId => 'custom-session-uuid';

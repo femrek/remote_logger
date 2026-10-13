@@ -52,8 +52,8 @@ pub async fn ingest_handler(
         })?
         .to_string();
 
-    let device_uuid = headers
-        .get("x-device-uuid")
+    let device_id = headers
+        .get("x-device-id")
         .and_then(|v| v.to_str().ok())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
@@ -81,20 +81,20 @@ pub async fn ingest_handler(
         }
     };
 
-    // Populate device_uuid and session_id from verified JWT claims headers if available
-    if let Some(uuid) = device_uuid {
-        log_payload.device_uuid = uuid;
+    // Populate device_id and session_id from verified JWT claims headers if available
+    if let Some(id) = device_id {
+        log_payload.device_id = id;
     }
     if let Some(sid) = session_id {
         log_payload.session_id = Some(sid);
     }
 
-    if log_payload.device_uuid.is_empty() {
-        tracing::warn!("device_uuid is missing from both headers and payload");
+    if log_payload.device_id.is_empty() {
+        tracing::warn!("device_id is missing from both headers and payload");
         let elapsed = start.elapsed().as_secs_f64();
         REQUESTS_TOTAL.with_label_values(&[&app_id, "400"]).inc();
         REQUEST_DURATION_SECONDS.with_label_values(&[&app_id]).observe(elapsed);
-        return Err(AppError::BadRequest("Missing deviceUUID".to_string()));
+        return Err(AppError::BadRequest("Missing deviceId".to_string()));
     }
 
     // ── 3. Assemble the flattened Kafka message ───────────────────────────────
@@ -152,8 +152,8 @@ pub async fn batch_ingest_handler(
         })?
         .to_string();
 
-    let device_uuid = headers
-        .get("x-device-uuid")
+    let device_id = headers
+        .get("x-device-id")
         .and_then(|v| v.to_str().ok())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
@@ -190,19 +190,19 @@ pub async fn batch_ingest_handler(
 
     // ── 3. Assemble and deliver each log ──────────────────────────────────────
     for mut log_payload in log_payloads {
-        if let Some(ref uuid) = device_uuid {
-            log_payload.device_uuid = uuid.clone();
+        if let Some(ref id) = device_id {
+            log_payload.device_id = id.clone();
         }
         if let Some(ref sid) = session_id {
             log_payload.session_id = Some(sid.clone());
         }
 
-        if log_payload.device_uuid.is_empty() {
-            tracing::warn!("device_uuid is missing from both headers and payload in batch item");
+        if log_payload.device_id.is_empty() {
+            tracing::warn!("device_id is missing from both headers and payload in batch item");
             let elapsed = start.elapsed().as_secs_f64();
             REQUESTS_TOTAL.with_label_values(&[&app_id, "400"]).inc();
             REQUEST_DURATION_SECONDS.with_label_values(&[&app_id]).observe(elapsed);
-            return Err(AppError::BadRequest("Missing deviceUUID in batch item".to_string()));
+            return Err(AppError::BadRequest("Missing deviceId in batch item".to_string()));
         }
 
         let kafka_payload = KafkaPayload {
@@ -290,7 +290,7 @@ mod tests {
             "message":    "Connection established.",
             "level":      "INFO",
             "zone":       "",
-            "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d"
+            "deviceId":   "a809b022-7934-4b53-90d2-bf7cb95a947d"
         })
     }
 
@@ -377,16 +377,16 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
-    /// Missing required `deviceUUID` field → 400 (serde rejects the body).
+    /// Missing required `deviceId` field → 400 (serde rejects the body).
     #[tokio::test]
-    async fn test_missing_device_uuid_returns_400() {
+    async fn test_missing_device_id_returns_400() {
         let body = serde_json::json!({
             "timestamp":  "2026-06-23T15:00:00Z",
             "loggerName": "AppDatabase",
             "message":    "Connection established.",
             "level":      "INFO",
             "zone":       ""
-            // "deviceUUID" intentionally omitted
+            // "deviceId" intentionally omitted
         });
         let resp = post_json_with_headers(
             test_app(),
@@ -425,7 +425,7 @@ mod tests {
             "message":    "Unhandled exception.",
             "level":      "SEVERE",
             "zone":       "",
-            "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
+            "deviceId":   "a809b022-7934-4b53-90d2-bf7cb95a947d",
             "error":      "NullPointerException at Foo.bar:12",
             "stacktrace": "#0  Foo.bar (package:app/foo.dart:12)"
         });
@@ -528,7 +528,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ingest_populates_device_uuid_and_session_id_from_headers() {
+    async fn test_ingest_populates_device_id_and_session_id_from_headers() {
         let capturing_sink = Arc::new(CapturingSink::default());
         let state = Arc::new(AppState {
             sink: capturing_sink.clone(),
@@ -536,7 +536,7 @@ mod tests {
         });
         let app = build_app(state);
 
-        // Payload with no deviceUUID or sessionId in body
+        // Payload with no deviceId or sessionId in body
         let body = serde_json::json!({
             "timestamp":  "2026-06-23T15:00:00Z",
             "loggerName": "AppDatabase",
@@ -551,7 +551,7 @@ mod tests {
             body,
             &[
                 ("x-app-id", "dev.femrek.exampleapp.dev"),
-                ("x-device-uuid", "jwt-device-uuid-999"),
+                ("x-device-id", "jwt-device-id-999"),
                 ("x-session-id", "jwt-session-id-888"),
             ],
         )
@@ -562,7 +562,7 @@ mod tests {
         assert_eq!(sent.len(), 1);
         let (_, _, payload) = &sent[0];
         let kafka_json: serde_json::Value = serde_json::from_str(payload).unwrap();
-        assert_eq!(kafka_json["deviceUUID"], "jwt-device-uuid-999");
+        assert_eq!(kafka_json["deviceId"], "jwt-device-id-999");
         assert_eq!(kafka_json["sessionId"], "jwt-session-id-888");
     }
 }

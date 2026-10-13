@@ -17,7 +17,7 @@ services:
         - path: ../logger_gateway/Cargo.lock
           action: rebuild
 
-  gateway_admin:
+  logger_admin:
     build:
       context: ../logger_admin
       dockerfile: Dockerfile

@@ -22,7 +22,7 @@ void main() {
       const req = AuthExchangeRequest(
         platform: 'android',
         attestationToken: 'token',
-        deviceUuid: 'device-123',
+        deviceId: 'device-123',
         deviceMetadata: metadata,
       );
       final json = req.toJsonPayload();
@@ -32,7 +32,7 @@ void main() {
         containsAll([
           'platform',
           'attestation_token',
-          'device_uuid',
+          'device_id',
           'device_metadata',
         ]),
       );
@@ -43,7 +43,7 @@ void main() {
         () => AuthExchangeRequest(
           platform: 'windows',
           attestationToken: 'token',
-          deviceUuid: 'device-123',
+          deviceId: 'device-123',
           deviceMetadata: metadata,
         ),
         throwsA(isA<AssertionError>()),
@@ -54,7 +54,7 @@ void main() {
       const req = AuthExchangeRequest(
         platform: 'android',
         attestationToken: 'token',
-        deviceUuid: 'device-123',
+        deviceId: 'device-123',
         deviceMetadata: metadata,
       );
       final json = req.toJsonPayload();
@@ -67,7 +67,7 @@ void main() {
       const req = AuthExchangeRequest(
         platform: 'ios',
         attestationToken: 'token',
-        deviceUuid: 'device-123',
+        deviceId: 'device-123',
         deviceMetadata: metadata,
         devicePublicKey: 'public-key',
       );
@@ -79,7 +79,7 @@ void main() {
       const req = AuthExchangeRequest(
         platform: 'android',
         attestationToken: 'token',
-        deviceUuid: 'device-123',
+        deviceId: 'device-123',
         deviceMetadata: metadata,
       );
       final json = req.toJsonPayload();

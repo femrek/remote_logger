@@ -13,7 +13,7 @@ The core validation microservice in the Remote Logger pipeline, built on [Axum](
 2. **Log Ingestion & Schema Validation**:
    - Endpoints: `POST /v1/logs/:channel` and `POST /v1/logs/:channel/batch`.
    - Validates incoming `ServerLog` JSON objects.
-   - Extracts identity from headers injected by `logger_gateway` (`x-app-id`, `x-device-uuid`, `x-session-id`).
+   - Extracts identity from headers injected by `logger_gateway` (`x-app-id`, `x-device-id`, `x-session-id`).
    - Flattens records into `KafkaPayload` enriched with OpenSearch index prefixes (`mobile-logs-{app_id}`).
 3. **Kafka Delivery with Acknowledgment Guarantees**:
    - Produces messages to Apache Kafka using `rdkafka`.

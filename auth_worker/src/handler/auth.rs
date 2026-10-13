@@ -128,10 +128,9 @@ pub async fn auth_exchange_handler(
     };
 
     let access_token = match issue_access_jwt(
-        &channel_id,
         &req.platform.to_string(),
         &app_id,
-        &req.device_uuid,
+        &req.device_id,
         &session_id,
         &jwt_cfg,
     ) {
@@ -147,10 +146,9 @@ pub async fn auth_exchange_handler(
     };
 
     let refresh_token = match issue_refresh_jwt(
-        &channel_id,
         &req.platform.to_string(),
         &app_id,
-        &req.device_uuid,
+        &req.device_id,
         &session_id,
         apk_hash,
         &jwt_cfg,
@@ -171,7 +169,7 @@ pub async fn auth_exchange_handler(
         log_index_prefix: format!("{}-{}", state.device_index_prefix, app_id),
         event_type: "system_startup".to_string(),
         app_id: app_id.clone(),
-        device_uuid: req.device_uuid.clone(),
+        device_id: req.device_id.clone(),
         session_id: session_id.clone(),
         platform: req.platform.to_string(),
         metadata: req.device_metadata,
@@ -185,12 +183,12 @@ pub async fn auth_exchange_handler(
 
     match state
         .sink
-        .send(&state.metadata_topic, &req.device_uuid, &serialised)
+        .send(&state.metadata_topic, &req.device_id, &serialised)
         .await
     {
         Ok(()) => tracing::info!(
             channel = %channel_id,
-            device_uuid = %req.device_uuid,
+            device_id = %req.device_id,
             "SystemStartupEvent produced to Kafka"
         ),
         Err(e) => {
@@ -203,7 +201,7 @@ pub async fn auth_exchange_handler(
     tracing::info!(
         channel = %channel_id,
         platform = %req.platform,
-        device_uuid = %req.device_uuid,
+        device_id = %req.device_id,
         session_id = %session_id,
         "Auth exchange successful"
     );
@@ -299,10 +297,10 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             "platform": "android",
             "attestation_token": "fake-android-token",
             "tenant_id": "example_tenant",
-            "device_uuid": "a809b022-7934-4b53-90d2-bf7cb95a947d",
+            "device_id": "a809b022-7934-4b53-90d2-bf7cb95a947d",
             "device_metadata": {
                 "timestamp": "2026-06-28T17:00:00Z",
-                "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
+                "deviceId": "a809b022-7934-4b53-90d2-bf7cb95a947d",
                 "sessionId": "3f338d38-9588-46d4-83b6-96d5395a12ef",
                 "os": "Android",
                 "osVersion": "13",
@@ -390,10 +388,10 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             "platform": "ios",
             "attestation_token": "fake-ios-token",
             "tenant_id": "example_tenant",
-            "device_uuid": "a809b022-7934-4b53-90d2-bf7cb95a947d",
+            "device_id": "a809b022-7934-4b53-90d2-bf7cb95a947d",
             "device_metadata": {
                 "timestamp": "2026-06-28T17:00:00Z",
-                "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
+                "deviceId": "a809b022-7934-4b53-90d2-bf7cb95a947d",
                 "sessionId": "3f338d38-9588-46d4-83b6-96d5395a12ef",
                 "os": "iOS",
                 "osVersion": "17.0",
@@ -421,10 +419,10 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             "platform": "ios",
             "attestation_token": "fake-ios-token",
             "tenant_id": "example_tenant",
-            "device_uuid": "a809b022-7934-4b53-90d2-bf7cb95a947d",
+            "device_id": "a809b022-7934-4b53-90d2-bf7cb95a947d",
             "device_metadata": {
                 "timestamp": "2026-06-28T17:00:00Z",
-                "deviceUUID": "a809b022-7934-4b53-90d2-bf7cb95a947d",
+                "deviceId": "a809b022-7934-4b53-90d2-bf7cb95a947d",
                 "sessionId": "3f338d38-9588-46d4-83b6-96d5395a12ef",
                 "os": "iOS",
                 "osVersion": "17.0",
@@ -515,7 +513,7 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
         assert_eq!(event["log_index_prefix"], "mobile-devices-dev.femrek.exampleapp.dev");
         assert_eq!(event["event_type"], "system_startup");
         assert_eq!(event["app_id"], "dev.femrek.exampleapp.dev");
-        assert_eq!(event["device_uuid"], "a809b022-7934-4b53-90d2-bf7cb95a947d");
+        assert_eq!(event["device_id"], "a809b022-7934-4b53-90d2-bf7cb95a947d");
         assert_eq!(event["metadata"]["os"], "Android");
         assert_eq!(event["metadata"]["model"], "Pixel 6 Pro");
     }

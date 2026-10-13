@@ -17,14 +17,12 @@ use thiserror::Error;
 /// the hardware attestation vendor.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatewayClaims {
-    /// Subject — the channel `id` this token was issued for.
+    /// Subject — the device ID (`device_id`).
     pub sub: String,
     /// Mobile platform the token was issued for (`"android"` | `"ios"`).
     pub plt: String,
     /// Application ID validated during the exchange.
     pub app: String,
-    /// Device UUID embedded by the worker at mint time.
-    pub device_uuid: String,
     /// Session ID embedded by the worker at mint time.
     pub session_id: String,
     /// Token type — `"access"` tokens are valid on ingest routes.
@@ -153,10 +151,9 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
             .unwrap()
             .as_secs() as usize;
         let claims = GatewayClaims {
-            sub: "example-app-prod".to_owned(),
+            sub: "device-id-1".to_owned(),
             plt: "android".to_owned(),
             app: "com.test".to_owned(),
-            device_uuid: "device-uuid-1".to_owned(),
             session_id: "session-id-1".to_owned(),
             token_type: token_type.to_owned(),
             exp: now + 9_999_999, // far future
@@ -177,8 +174,7 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
         let cfg = test_cfg();
         let token = make_test_token(&cfg, "access");
         let claims = validate_jwt(&token, &cfg).unwrap();
-        assert_eq!(claims.sub, "example-app-prod");
-        assert_eq!(claims.device_uuid, "device-uuid-1");
+        assert_eq!(claims.sub, "device-id-1");
         assert_eq!(claims.session_id, "session-id-1");
         assert_eq!(claims.token_type, "access");
     }
@@ -235,6 +231,6 @@ u8m2g9b/qszcku8bm+8JJ8wNLKIOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqn\n\
         };
         let token = make_test_token(&cfg, "access");
         let claims = validate_jwt(&token, &cfg).unwrap();
-        assert_eq!(claims.sub, "example-app-prod");
+        assert_eq!(claims.sub, "device-id-1");
     }
 }
