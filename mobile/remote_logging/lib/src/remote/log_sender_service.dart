@@ -236,8 +236,7 @@ final class LogSenderService {
           _removeLocalLogs(original.logs);
         case NetworkErrorResult<IgnoredSchema>():
           internalLog.fine(
-            () =>
-                'Failed to resend log batch request: ${request.hashCode}',
+            () => 'Failed to resend log batch request: ${request.hashCode}',
             response.error,
             response.error.stackTrace,
           );
@@ -277,8 +276,10 @@ final class LogSenderService {
       return;
     }
 
-    var pendingCount =
-        _failedBatches.fold<int>(0, (sum, b) => sum + b.logs.length);
+    var pendingCount = _failedBatches.fold<int>(
+      0,
+      (sum, b) => sum + b.logs.length,
+    );
 
     // Evict oldest batches until there is room.
     while (_failedBatches.isNotEmpty &&

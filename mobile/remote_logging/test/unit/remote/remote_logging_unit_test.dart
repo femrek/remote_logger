@@ -48,17 +48,19 @@ void main() {
       expect(logging.config.channelId, equals('test-channel'));
     });
 
-    test('config setter updates Logger.root to the wider of the two levels',
-        () {
-      // logPrintLevel defaults to FINEST (widest), logSendLevel to INFO.
-      // getBiggerScopeLevel returns FINEST (lower value = finer granularity).
-      // To observe a change, set both levels to something narrower:
-      logging.config = config.copyWith(
-        logSendLevel: Level.SEVERE,
-        logPrintLevel: Level.SEVERE,
-      );
-      expect(Logger.root.level, equals(Level.SEVERE));
-    });
+    test(
+      'config setter updates Logger.root to the wider of the two levels',
+      () {
+        // logPrintLevel defaults to FINEST (widest), logSendLevel to INFO.
+        // getBiggerScopeLevel returns FINEST (lower value = finer granularity).
+        // To observe a change, set both levels to something narrower:
+        logging.config = config.copyWith(
+          logSendLevel: Level.SEVERE,
+          logPrintLevel: Level.SEVERE,
+        );
+        expect(Logger.root.level, equals(Level.SEVERE));
+      },
+    );
 
     test('calling initRemote twice throws StateError', () async {
       expect(

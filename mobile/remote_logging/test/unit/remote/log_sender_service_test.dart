@@ -36,26 +36,26 @@ class _NeverInvoker implements INetworkInvoker {
 /// Concrete AuthService whose [getValidAccessToken] never calls the network.
 class _StubAuthService extends AuthService {
   _StubAuthService()
-      : super(
-          config: const RemoteLoggingConfig(
-            gatewayUrl: 'http://stub.test',
-            channelId: 'stub',
-          ),
-          deviceMetadata: const DeviceMetadata(
-            timestamp: '2024-01-01T00:00:00Z',
-            deviceId: 'stub-device',
-            sessionId: 'stub-session',
-            os: 'test',
-            osVersion: '0',
-            model: 'stub',
-            brand: 'stub',
-            device: 'stub',
-            identifier: 'stub',
-            manufacturer: 'stub',
-            isPhysicalDevice: 'false',
-          ),
-          invoker: _NeverInvoker(),
-        );
+    : super(
+        config: const RemoteLoggingConfig(
+          gatewayUrl: 'http://stub.test',
+          channelId: 'stub',
+        ),
+        deviceMetadata: const DeviceMetadata(
+          timestamp: '2024-01-01T00:00:00Z',
+          deviceId: 'stub-device',
+          sessionId: 'stub-session',
+          os: 'test',
+          osVersion: '0',
+          model: 'stub',
+          brand: 'stub',
+          device: 'stub',
+          identifier: 'stub',
+          manufacturer: 'stub',
+          isPhysicalDevice: 'false',
+        ),
+        invoker: _NeverInvoker(),
+      );
 
   @override
   Future<String?> getValidAccessToken() async => 'test-token';
@@ -92,21 +92,20 @@ NetworkErrorResult<IgnoredSchema> _networkErrorResult() =>
     );
 
 LogRecord _makeRecord({String message = 'test message'}) => LogRecord(
-      Level.INFO,
-      message,
-      'TestLogger',
-    );
+  Level.INFO,
+  message,
+  'TestLogger',
+);
 
 LogSenderService _makeService({
   RemoteLoggingConfig config = _testConfig,
   LocalLogRepository? localRepository,
   void Function(Object, StackTrace)? onError,
-}) =>
-    LogSenderService(
-      config: config,
-      localRepository: localRepository,
-      onError: onError,
-    );
+}) => LogSenderService(
+  config: config,
+  localRepository: localRepository,
+  onError: onError,
+);
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -138,8 +137,9 @@ void main() {
 
     group('enqueue() + flush()', () {
       test('causes invoker.send() to be called once', () async {
-        when(() => mockInvoker.send<IgnoredSchema>(any()))
-            .thenAnswer((_) async => _successResult());
+        when(
+          () => mockInvoker.send<IgnoredSchema>(any()),
+        ).thenAnswer((_) async => _successResult());
 
         final service = _makeService();
         await service.start(
@@ -158,11 +158,13 @@ void main() {
       test('localRepository.removeLogs() is called', () async {
         final mockRepo = MockILocalLogRepository();
         when(() => mockRepo.saveLogs(any())).thenAnswer((_) async {});
-        when(() => mockRepo.getUnsentLogs())
-            .thenAnswer((_) async => <ServerLog>[]);
+        when(
+          () => mockRepo.getUnsentLogs(),
+        ).thenAnswer((_) async => <ServerLog>[]);
         when(() => mockRepo.removeLogs(any())).thenAnswer((_) async {});
-        when(() => mockInvoker.send<IgnoredSchema>(any()))
-            .thenAnswer((_) async => _successResult());
+        when(
+          () => mockInvoker.send<IgnoredSchema>(any()),
+        ).thenAnswer((_) async => _successResult());
 
         final service = _makeService(localRepository: mockRepo);
         await service.start(
@@ -183,8 +185,9 @@ void main() {
     group('after network error', () {
       test('the batch is stored in failed requests', () async {
         var callCount = 0;
-        when(() => mockInvoker.send<IgnoredSchema>(any()))
-            .thenAnswer((_) async {
+        when(() => mockInvoker.send<IgnoredSchema>(any())).thenAnswer((
+          _,
+        ) async {
           callCount++;
           if (callCount == 1) return _networkErrorResult();
           return _successResult();
@@ -209,8 +212,9 @@ void main() {
     group('retry cycle', () {
       test('retries the failed batch on the next flush cycle', () async {
         var callCount = 0;
-        when(() => mockInvoker.send<IgnoredSchema>(any()))
-            .thenAnswer((_) async {
+        when(() => mockInvoker.send<IgnoredSchema>(any())).thenAnswer((
+          _,
+        ) async {
           callCount++;
           if (callCount == 1) return _networkErrorResult();
           return _successResult();
@@ -232,8 +236,9 @@ void main() {
 
       test('successful retry removes the batch from failed requests', () async {
         var callCount = 0;
-        when(() => mockInvoker.send<IgnoredSchema>(any()))
-            .thenAnswer((_) async {
+        when(() => mockInvoker.send<IgnoredSchema>(any())).thenAnswer((
+          _,
+        ) async {
           callCount++;
           if (callCount == 1) return _networkErrorResult();
           return _successResult();
@@ -256,19 +261,21 @@ void main() {
     });
 
     group('when enableRemoteLogging is false', () {
-      test('start() does not call invoker even after enqueue + flush',
-          () async {
-        final service = _makeService(config: _disabledConfig);
-        await service.start(
-          invoker: mockInvoker,
-          authService: stubAuthService,
-        );
+      test(
+        'start() does not call invoker even after enqueue + flush',
+        () async {
+          final service = _makeService(config: _disabledConfig);
+          await service.start(
+            invoker: mockInvoker,
+            authService: stubAuthService,
+          );
 
-        service.enqueue(_makeRecord());
-        await service.flush();
+          service.enqueue(_makeRecord());
+          await service.flush();
 
-        verifyNever(() => mockInvoker.send<IgnoredSchema>(any()));
-      });
+          verifyNever(() => mockInvoker.send<IgnoredSchema>(any()));
+        },
+      );
     });
 
     group('maxPendingLogCount eviction', () {
@@ -280,8 +287,9 @@ void main() {
         );
 
         // Phase 1: always fail so batches accumulate / get evicted.
-        when(() => mockInvoker.send<IgnoredSchema>(any()))
-            .thenAnswer((_) async => _networkErrorResult());
+        when(
+          () => mockInvoker.send<IgnoredSchema>(any()),
+        ).thenAnswer((_) async => _networkErrorResult());
 
         final service = _makeService(config: tightConfig);
         await service.start(
@@ -297,8 +305,9 @@ void main() {
 
         // Phase 2: switch to success and run a retry.
         var retryCount = 0;
-        when(() => mockInvoker.send<IgnoredSchema>(any()))
-            .thenAnswer((_) async {
+        when(() => mockInvoker.send<IgnoredSchema>(any())).thenAnswer((
+          _,
+        ) async {
           retryCount++;
           return _successResult();
         });
@@ -310,8 +319,7 @@ void main() {
     });
 
     group('local repository interactions', () {
-      test(
-          'getUnsentLogs() is called on start() and those logs are sent '
+      test('getUnsentLogs() is called on start() and those logs are sent '
           'immediately', () async {
         final mockRepo = MockILocalLogRepository();
         final unsentLog = ServerLog(
@@ -323,11 +331,13 @@ void main() {
           zone: 'root',
         );
 
-        when(() => mockRepo.getUnsentLogs())
-            .thenAnswer((_) async => [unsentLog]);
+        when(
+          () => mockRepo.getUnsentLogs(),
+        ).thenAnswer((_) async => [unsentLog]);
         when(() => mockRepo.removeLogs(any())).thenAnswer((_) async {});
-        when(() => mockInvoker.send<IgnoredSchema>(any()))
-            .thenAnswer((_) async => _successResult());
+        when(
+          () => mockInvoker.send<IgnoredSchema>(any()),
+        ).thenAnswer((_) async => _successResult());
 
         final service = _makeService(localRepository: mockRepo);
         await service.start(
@@ -343,11 +353,13 @@ void main() {
       test('saveLogs() is called on enqueue()', () async {
         final mockRepo = MockILocalLogRepository();
         when(() => mockRepo.saveLogs(any())).thenAnswer((_) async {});
-        when(() => mockRepo.getUnsentLogs())
-            .thenAnswer((_) async => <ServerLog>[]);
+        when(
+          () => mockRepo.getUnsentLogs(),
+        ).thenAnswer((_) async => <ServerLog>[]);
         when(() => mockRepo.removeLogs(any())).thenAnswer((_) async {});
-        when(() => mockInvoker.send<IgnoredSchema>(any()))
-            .thenAnswer((_) async => _successResult());
+        when(
+          () => mockInvoker.send<IgnoredSchema>(any()),
+        ).thenAnswer((_) async => _successResult());
 
         final service = _makeService(localRepository: mockRepo);
         await service.start(
@@ -365,39 +377,45 @@ void main() {
     });
 
     group('stop()', () {
-      test('stop(flush: true) calls flush before cancelling the subscription',
-          () async {
-        when(() => mockInvoker.send<IgnoredSchema>(any()))
-            .thenAnswer((_) async => _successResult());
+      test(
+        'stop(flush: true) calls flush before cancelling the subscription',
+        () async {
+          when(
+            () => mockInvoker.send<IgnoredSchema>(any()),
+          ).thenAnswer((_) async => _successResult());
 
-        final service = _makeService();
-        await service.start(
-          invoker: mockInvoker,
-          authService: stubAuthService,
-        );
+          final service = _makeService();
+          await service.start(
+            invoker: mockInvoker,
+            authService: stubAuthService,
+          );
 
-        service.enqueue(_makeRecord());
-        await service.stop(flush: true);
+          service.enqueue(_makeRecord());
+          await service.stop(flush: true);
 
-        verify(() => mockInvoker.send<IgnoredSchema>(any())).called(1);
-      });
+          verify(() => mockInvoker.send<IgnoredSchema>(any())).called(1);
+        },
+      );
 
-      test('stop(flush: false) cancels immediately without calling send',
-          () async {
-        when(() => mockInvoker.send<IgnoredSchema>(any()))
-            .thenAnswer((_) async => _successResult());
+      test(
+        'stop(flush: false) cancels immediately without calling send',
+        () async {
+          when(
+            () => mockInvoker.send<IgnoredSchema>(any()),
+          ).thenAnswer((_) async => _successResult());
 
-        final service = _makeService();
-        await service.start(
-          invoker: mockInvoker,
-          authService: stubAuthService,
-        );
+          final service = _makeService();
+          await service.start(
+            invoker: mockInvoker,
+            authService: stubAuthService,
+          );
 
-        service.enqueue(_makeRecord());
-        await service.stop(flush: false);
+          service.enqueue(_makeRecord());
+          await service.stop(flush: false);
 
-        verifyNever(() => mockInvoker.send<IgnoredSchema>(any()));
-      });
+          verifyNever(() => mockInvoker.send<IgnoredSchema>(any()));
+        },
+      );
     });
   });
 }

@@ -14,7 +14,7 @@ class _InternalLogger {
   factory _InternalLogger() => _instance ??= _InternalLogger._internal();
 
   _InternalLogger._internal()
-      : _logger = Logger.detached('dev.femrek.flutter_remote_logging');
+    : _logger = Logger.detached('dev.femrek.flutter_remote_logging');
 
   static _InternalLogger? _instance;
   final Logger _logger;
