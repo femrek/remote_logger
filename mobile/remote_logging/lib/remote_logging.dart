@@ -8,6 +8,7 @@ export 'src/logger_mixin.dart';
 export 'src/model/device_metadata.dart';
 export 'src/model/server_log.dart';
 export 'src/remote_logging.dart';
+export 'src/strategy/attestation_provider.dart';
 export 'src/strategy/device_data_generator.dart';
 export 'src/strategy/impl/anonymous_device_data_generator.dart';
 export 'src/strategy/impl/no_save_local_log_repository.dart';

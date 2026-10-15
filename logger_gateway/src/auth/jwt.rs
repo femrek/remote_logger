@@ -25,6 +25,9 @@ pub struct GatewayClaims {
     pub app: String,
     /// Session ID embedded by the worker at mint time.
     pub session_id: String,
+    /// Hardware attestation level: "tee" | "software" | "none".
+    #[serde(default)]
+    pub att: Option<String>,
     /// Token type — `"access"` tokens are valid on ingest routes.
     pub token_type: String,
     /// Expiry (Unix timestamp seconds).
@@ -155,6 +158,7 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
             plt: "android".to_owned(),
             app: "com.test".to_owned(),
             session_id: "session-id-1".to_owned(),
+            att: Some("tee".to_owned()),
             token_type: token_type.to_owned(),
             exp: now + 9_999_999, // far future
             iat: now,
@@ -175,6 +179,7 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
         let token = make_test_token(&cfg, "access");
         let claims = validate_jwt(&token, &cfg).unwrap();
         assert_eq!(claims.sub, "device-id-1");
+        assert_eq!(claims.att.as_deref(), Some("tee"));
         assert_eq!(claims.session_id, "session-id-1");
         assert_eq!(claims.token_type, "access");
     }
@@ -184,6 +189,17 @@ IOY+VYNghIkMNmY2GtVnOKApnJ6p+q7oXcBOqnImEgwEb83cDdMNp1vIqg==\n\
         let _guard = TEST_LOCK.lock().unwrap();
         let cfg = test_cfg();
         let token = make_test_token(&cfg, "refresh");
+        assert!(matches!(
+            validate_jwt(&token, &cfg),
+            Err(JwtError::WrongTokenType)
+        ));
+    }
+
+    #[test]
+    fn enrollment_token_is_rejected() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let cfg = test_cfg();
+        let token = make_test_token(&cfg, "enrollment");
         assert!(matches!(
             validate_jwt(&token, &cfg),
             Err(JwtError::WrongTokenType)

@@ -21,6 +21,10 @@ pub struct ServerLog {
     pub device_id: String,
     pub error: Option<String>,
     pub stacktrace: Option<String>,
+    /// Hardware attestation level: tee | software | none.
+    /// Injected by logger_gateway from the validated JWT `att` claim via `x-attestation` header.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub attestation: Option<String>,
 }
 
 // ── Kafka messages ────────────────────────────────────────────────────────────

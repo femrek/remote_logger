@@ -54,8 +54,7 @@ async fn main() {
             format!("-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----", trimmed)
         }
     };
-    let access_ttl      = env_u64("ACCESS_JWT_TTL_SECONDS",  900);
-    let refresh_ttl     = env_u64("REFRESH_JWT_TTL_SECONDS", 604_800);
+    let access_ttl      = env_u64("ACCESS_JWT_TTL_SECONDS", 86_400);
     let jwt_issuer      = env_or("JWT_ISSUER",              "logger-gateway");
     let port            = env_or("PORT",                    "8001");
     let metrics_port    = env_or("METRICS_PORT",            "9092");
@@ -107,6 +106,9 @@ async fn main() {
         ios: Box::new(AppleAppAttestVerifier),
     });
 
+    let jwt_public_key = auth_worker::auth::jwt::derive_public_key_pem(&jwt_private_key)
+        .expect("Failed to derive JWT public key from private key");
+
     // ── Application state ─────────────────────────────────────────────────────
     let state = Arc::new(AppState {
         sink: Arc::new(sink),
@@ -115,8 +117,8 @@ async fn main() {
         verifier,
         worker_config,
         jwt_private_key,
+        jwt_public_key,
         access_ttl_seconds: access_ttl,
-        refresh_ttl_seconds: refresh_ttl,
         jwt_issuer,
     });
 

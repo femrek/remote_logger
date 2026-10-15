@@ -171,8 +171,8 @@ function buildChannelRow(ch, modifyIndex = 0, isNew = false) {
   row.dataset.id = ch.id || '';
   row.dataset.modifyIndex = modifyIndex;
 
-  const validateChecked  = ch.validate_attestation   ? 'checked' : '';
-  const keyHashChecked   = ch.require_apple_key_hash ? 'checked' : '';
+  const androidMode = ch.android_attestation_mode || (ch.validate_attestation ? 'enforce' : 'off');
+  const iosMode     = ch.ios_attestation_mode     || (ch.validate_attestation ? 'enforce' : 'off');
 
   row.innerHTML = `
     <div class="channel-fields">
@@ -192,17 +192,21 @@ function buildChannelRow(ch, modifyIndex = 0, isNew = false) {
         <label>Apple Team ID <span class="hint">App Attest</span></label>
         <input class="ch-apple-team mono" type="text" value="${esc(ch.apple_team_id)}" placeholder="optional" />
       </div>
-      <div class="field-group field-group--inline">
-        <label>
-          <input class="ch-validate" type="checkbox" ${validateChecked} />
-          Validate attestation
-        </label>
+      <div class="field-group">
+        <label>Android Mode</label>
+        <select class="ch-android-mode">
+          <option value="off"${androidMode === 'off' ? ' selected' : ''}>Off</option>
+          <option value="monitor"${androidMode === 'monitor' ? ' selected' : ''}>Monitor</option>
+          <option value="enforce"${androidMode === 'enforce' ? ' selected' : ''}>Enforce</option>
+        </select>
       </div>
-      <div class="field-group field-group--inline">
-        <label>
-          <input class="ch-keyhash" type="checkbox" ${keyHashChecked} />
-          Require Apple key hash
-        </label>
+      <div class="field-group">
+        <label>iOS Mode</label>
+        <select class="ch-ios-mode">
+          <option value="off"${iosMode === 'off' ? ' selected' : ''}>Off</option>
+          <option value="monitor"${iosMode === 'monitor' ? ' selected' : ''}>Monitor</option>
+          <option value="enforce"${iosMode === 'enforce' ? ' selected' : ''}>Enforce</option>
+        </select>
       </div>
     </div>
     <div class="channel-actions">
@@ -217,7 +221,7 @@ function buildChannelRow(ch, modifyIndex = 0, isNew = false) {
 
   row.querySelector('.btn-delete').addEventListener('click', () => deleteChannelRow(row, ch.id));
   row.querySelectorAll('input').forEach(input => input.addEventListener('input', markDirty));
-  row.querySelectorAll('input[type=checkbox]').forEach(cb => cb.addEventListener('change', markDirty));
+  row.querySelectorAll('select').forEach(sel => sel.addEventListener('change', markDirty));
 
   return row;
 }
@@ -248,7 +252,7 @@ async function deleteChannelRow(row, channelId) {
 addChannelBtn.addEventListener('click', () => {
   noChannels.classList.add('hidden');
   const row = buildChannelRow(
-    { id: '', app_id: '', validate_attestation: false, require_apple_key_hash: false,
+    { id: '', app_id: '', android_attestation_mode: 'off', ios_attestation_mode: 'off',
       google_project_number: '', apple_team_id: '' },
     0, true
   );
@@ -311,10 +315,10 @@ function buildSavePayload() {
     const googleProj = row.querySelector('.ch-google-proj').value.trim();
     const appleTeam  = row.querySelector('.ch-apple-team').value.trim();
     return {
-      id:                    row.querySelector('.ch-id').value.trim(),
-      app_id:                row.querySelector('.ch-appid').value.trim(),
-      validate_attestation:  row.querySelector('.ch-validate').checked,
-      require_apple_key_hash: row.querySelector('.ch-keyhash').checked,
+      id:                       row.querySelector('.ch-id').value.trim(),
+      app_id:                   row.querySelector('.ch-appid').value.trim(),
+      android_attestation_mode: row.querySelector('.ch-android-mode').value,
+      ios_attestation_mode:     row.querySelector('.ch-ios-mode').value,
       ...(googleProj ? { google_project_number: googleProj } : {}),
       ...(appleTeam  ? { apple_team_id:         appleTeam  } : {}),
     };

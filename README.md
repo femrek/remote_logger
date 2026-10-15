@@ -193,17 +193,17 @@ Open `http://localhost:8082` in your browser and enter your `GATEWAY_ADMIN_TOKEN
 - Create and edit application channels:
     - `id`: Routing channel slug (e.g. `my-app-prod`).
     - `app_id`: Application bundle ID (e.g. `com.company.app`).
-    - `validate_attestation`: Toggle cryptographic hardware attestation.
+    - `android_attestation_mode`: Android attestation enforcement (`off`, `monitor`, or `enforce`).
+    - `ios_attestation_mode`: iOS attestation enforcement (`off`, `monitor`, or `enforce`).
     - `google_project_number`: GCP project number for Android Play Integrity.
     - `apple_team_id`: Apple Developer Team ID for iOS App Attest.
-    - `require_apple_key_hash`: Enforce client public key binding for iOS.
 
 ### Consul KV Key Structure
 
 - `gateway/config/global`: JSON object containing global settings:
   ```json
   {
-    "jwt": { "issuer": "logger-gateway", "ttl_seconds": 900 },
+    "jwt": { "issuer": "logger-gateway", "ttl_seconds": 86400 },
     "max_body_bytes": 2097152
   }
   ```
@@ -212,8 +212,8 @@ Open `http://localhost:8082` in your browser and enter your `GATEWAY_ADMIN_TOKEN
   {
     "id": "example-app-dev",
     "app_id": "dev.femrek.exampleapp.dev",
-    "validate_attestation": false,
-    "require_apple_key_hash": false
+    "android_attestation_mode": "off",
+    "ios_attestation_mode": "off"
   }
   ```
 

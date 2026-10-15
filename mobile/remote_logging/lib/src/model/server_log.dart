@@ -8,6 +8,7 @@ class ServerLog extends JsonRequestSchema {
   /// Constructs a [ServerLog] instance.
   ServerLog({
     required this.id,
+    this.sessionId,
     required this.timestamp,
     required this.loggerName,
     required this.message,
@@ -21,10 +22,12 @@ class ServerLog extends JsonRequestSchema {
   /// truncation as specified by [truncation].
   factory ServerLog.fromLogRecord(
     LogRecord record,
-    LogTruncationConfig truncation,
-  ) {
+    LogTruncationConfig truncation, {
+    String? sessionId,
+  }) {
     return ServerLog(
       id: const Uuid().v4(),
+      sessionId: sessionId,
       timestamp: record.time,
       loggerName: record.loggerName,
       message: _truncateChars(record.message, truncation.maxMessageChars),
@@ -50,6 +53,7 @@ class ServerLog extends JsonRequestSchema {
   factory ServerLog.fromJson(Map<String, dynamic> json) {
     return ServerLog(
       id: json['id'] as String,
+      sessionId: json['sessionId'] as String?,
       timestamp: DateTime.parse(json['timestamp'] as String),
       loggerName: json['loggerName'] as String,
       message: json['message'] as String,
@@ -66,6 +70,9 @@ class ServerLog extends JsonRequestSchema {
   ///
   /// Only for saving local database. Is not sent remote.
   final String id;
+
+  /// The session identifier associated with this log entry.
+  final String? sessionId;
 
   /// The timestamp of the log entry.
   final DateTime timestamp;
@@ -100,6 +107,7 @@ class ServerLog extends JsonRequestSchema {
   /// Used to convert this log to a map for local storage.
   Map<String, dynamic> toMap() => {
     'id': id,
+    if (sessionId != null) 'sessionId': sessionId,
     'timestamp': timestamp.toUtc().toIso8601String(),
     'loggerName': loggerName,
     'message': message,
@@ -111,6 +119,7 @@ class ServerLog extends JsonRequestSchema {
 
   @override
   Map<String, dynamic> toJsonPayload() => {
+    if (sessionId != null) 'sessionId': sessionId,
     'timestamp': timestamp.toUtc().toIso8601String(),
     'loggerName': loggerName,
     'message': message,

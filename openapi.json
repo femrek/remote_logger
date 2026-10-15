@@ -375,7 +375,7 @@
           },
           "device_public_key": {
             "type": "string",
-            "description": "Base64-encoded DER public key from Apple's DCAppAttestService. Required for iOS if require_apple_key_hash is true.",
+            "description": "Base64-encoded public key from client hardware keystore/App Attest.",
             "example": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE..."
           },
           "device_metadata": {
@@ -387,30 +387,18 @@
         "type": "object",
         "required": [
           "access_token",
-          "refresh_token",
-          "access_expires_in",
-          "refresh_expires_in"
+          "access_expires_in"
         ],
         "properties": {
           "access_token": {
             "type": "string",
-            "description": "Short-lived JWT access token for ingest.",
-            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
-          },
-          "refresh_token": {
-            "type": "string",
-            "description": "Long-lived JWT refresh token.",
-            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+            "description": "JWT access token for ingest.",
+            "example": "eyJhbGciOiJFUzI1NiIsInR5cCI6..."
           },
           "access_expires_in": {
             "type": "integer",
-            "description": "Remaining lifetime of access token in seconds.",
-            "example": 900
-          },
-          "refresh_expires_in": {
-            "type": "integer",
-            "description": "Remaining lifetime of refresh token in seconds.",
-            "example": 604800
+            "description": "Remaining lifetime of access token in seconds (default 86400).",
+            "example": 86400
           }
         }
       },

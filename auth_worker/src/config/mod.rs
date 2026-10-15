@@ -23,6 +23,15 @@ impl WorkerConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AttestationMode {
+    #[default]
+    Off,
+    Monitor,
+    Enforce,
+}
+
 /// Unified channel config — stored at `gateway/config/channels/<id>` in Consul.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkerChannelConfig {
@@ -33,24 +42,52 @@ pub struct WorkerChannelConfig {
     /// passed to the attestation verifier.
     pub app_id: String,
 
-    /// When `true`, the attestation token is cryptographically verified.
-    /// When `false`, the token is accepted as-is (useful for dev/CI).
+    /// Android attestation mode: off | monitor | enforce.
     #[serde(default)]
-    pub validate_attestation: bool,
+    pub android_attestation_mode: Option<AttestationMode>,
+
+    /// iOS attestation mode: off | monitor | enforce.
+    #[serde(default)]
+    pub ios_attestation_mode: Option<AttestationMode>,
+
+    /// Legacy boolean flag for backward compatibility:
+    /// true -> Enforce, false -> Off.
+    #[serde(default)]
+    pub validate_attestation: Option<bool>,
 
     /// Google Cloud Project Number for Android Play Integrity verification.
-    /// Required when `validate_attestation: true` and platform is Android.
     pub google_project_number: Option<String>,
 
     /// Apple Developer Team ID for Apple App Attest verification.
-    /// Required when `validate_attestation: true` and platform is iOS.
     pub apple_team_id: Option<String>,
 
-    /// When `true`: iOS clients MUST supply `device_public_key` in the
-    /// `/auth/exchange` body. The SHA-256 of the key is embedded in the
-    /// refresh JWT as the `apk_hash` claim.
+    /// Android release/play signing certificate SHA-256 digests.
     #[serde(default)]
-    pub require_apple_key_hash: bool,
+    pub android_signing_cert_sha256: Vec<String>,
+
+    /// Apple App Attest environment ("development" | "production").
+    pub apple_app_attest_env: Option<String>,
+}
+
+impl WorkerChannelConfig {
+    pub fn android_mode(&self) -> AttestationMode {
+        self.android_attestation_mode
+            .or_else(|| self.validate_attestation.map(|v| if v { AttestationMode::Enforce } else { AttestationMode::Off }))
+            .unwrap_or(AttestationMode::Off)
+    }
+
+    pub fn ios_mode(&self) -> AttestationMode {
+        self.ios_attestation_mode
+            .or_else(|| self.validate_attestation.map(|v| if v { AttestationMode::Enforce } else { AttestationMode::Off }))
+            .unwrap_or(AttestationMode::Off)
+    }
+
+    pub fn mode_for_platform(&self, platform: crate::auth::attestation::Platform) -> AttestationMode {
+        match platform {
+            crate::auth::attestation::Platform::Android => self.android_mode(),
+            crate::auth::attestation::Platform::Ios => self.ios_mode(),
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

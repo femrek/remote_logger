@@ -64,6 +64,12 @@ pub async fn ingest_handler(
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
 
+    let attestation = headers
+        .get("x-attestation")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
     tracing::info!(
         app_id = %app_id,
         "Received ingest request"
@@ -81,13 +87,16 @@ pub async fn ingest_handler(
         }
     };
 
-    // Populate device_id and session_id from verified JWT claims headers if available
+    // Populate device_id from verified JWT claims header if available
     if let Some(id) = device_id {
         log_payload.device_id = id;
     }
-    if let Some(sid) = session_id {
-        log_payload.session_id = Some(sid);
+    // Only backfill session_id if empty in payload, preserving client-persisted session ID
+    if log_payload.session_id.as_deref().unwrap_or("").is_empty() {
+        log_payload.session_id = session_id;
     }
+    // Set attestation tier from gateway-verified JWT claims header
+    log_payload.attestation = attestation;
 
     if log_payload.device_id.is_empty() {
         tracing::warn!("device_id is missing from both headers and payload");
@@ -164,6 +173,12 @@ pub async fn batch_ingest_handler(
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
 
+    let attestation = headers
+        .get("x-attestation")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
     tracing::info!(
         app_id = %app_id,
         "Received batch ingest request"
@@ -193,9 +208,10 @@ pub async fn batch_ingest_handler(
         if let Some(ref id) = device_id {
             log_payload.device_id = id.clone();
         }
-        if let Some(ref sid) = session_id {
-            log_payload.session_id = Some(sid.clone());
+        if log_payload.session_id.as_deref().unwrap_or("").is_empty() {
+            log_payload.session_id = session_id.clone();
         }
+        log_payload.attestation = attestation.clone();
 
         if log_payload.device_id.is_empty() {
             tracing::warn!("device_id is missing from both headers and payload in batch item");
@@ -564,5 +580,100 @@ mod tests {
         let kafka_json: serde_json::Value = serde_json::from_str(payload).unwrap();
         assert_eq!(kafka_json["deviceId"], "jwt-device-id-999");
         assert_eq!(kafka_json["sessionId"], "jwt-session-id-888");
+    }
+
+    #[tokio::test]
+    async fn test_ingest_preserves_client_session_id_and_populates_attestation() {
+        let capturing_sink = Arc::new(CapturingSink::default());
+        let state = Arc::new(AppState {
+            sink: capturing_sink.clone(),
+            kafka_topic: "test-topic".to_string(),
+        });
+        let app = build_app(state);
+
+        // Payload with existing client-side sessionId
+        let body = serde_json::json!({
+            "timestamp":  "2026-06-23T15:00:00Z",
+            "loggerName": "AppDatabase",
+            "message":    "Offline log replayed.",
+            "level":      "INFO",
+            "zone":       "",
+            "sessionId":  "client-historical-session-111"
+        });
+
+        let resp = post_json_with_headers(
+            app,
+            "/v1/logs/example-app-dev",
+            body,
+            &[
+                ("x-app-id", "dev.femrek.exampleapp.dev"),
+                ("x-device-id", "jwt-device-id-999"),
+                ("x-session-id", "jwt-session-id-current-222"),
+                ("x-attestation", "tee"),
+            ],
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let sent = capturing_sink.sent.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        let (_, _, payload) = &sent[0];
+        let kafka_json: serde_json::Value = serde_json::from_str(payload).unwrap();
+        assert_eq!(kafka_json["deviceId"], "jwt-device-id-999");
+        assert_eq!(kafka_json["sessionId"], "client-historical-session-111");
+        assert_eq!(kafka_json["attestation"], "tee");
+    }
+
+    #[tokio::test]
+    async fn test_batch_ingest_preserves_client_session_id_and_populates_attestation() {
+        let capturing_sink = Arc::new(CapturingSink::default());
+        let state = Arc::new(AppState {
+            sink: capturing_sink.clone(),
+            kafka_topic: "test-topic".to_string(),
+        });
+        let app = build_app(state);
+
+        let body = serde_json::json!([
+            {
+                "timestamp":  "2026-06-23T15:00:00Z",
+                "loggerName": "App1",
+                "message":    "Log from older session",
+                "level":      "INFO",
+                "zone":       "",
+                "sessionId":  "older-session-aaa"
+            },
+            {
+                "timestamp":  "2026-06-23T15:01:00Z",
+                "loggerName": "App2",
+                "message":    "Log with no session",
+                "level":      "INFO",
+                "zone":       ""
+            }
+        ]);
+
+        let resp = post_json_with_headers(
+            app,
+            "/v1/logs/example-app-dev/batch",
+            body,
+            &[
+                ("x-app-id", "dev.femrek.exampleapp.dev"),
+                ("x-device-id", "jwt-device-id-999"),
+                ("x-session-id", "jwt-session-id-current-bbb"),
+                ("x-attestation", "software"),
+            ],
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let sent = capturing_sink.sent.lock().unwrap();
+        assert_eq!(sent.len(), 2);
+
+        let k1: serde_json::Value = serde_json::from_str(&sent[0].2).unwrap();
+        assert_eq!(k1["sessionId"], "older-session-aaa");
+        assert_eq!(k1["attestation"], "software");
+
+        let k2: serde_json::Value = serde_json::from_str(&sent[1].2).unwrap();
+        assert_eq!(k2["sessionId"], "jwt-session-id-current-bbb");
+        assert_eq!(k2["attestation"], "software");
     }
 }

@@ -30,6 +30,7 @@ hex          = "0.4"
 uuid         = { version = "1", features = ["v4"] }
 thiserror    = "1"
 base64       = "0.22"
+ring         = "0.17"
 
 # ── Hot-reload config & Discovery ─────────────────────────────────────────────
 arc-swap   = "1"

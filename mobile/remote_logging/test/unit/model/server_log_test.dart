@@ -27,20 +27,46 @@ void main() {
       expect(json['loggerName'], 'TestLogger');
     });
 
-    test('toJsonPayload does NOT contain sessionId or deviceId', () {
-      final log = ServerLog(
-        id: 'test-id',
-        timestamp: DateTime.utc(2023),
-        loggerName: 'TestLogger',
-        message: 'Test message',
-        level: 'INFO',
-        zone: 'test-zone',
-      );
-      final json = log.toJsonPayload();
+    test(
+      'toJsonPayload does NOT contain sessionId or deviceId when sessionId is null',
+      () {
+        final log = ServerLog(
+          id: 'test-id',
+          timestamp: DateTime.utc(2023),
+          loggerName: 'TestLogger',
+          message: 'Test message',
+          level: 'INFO',
+          zone: 'test-zone',
+        );
+        final json = log.toJsonPayload();
 
-      expect(json.containsKey('sessionId'), isFalse);
-      expect(json.containsKey('deviceId'), isFalse);
-    });
+        expect(json.containsKey('sessionId'), isFalse);
+        expect(json.containsKey('deviceId'), isFalse);
+      },
+    );
+
+    test(
+      'toJsonPayload, toMap, and fromJson preserve sessionId when provided',
+      () {
+        final log = ServerLog(
+          id: 'test-id',
+          sessionId: 'custom-session-123',
+          timestamp: DateTime.utc(2023),
+          loggerName: 'TestLogger',
+          message: 'Test message',
+          level: 'INFO',
+          zone: 'test-zone',
+        );
+        final json = log.toJsonPayload();
+        expect(json['sessionId'], 'custom-session-123');
+
+        final map = log.toMap();
+        expect(map['sessionId'], 'custom-session-123');
+
+        final restored = ServerLog.fromJson(map);
+        expect(restored.sessionId, 'custom-session-123');
+      },
+    );
 
     test('timestamp is serialised as UTC ISO 8601 string', () {
       final log = ServerLog(

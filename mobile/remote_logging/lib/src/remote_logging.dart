@@ -22,6 +22,7 @@ abstract final class RemoteLoggingInit {
     required RemoteLoggingConfig config,
     required DeviceDataGenerator deviceDataGenerator,
     LocalLogRepository localLogRepository = const NoSaveLocalLogRepository(),
+    AttestationProvider attestationProvider = const NoAttestationProvider(),
     GetAttestationTokenCallback? getAttestationTokenCallback,
     OnLog? onLog,
     OnError? onError,
@@ -34,8 +35,9 @@ abstract final class RemoteLoggingInit {
     return RemoteLogging._init(
       remoteLoggingConfig: config,
       deviceDataGenerator: deviceDataGenerator,
-      getAttestationTokenCallback: getAttestationTokenCallback,
       localLogRepository: localLogRepository,
+      attestationProvider: attestationProvider,
+      getAttestationTokenCallback: getAttestationTokenCallback,
       onLog: onLog,
       onError: onError,
     );
@@ -83,6 +85,7 @@ final class RemoteLogging {
     required LogSenderService logSenderService,
     required RemoteLoggingConfig config,
     required DeviceDataGenerator deviceDataGenerator,
+    this.attestationProvider = const NoAttestationProvider(),
     OnLog? onLog,
     GetAttestationTokenCallback? getAttestationTokenCallback,
     OnError? onError,
@@ -105,6 +108,7 @@ final class RemoteLogging {
   final DeviceDataGenerator _deviceDataGenerator;
   final OnError? _onError;
   final GetAttestationTokenCallback? _getAttestationTokenCallback;
+  final AttestationProvider attestationProvider;
   RemoteLoggingConfig _config;
 
   /// Gets the current configuration.
@@ -130,12 +134,14 @@ final class RemoteLogging {
     required RemoteLoggingConfig remoteLoggingConfig,
     required DeviceDataGenerator deviceDataGenerator,
     required LocalLogRepository localLogRepository,
+    AttestationProvider attestationProvider = const NoAttestationProvider(),
     GetAttestationTokenCallback? getAttestationTokenCallback,
     OnLog? onLog,
     OnError? onError,
   }) async {
     final logSenderService = LogSenderService(
       config: remoteLoggingConfig,
+      deviceDataGenerator: deviceDataGenerator,
       localRepository: localLogRepository,
       onError: onError,
     );
@@ -144,6 +150,7 @@ final class RemoteLogging {
       logSenderService: logSenderService,
       config: remoteLoggingConfig,
       deviceDataGenerator: deviceDataGenerator,
+      attestationProvider: attestationProvider,
       getAttestationTokenCallback: getAttestationTokenCallback,
       onLog: onLog,
       onError: onError,
@@ -175,6 +182,7 @@ final class RemoteLogging {
       config: config,
       deviceMetadata: metadata,
       invoker: invoker,
+      attestationProvider: attestationProvider,
       getAttestationToken: _getAttestationTokenCallback,
       onError: _onError,
     );

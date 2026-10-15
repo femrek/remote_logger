@@ -167,10 +167,13 @@ async fn seed_consul_if_empty(consul: &ConsulClient) -> anyhow::Result<()> {
         let dev_channel = routes::ChannelConfig {
             id: "example-app-dev".to_string(),
             app_id: "dev.femrek.exampleapp.dev".to_string(),
-            validate_attestation: false,
-            require_apple_key_hash: false,
+            android_attestation_mode: Some("off".to_string()),
+            ios_attestation_mode: Some("off".to_string()),
+            validate_attestation: None,
             google_project_number: None,
             apple_team_id: None,
+            android_signing_cert_sha256: vec![],
+            apple_app_attest_env: None,
         };
         let ok = consul.put_cas("gateway/config/channels/example-app-dev", &dev_channel, 0).await?;
         if !ok {
@@ -183,10 +186,13 @@ async fn seed_consul_if_empty(consul: &ConsulClient) -> anyhow::Result<()> {
         let prod_channel = routes::ChannelConfig {
             id: "example-app-prod".to_string(),
             app_id: "dev.femrek.exampleapp".to_string(),
-            validate_attestation: true,
-            require_apple_key_hash: true,
+            android_attestation_mode: Some("enforce".to_string()),
+            ios_attestation_mode: Some("enforce".to_string()),
+            validate_attestation: None,
             google_project_number: Some("1234567890".to_string()),
             apple_team_id: Some("STUBTEAMID".to_string()),
+            android_signing_cert_sha256: vec![],
+            apple_app_attest_env: Some("production".to_string()),
         };
         let ok = consul.put_cas("gateway/config/channels/example-app-prod", &prod_channel, 0).await?;
         if !ok {

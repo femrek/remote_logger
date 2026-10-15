@@ -66,9 +66,11 @@ pub struct RequestContext {
     pub device_id: Option<String>,
     /// Session ID extracted from validated JWT claims.
     pub session_id: Option<String>,
+    /// Hardware attestation level extracted from validated JWT claims.
+    pub att: Option<String>,
 
     // ── Request classification ───────────────────────────────────────────────
-    /// `true` when the path is `/auth/exchange` — headers must NOT be mutated.
+    /// `true` when the path is `/auth/` — headers must NOT be mutated.
     pub is_auth_exchange: bool,
 
     // ── Body buffering ───────────────────────────────────────────────────────
@@ -94,6 +96,7 @@ impl Default for RequestContext {
             app_id: None,
             device_id: None,
             session_id: None,
+            att: None,
             is_auth_exchange: false,
             body_bytes_read: 0,
             max_body_bytes: 2 * 1024 * 1024,
@@ -182,13 +185,13 @@ impl ProxyHttp for LogGateway {
 
         let path = session.req_header().uri.path().to_owned();
 
-        // ── /auth/exchange ────────────────────────────────────────────────────
-        // Blind proxy — the validation worker owns all attestation logic and
-        // JWT minting. The gateway has nothing to do here except let it through.
-        if path == "/auth/exchange" {
+        // ── /auth/ routes ─────────────────────────────────────────────────────
+        // Blind proxy — auth_worker owns all attestation logic, challenge, enroll,
+        // and JWT minting. The gateway passes it through to the auth worker pool.
+        if path.starts_with("/auth/") {
             ctx.channel_id = "auth".to_string();
             ctx.is_auth_exchange = true;
-            return Ok(false); // pipeline continues → upstream_peer → worker
+            return Ok(false); // pipeline continues → upstream_peer → auth worker
         }
 
         // ── /v1/logs/<channel-id> — ingest ────────────────────────────────────
@@ -235,6 +238,7 @@ impl ProxyHttp for LogGateway {
                 ctx.app_id = Some(claims.app);
                 ctx.device_id = Some(claims.sub);
                 ctx.session_id = Some(claims.session_id);
+                ctx.att = claims.att;
             }
             Err(e) => {
                 let reason = if e.to_string().contains("expired") {
@@ -335,6 +339,9 @@ impl ProxyHttp for LogGateway {
         }
         if let Some(session_id) = &ctx.session_id {
             upstream_request.insert_header("x-session-id", session_id.as_str())?;
+        }
+        if let Some(att) = &ctx.att {
+            upstream_request.insert_header("x-attestation", att.as_str())?;
         }
 
         Ok(())

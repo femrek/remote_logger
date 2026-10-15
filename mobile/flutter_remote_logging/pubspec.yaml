@@ -35,3 +35,10 @@ dependency_overrides:
     path: ../remote_logging
 
 flutter:
+  plugin:
+    platforms:
+      android:
+        package: dev.femrek.flutter_remote_logging
+        pluginClass: KeyAttestationPlugin
+      ios:
+        pluginClass: AppAttestPlugin

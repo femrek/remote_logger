@@ -60,18 +60,27 @@ fn default_max_body() -> usize { 2 * 1024 * 1024 }
 pub struct ChannelConfig {
     pub id: String,
     pub app_id: String,
-    /// When `true`, attestation token is cryptographically verified by the worker.
+    /// Android attestation mode: off | monitor | enforce.
     #[serde(default)]
-    pub validate_attestation: bool,
+    pub android_attestation_mode: Option<String>,
+    /// iOS attestation mode: off | monitor | enforce.
+    #[serde(default)]
+    pub ios_attestation_mode: Option<String>,
+    /// Legacy boolean flag for backward compatibility.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validate_attestation: Option<bool>,
     /// Google Cloud Project Number for Android Play Integrity.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub google_project_number: Option<String>,
     /// Apple Developer Team ID for App Attest.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub apple_team_id: Option<String>,
-    /// iOS clients must supply device_public_key when true.
-    #[serde(default)]
-    pub require_apple_key_hash: bool,
+    /// Android release/play signing certificate SHA-256 digests.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub android_signing_cert_sha256: Vec<String>,
+    /// Apple App Attest environment ("development" | "production").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apple_app_attest_env: Option<String>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

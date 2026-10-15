@@ -27,11 +27,11 @@ pub struct AppState {
     /// ECDSA private key in PEM format used for JWT signing.
     pub jwt_private_key: String,
 
-    /// Access token lifetime in seconds (default 900 = 15 min).
-    pub access_ttl_seconds: u64,
+    /// ECDSA public key in PEM format used for enrollment JWT verification.
+    pub jwt_public_key: String,
 
-    /// Refresh token lifetime in seconds (default 604 800 = 7 days).
-    pub refresh_ttl_seconds: u64,
+    /// Access token lifetime in seconds (default 86 400 = 24 hours).
+    pub access_ttl_seconds: u64,
 
     /// Issuer claim embedded in every JWT (default `"logger-gateway"`).
     pub jwt_issuer: String,

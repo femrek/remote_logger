@@ -10,6 +10,9 @@ class AuthExchangeRequest extends JsonRequestSchema {
     required this.deviceId,
     required this.deviceMetadata,
     this.devicePublicKey,
+    this.enrollmentToken,
+    this.challenge,
+    this.challengeSignature,
   }) : assert(
          platform == 'android' || platform == 'ios',
          'Platform must be android or ios',
@@ -30,6 +33,15 @@ class AuthExchangeRequest extends JsonRequestSchema {
   /// Public key of the device, required for iOS
   final String? devicePublicKey;
 
+  /// 90-day server-signed enrollment token
+  final String? enrollmentToken;
+
+  /// Stateless challenge string from GET /auth/challenge
+  final String? challenge;
+
+  /// Hardware key signature over challenge
+  final String? challengeSignature;
+
   @override
   Map<String, dynamic> toJsonPayload() => {
     'platform': platform,
@@ -37,5 +49,8 @@ class AuthExchangeRequest extends JsonRequestSchema {
     'device_id': deviceId,
     'device_metadata': deviceMetadata.toJsonPayload(),
     if (devicePublicKey != null) 'device_public_key': devicePublicKey,
+    if (enrollmentToken != null) 'enrollment_token': enrollmentToken,
+    if (challenge != null) 'challenge': challenge,
+    if (challengeSignature != null) 'challenge_signature': challengeSignature,
   };
 }

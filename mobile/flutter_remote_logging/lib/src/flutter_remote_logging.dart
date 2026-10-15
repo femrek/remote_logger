@@ -1,3 +1,4 @@
+import 'package:flutter_remote_logging/src/attestation/platform_attestation_provider.dart';
 import 'package:flutter_remote_logging/src/strategies/flutter_device_data_generator.dart';
 import 'package:flutter_remote_logging/src/strategies/sqflite_local_log_repository.dart';
 import 'package:flutter_remote_logging/src/util/internal_logger.dart';
@@ -14,11 +15,12 @@ abstract final class FlutterRemoteLogging {
   /// and passes it to the underlying [RemoteLogging] implementation, saving
   /// developers from having to implement their own device data generators.
   ///
-  /// Provide a [getAttestationTokenCallback] if your backend requires an
-  /// app attestation token (e.g. Firebase App Check).
+  /// Provide an [attestationProvider] (defaults to [PlatformAttestationProvider])
+  /// or a legacy [getAttestationTokenCallback].
   static Future<RemoteLogging> initRemote({
     required RemoteLoggingConfig remoteLoggingConfig,
     DeviceDataGenerator? deviceDataGenerator,
+    AttestationProvider? attestationProvider,
     GetAttestationTokenCallback? getAttestationTokenCallback,
     LocalLogRepository? localLogRepository,
     bool enableDefaultLocalFallbackStorage = true,
@@ -44,6 +46,8 @@ abstract final class FlutterRemoteLogging {
     return RemoteLoggingInit.initRemote(
       config: remoteLoggingConfig,
       deviceDataGenerator: deviceDataGenerator ?? FlutterDeviceDataGenerator(),
+      attestationProvider:
+          attestationProvider ?? const PlatformAttestationProvider(),
       getAttestationTokenCallback: getAttestationTokenCallback,
       localLogRepository: repo ?? const NoSaveLocalLogRepository(),
       onLog: onLog,

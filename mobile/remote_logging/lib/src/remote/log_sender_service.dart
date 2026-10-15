@@ -19,13 +19,16 @@ final class LogSenderService {
   /// Creates a [LogSenderService] with the given [config].
   LogSenderService({
     required RemoteLoggingConfig config,
+    DeviceDataGenerator? deviceDataGenerator,
     LocalLogRepository? localRepository,
     OnError? onError,
   }) : _config = config,
+       _deviceDataGenerator = deviceDataGenerator,
        _localRepository = localRepository,
        _onError = onError;
 
   final RemoteLoggingConfig _config;
+  final DeviceDataGenerator? _deviceDataGenerator;
   final LocalLogRepository? _localRepository;
   final OnError? _onError;
 
@@ -52,6 +55,7 @@ final class LogSenderService {
     final serverLog = ServerLog.fromLogRecord(
       logRecord,
       _config.truncation,
+      sessionId: _deviceDataGenerator?.sessionId,
     );
 
     unawaited(
@@ -173,13 +177,26 @@ final class LogSenderService {
   Future<void> _sendAll() async {
     if (_queue.isEmpty) return;
 
+    final String? token;
+    try {
+      token = await _authService.getValidAccessToken();
+    } on Object catch (e, s) {
+      internalLog.warning(
+        'Failed to acquire access token before sending logs',
+        e,
+        s,
+      );
+      _onError?.call(e, s);
+      return;
+    }
+
     final toSend = await _drainQueue();
     if (toSend.isEmpty) return;
 
     final request = RequestLogBatch(
       logs: toSend,
       path: _config.path,
-      token: await _authService.getValidAccessToken(),
+      token: token,
     );
     final response = await _invoker.send(request);
     switch (response) {
@@ -197,6 +214,7 @@ final class LogSenderService {
         );
         _onError?.call(response.error, response.error.stackTrace);
       case SpecifiedResponseResult(:final data, :final type):
+        _addFailedBatch(request);
         final err = Exception(
           'Unexpected response type for log batch request: $type, data: $data',
         );
@@ -215,6 +233,17 @@ final class LogSenderService {
       'Resending ${_failedBatches.length} failed log batch requests',
     );
 
+    final String? token;
+    try {
+      token = await _authService.getValidAccessToken();
+    } on Object catch (e, s) {
+      internalLog.fine(
+        () => 'Cannot resend failed batches: unable to acquire token',
+        e,
+      );
+      return;
+    }
+
     // Copy to iterate safely while mutating _failedBatches.
     final toRetry = List<RequestLogBatch>.of(_failedBatches);
 
@@ -223,7 +252,7 @@ final class LogSenderService {
       final request = RequestLogBatch(
         logs: original.logs,
         path: original.path,
-        token: await _authService.getValidAccessToken(),
+        token: token,
       );
 
       final response = await _invoker.send(request);
