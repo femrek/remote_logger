@@ -63,6 +63,21 @@ pipeline {
                         }
                     }
                 }
+
+                stage('Test auth_worker') {
+                    when {
+                        anyOf {
+                            changeset "auth_worker/**"
+                            changeset "Jenkinsfile"
+                        }
+                    }
+                    steps {
+                        script {
+                            echo 'Running auth_worker unit tests...'
+                            sh 'cd auth_worker && cargo test'
+                        }
+                    }
+                }
             }
         }
 
@@ -94,6 +109,10 @@ pipeline {
                     // Build logger_admin from its context and Dockerfile
                     echo "Building logger_admin image..."
                     adminImage = docker.build("${DOCKER_REGISTRY}/logger_admin:${IMAGE_TAG}", "-f logger_admin/Dockerfile logger_admin")
+
+                    // Build auth_worker from its context and Dockerfile
+                    echo "Building auth_worker image..."
+                    authWorkerImage = docker.build("${DOCKER_REGISTRY}/auth_worker:${IMAGE_TAG}", "-f auth_worker/Dockerfile auth_worker")
                 }
             }
         }
@@ -114,6 +133,9 @@ pipeline {
 
                         adminImage.push()
                         adminImage.push('latest')
+
+                        authWorkerImage.push()
+                        authWorkerImage.push('latest')
                     }
                 }
             }
@@ -128,6 +150,7 @@ pipeline {
                     sh "docker rmi ${env.DOCKER_REGISTRY}/logger_gateway:${env.IMAGE_TAG} || true"
                     sh "docker rmi ${env.DOCKER_REGISTRY}/validation_worker:${env.IMAGE_TAG} || true"
                     sh "docker rmi ${env.DOCKER_REGISTRY}/logger_admin:${env.IMAGE_TAG} || true"
+                    sh "docker rmi ${env.DOCKER_REGISTRY}/auth_worker:${env.IMAGE_TAG} || true"
                 }
             }
         }

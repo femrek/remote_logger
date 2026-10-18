@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Build stage
-FROM rust:bookworm as builder
+FROM rust:bookworm AS builder
 
 # Install cmake for rdkafka's cmake-build feature
 RUN apt-get update && apt-get install -y cmake
@@ -22,7 +22,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=auth_worker_registry 
 FROM debian:bookworm-slim
 
 # Install ca-certificates and other required minimal runtime libraries
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Create a non-privileged group and user
 RUN groupadd -r appgroup && useradd -r -g appgroup -s /sbin/nologin appuser
