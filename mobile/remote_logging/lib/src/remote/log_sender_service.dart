@@ -240,6 +240,7 @@ final class LogSenderService {
       internalLog.fine(
         () => 'Cannot resend failed batches: unable to acquire token',
         e,
+        s,
       );
       return;
     }

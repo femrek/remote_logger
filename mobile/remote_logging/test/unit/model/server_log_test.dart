@@ -28,7 +28,8 @@ void main() {
     });
 
     test(
-      'toJsonPayload does NOT contain sessionId or deviceId when sessionId is null',
+      'toJsonPayload does NOT contain sessionId or deviceId '
+      'when sessionId is null',
       () {
         final log = ServerLog(
           id: 'test-id',

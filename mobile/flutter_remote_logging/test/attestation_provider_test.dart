@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_redundant_argument_values test file
+
 import 'package:flutter/services.dart';
 import 'package:flutter_remote_logging/flutter_remote_logging.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -47,7 +49,7 @@ void main() {
       storedToken = null;
 
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
+          .setMockMethodCallHandler(channel, (methodCall) async {
             log.add(methodCall);
             switch (methodCall.method) {
               case 'isSupported':

@@ -8,12 +8,12 @@ class ServerLog extends JsonRequestSchema {
   /// Constructs a [ServerLog] instance.
   ServerLog({
     required this.id,
-    this.sessionId,
     required this.timestamp,
     required this.loggerName,
     required this.message,
     required this.level,
     required this.zone,
+    this.sessionId,
     this.error,
     this.stacktrace,
   });

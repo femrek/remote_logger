@@ -9,7 +9,6 @@ import 'package:remote_logging/src/model/auth_exchange_request.dart';
 import 'package:remote_logging/src/remote/request/request_auth_challenge.dart';
 import 'package:remote_logging/src/remote/request/request_auth_enroll.dart';
 import 'package:remote_logging/src/remote/request/request_auth_exchange.dart';
-import 'package:remote_logging/src/strategy/attestation_provider.dart';
 import 'package:remote_logging/src/util/internal_logger.dart';
 
 /// A service responsible for handling authentication exchange.
@@ -55,7 +54,8 @@ class AuthService {
     _accessExpiresAt = null;
   }
 
-  /// Exchanges device attestation for JWT tokens with single-flight deduplication.
+  /// Exchanges device attestation for JWT tokens with single-flight
+  /// deduplication.
   Future<void> exchangeAuthToken() {
     if (_ongoingExchange != null) {
       return _ongoingExchange!;
@@ -126,7 +126,7 @@ class AuthService {
     }
 
     // 2. Load or perform enrollment
-    String? enrollmentToken = await attestationProvider.loadEnrollmentToken();
+    var enrollmentToken = await attestationProvider.loadEnrollmentToken();
     if (enrollmentToken == null || enrollmentToken.isEmpty) {
       final material = await attestationProvider.enroll(challenge);
       final enrollReq = AuthEnrollRequest(
@@ -191,7 +191,8 @@ class AuthService {
       case SpecifiedResponseResult():
         if (!isRetry) {
           internalLog.warning(
-            'Auth exchange failed with enrollment token; resetting key & retrying enrollment once.',
+            'Auth exchange failed with enrollment token; resetting key '
+            '& retrying enrollment once.',
           );
           await attestationProvider.reset();
           return _exchangeWithAttestation(

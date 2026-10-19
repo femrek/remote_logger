@@ -1,0 +1,29 @@
+name: remote_logging_example
+description: "Interactive diagnostic and hardware attestation example for flutter_remote_logging."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  dart_network_layer_dio: ^1.0.0
+  flutter:
+    sdk: flutter
+  flutter_remote_logging:
+    path: ../flutter_remote_logging
+  logging: ^1.2.0
+  remote_logging:
+    path: ../remote_logging
+
+dependency_overrides:
+  remote_logging:
+    path: ../remote_logging
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  very_good_analysis: ^10.0.0
+
+flutter:
+  uses-material-design: true

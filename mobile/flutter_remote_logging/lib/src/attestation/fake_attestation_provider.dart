@@ -1,6 +1,7 @@
 import 'package:remote_logging/remote_logging.dart';
 
-/// Fake attestation provider for testing, desktop, simulator, and CI environments.
+/// Fake attestation provider for testing, desktop, simulator, and CI
+/// environments.
 class FakeAttestationProvider implements AttestationProvider {
   /// Creates a [FakeAttestationProvider].
   FakeAttestationProvider({
@@ -15,8 +16,14 @@ class FakeAttestationProvider implements AttestationProvider {
   final String? initialToken;
 
   String? _token;
+
+  /// The number of times [enroll] has been invoked.
   int enrollCallCount = 0;
+
+  /// The number of times [prove] has been invoked.
   int proveCallCount = 0;
+
+  /// The number of times [reset] has been invoked.
   int resetCallCount = 0;
 
   @override

@@ -6,6 +6,7 @@ import Security
 
 public class AppAttestPlugin: NSObject, FlutterPlugin {
   private static let channelName = "dev.femrek.flutter_remote_logging/attestation"
+  private static let seKeyTag = "dev.femrek.flutter_remote_logging.se_key_data"
   private static let keyIdTag = "dev.femrek.flutter_remote_logging.attest_key_id"
   private static let tokenTag = "dev.femrek.flutter_remote_logging.enrollment_token"
 
@@ -19,14 +20,14 @@ public class AppAttestPlugin: NSObject, FlutterPlugin {
     switch call.method {
     case "isSupported":
       if #available(iOS 14.0, *) {
-        result(DCAppAttestService.shared.isSupported)
+        result(SecureEnclave.isAvailable || DCAppAttestService.shared.isSupported)
       } else {
         result(false)
       }
 
     case "enroll":
-      guard #available(iOS 14.0, *), DCAppAttestService.shared.isSupported else {
-        result(FlutterError(code: "UNSUPPORTED", message: "DCAppAttestService is not supported", details: nil))
+      guard #available(iOS 14.0, *) else {
+        result(FlutterError(code: "UNSUPPORTED", message: "iOS 14.0 or higher is required", details: nil))
         return
       }
 
@@ -37,39 +38,62 @@ public class AppAttestPlugin: NSObject, FlutterPlugin {
         return
       }
 
-      DCAppAttestService.shared.generateKey { [weak self] keyId, error in
-        if let error = error {
-          result(FlutterError(code: "KEY_GEN_FAILED", message: error.localizedDescription, details: nil))
-          return
+      do {
+        let pubKeyBase64: String
+        let attestationBase64: String
+
+        if SecureEnclave.isAvailable {
+          let seKey = try SecureEnclave.P256.Signing.PrivateKey()
+          self.saveToKeychain(key: AppAttestPlugin.seKeyTag, data: seKey.dataRepresentation)
+          pubKeyBase64 = seKey.publicKey.x963Representation.base64EncodedString()
+          let sig = try seKey.signature(for: challengeData)
+          attestationBase64 = sig.derRepresentation.base64EncodedString()
+        } else {
+          let p256Key = P256.Signing.PrivateKey()
+          self.saveToKeychain(key: AppAttestPlugin.seKeyTag, data: p256Key.rawRepresentation)
+          pubKeyBase64 = p256Key.publicKey.x963Representation.base64EncodedString()
+          let sig = try p256Key.signature(for: challengeData)
+          attestationBase64 = sig.derRepresentation.base64EncodedString()
         }
-        guard let keyId = keyId else {
-          result(FlutterError(code: "KEY_GEN_FAILED", message: "Failed to generate keyId", details: nil))
-          return
-        }
 
-        self?.saveToKeychain(key: AppAttestPlugin.keyIdTag, data: keyId.data(using: .utf8)!)
-
-        let clientDataHash = Data(SHA256.hash(data: challengeData))
-        DCAppAttestService.shared.attestKey(keyId, clientDataHash: clientDataHash) { attestation, attestError in
-          if let attestError = attestError {
-            result(FlutterError(code: "ATTEST_FAILED", message: attestError.localizedDescription, details: nil))
-            return
+        if DCAppAttestService.shared.isSupported {
+          DCAppAttestService.shared.generateKey { [weak self] keyId, error in
+            if let keyId = keyId {
+              self?.saveToKeychain(key: AppAttestPlugin.keyIdTag, data: keyId.data(using: .utf8)!)
+              let clientDataHash = Data(SHA256.hash(data: challengeData))
+              DCAppAttestService.shared.attestKey(keyId, clientDataHash: clientDataHash) { attestation, attestError in
+                if let attestation = attestation {
+                  result([
+                    "publicKey": pubKeyBase64,
+                    "attestation": attestation.base64EncodedString()
+                  ])
+                  return
+                }
+                result([
+                  "publicKey": pubKeyBase64,
+                  "attestation": attestationBase64
+                ])
+              }
+              return
+            }
+            result([
+              "publicKey": pubKeyBase64,
+              "attestation": attestationBase64
+            ])
           }
-          guard let attestation = attestation else {
-            result(FlutterError(code: "ATTEST_FAILED", message: "Attestation blob is nil", details: nil))
-            return
-          }
-
+        } else {
           result([
-            "publicKey": keyId,
-            "attestation": attestation.base64EncodedString()
+            "publicKey": pubKeyBase64,
+            "attestation": attestationBase64
           ])
         }
+      } catch {
+        result(FlutterError(code: "ENROLL_FAILED", message: error.localizedDescription, details: nil))
       }
 
     case "prove":
-      guard #available(iOS 14.0, *), DCAppAttestService.shared.isSupported else {
-        result(FlutterError(code: "UNSUPPORTED", message: "DCAppAttestService is not supported", details: nil))
+      guard #available(iOS 14.0, *) else {
+        result(FlutterError(code: "UNSUPPORTED", message: "iOS 14.0 or higher is required", details: nil))
         return
       }
 
@@ -80,24 +104,25 @@ public class AppAttestPlugin: NSObject, FlutterPlugin {
         return
       }
 
-      guard let keyIdData = loadFromKeychain(key: AppAttestPlugin.keyIdTag),
-            let keyId = String(data: keyIdData, encoding: .utf8) else {
-        result(FlutterError(code: "KEY_NOT_FOUND", message: "Attestation keyId not found in Keychain", details: nil))
+      guard let keyData = loadFromKeychain(key: AppAttestPlugin.seKeyTag) else {
+        result(FlutterError(code: "KEY_NOT_FOUND", message: "Hardware key not found in Keychain", details: nil))
         return
       }
 
-      let clientDataHash = Data(SHA256.hash(data: challengeData))
-      DCAppAttestService.shared.generateAssertion(keyId, clientDataHash: clientDataHash) { assertion, error in
-        if let error = error {
-          result(FlutterError(code: "ASSERTION_FAILED", message: error.localizedDescription, details: nil))
-          return
+      do {
+        let signatureBase64: String
+        if SecureEnclave.isAvailable {
+          let seKey = try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: keyData)
+          let signature = try seKey.signature(for: challengeData)
+          signatureBase64 = signature.derRepresentation.base64EncodedString()
+        } else {
+          let p256Key = try P256.Signing.PrivateKey(rawRepresentation: keyData)
+          let signature = try p256Key.signature(for: challengeData)
+          signatureBase64 = signature.derRepresentation.base64EncodedString()
         }
-        guard let assertion = assertion else {
-          result(FlutterError(code: "ASSERTION_FAILED", message: "Assertion data is nil", details: nil))
-          return
-        }
-
-        result(assertion.base64EncodedString())
+        result(signatureBase64)
+      } catch {
+        result(FlutterError(code: "PROVE_FAILED", message: error.localizedDescription, details: nil))
       }
 
     case "loadEnrollmentToken":
@@ -119,6 +144,7 @@ public class AppAttestPlugin: NSObject, FlutterPlugin {
       result(nil)
 
     case "reset":
+      deleteFromKeychain(key: AppAttestPlugin.seKeyTag)
       deleteFromKeychain(key: AppAttestPlugin.keyIdTag)
       deleteFromKeychain(key: AppAttestPlugin.tokenTag)
       result(nil)
@@ -164,3 +190,4 @@ public class AppAttestPlugin: NSObject, FlutterPlugin {
     SecItemDelete(query as CFDictionary)
   }
 }
+

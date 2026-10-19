@@ -1,5 +1,6 @@
 /// Data required by POST /auth/enroll
 class EnrollmentMaterial {
+  /// Data required by POST /auth/enroll
   const EnrollmentMaterial({
     required this.publicKey,
     required this.attestation,
@@ -8,7 +9,8 @@ class EnrollmentMaterial {
   /// Base64-encoded client public key (SEC1 or SPKI).
   final String publicKey;
 
-  /// Base64-encoded attestation statement (Android cert chain or iOS CBOR receipt).
+  /// Base64-encoded attestation statement (Android cert chain or iOS CBOR
+  /// receipt).
   final String attestation;
 }
 
@@ -17,10 +19,12 @@ abstract interface class AttestationProvider {
   /// Whether hardware attestation is supported on this platform/device.
   Future<bool> isSupported();
 
-  /// Creates and attests a new hardware key against the provided server challenge.
+  /// Creates and attests a new hardware key against the provided server
+  /// challenge.
   Future<EnrollmentMaterial> enroll(String challenge);
 
-  /// Signs the server challenge with the existing hardware key to prove possession.
+  /// Signs the server challenge with the existing hardware key to prove
+  /// possession.
   Future<String> prove(String challenge, String sessionId, String deviceId);
 
   /// Loads the persisted enrollment token from secure storage.
@@ -35,6 +39,7 @@ abstract interface class AttestationProvider {
 
 /// Default no-op provider for platforms without hardware attestation support.
 class NoAttestationProvider implements AttestationProvider {
+  /// Default no-op provider for platforms without hardware attestation support.
   const NoAttestationProvider();
 
   @override

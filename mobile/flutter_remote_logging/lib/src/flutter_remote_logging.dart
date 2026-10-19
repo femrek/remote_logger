@@ -15,7 +15,8 @@ abstract final class FlutterRemoteLogging {
   /// and passes it to the underlying [RemoteLogging] implementation, saving
   /// developers from having to implement their own device data generators.
   ///
-  /// Provide an [attestationProvider] (defaults to [PlatformAttestationProvider])
+  /// Provide an [attestationProvider] (defaults to
+  /// [PlatformAttestationProvider])
   /// or a legacy [getAttestationTokenCallback].
   static Future<RemoteLogging> initRemote({
     required RemoteLoggingConfig remoteLoggingConfig,

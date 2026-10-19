@@ -4,7 +4,6 @@ import 'package:dart_network_layer_core/dart_network_layer_core.dart';
 import 'package:remote_logging/remote_logging.dart';
 import 'package:remote_logging/src/model/auth_challenge_response.dart';
 import 'package:remote_logging/src/model/auth_enroll_response.dart';
-import 'package:remote_logging/src/model/auth_exchange_request.dart';
 import 'package:remote_logging/src/model/auth_exchange_response.dart';
 import 'package:remote_logging/src/model/gateway_error.dart';
 import 'package:remote_logging/src/remote/auth_service.dart';
@@ -141,7 +140,7 @@ void main() {
     channelId: 'test-channel',
   );
 
-  final metadata = DeviceMetadata(
+  const metadata = DeviceMetadata(
     timestamp: '2026-10-14T00:00:00Z',
     deviceId: 'device-123',
     sessionId: 'session-abc',
