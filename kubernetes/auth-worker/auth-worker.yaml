@@ -60,8 +60,6 @@ spec:
               value: "/etc/logger/keys/private.pem"
             - name: ACCESS_JWT_TTL_SECONDS
               value: "900"
-            - name: REFRESH_JWT_TTL_SECONDS
-              value: "604800"
             - name: JWT_ISSUER
               value: "logger-gateway"
             - name: RUST_LOG

@@ -42,7 +42,6 @@ services:
       - KAFKA_METADATA_TOPIC=${KAFKA_METADATA_TOPIC:-device-metadata}
       - GATEWAY_PRIVATE_KEY_PATH=${GATEWAY_PRIVATE_KEY_PATH:-/etc/logger/keys/private.pem}
       - ACCESS_JWT_TTL_SECONDS=${ACCESS_JWT_TTL_SECONDS:-900}
-      - REFRESH_JWT_TTL_SECONDS=${REFRESH_JWT_TTL_SECONDS:-604800}
       - JWT_ISSUER=${JWT_ISSUER:-logger-gateway}
       - RUST_LOG=${RUST_LOG:-info,auth_worker=debug}
       - CONSUL_HTTP_ADDR=http://consul:8500

@@ -16,8 +16,7 @@ tracking, and attestation token handling.
   Logs survive network outages and app restarts.
 - 🆔 **Device & Session Tracking**: Automatically manages persistent device UUIDs (persisted in `shared_preferences`) and
   unique per-session UUIDs.
-- 🔒 **App Attestation Ready**: Supports dynamic attestation token callbacks (e.g. Firebase App Check, Play Integrity,
-  App Attest) for secure backend endpoint verification.
+- 🔒 **Hardware Attestation Built-In**: Defaults to `PlatformAttestationProvider` (Android Keystore Key Attestation & Apple DeviceCheck App Attest / Secure Enclave) for 90-day key enrollment and per-session challenge signing, with `FakeAttestationProvider` for simulators and tests.
 - 📦 **Single-Import Convenience**: Re-exports all core classes from `package:remote_logging`, eliminating duplicate
   package imports.
 
@@ -36,27 +35,26 @@ dependencies:
 
 ## Quick Start
 
-### 1. Initialize Remote Logging
+### 1. Initialize & Start Remote Logging
 
-Initialize `FlutterRemoteLogging` early in your application startup (e.g., inside `main()`):
+Initialize `FlutterRemoteLogging` early in your application startup (e.g., inside `main()`) and start the background log sender with an `INetworkInvoker`:
 
 ```dart
+import 'package:dart_network_layer_dio/dart_network_layer_dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_remote_logging/flutter_remote_logging.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Remote Logging for Flutter
+  const gatewayUrl = 'https://logger.example.com';
+
+  // Initialize Remote Logging for Flutter (uses PlatformAttestationProvider by default)
   final remoteLogger = await FlutterRemoteLogging.initRemote(
     remoteLoggingConfig: const RemoteLoggingConfig(
-      gatewayUrl: 'https://logger.example.com',
+      gatewayUrl: gatewayUrl,
       channelId: 'mobile-app-prod',
     ),
-    getAttestationTokenCallback: () async {
-      // Return dynamic attestation token if your backend requires it
-      return 'your-attestation-jwt-or-token';
-    },
     onLog: (log) {
       debugPrint('[LOG] ${log.level}: ${log.message}');
     },
@@ -64,6 +62,10 @@ void main() async {
       debugPrint('[LOGGING ERROR] $error');
     },
   );
+
+  // Start the background transmission loop & initial attestation exchange
+  final invoker = DioNetworkInvoker.fromBaseUrl(gatewayUrl);
+  remoteLogger.start(invoker);
 
   runApp(const MyApp());
 }
@@ -102,6 +104,7 @@ void loginUser(String userId) {
  ┌─────────────────────────────────────────────────────────────┐
  │                  FlutterRemoteLogging                       │
  │  • FlutterDeviceDataGenerator  (OS, Model, DeviceID, etc.)  │
+ │  • PlatformAttestationProvider (KeyStore / App Attest)      │
  └──────────────┬───────────────────────────────┬──────────────┘
                 │ Success                       │ Offline / Retries
                 ▼                               ▼
@@ -112,8 +115,9 @@ void loginUser(String userId) {
 
 When calling `FlutterRemoteLogging.initRemote(...)`, the library automatically:
 1. Instantiates a `FlutterDeviceDataGenerator` which fetches system information via `device_info_plus` & `package_info_plus`, and retrieves or generates a persistent device ID via `shared_preferences`.
-2. Initializes `SqfliteLocalLogRepository` to back up unsent logs to a local SQLite database (`remote_logs.db`).
-3. Bridges log entries directly into the `remote_logging` transmission engine.
+2. Configures `PlatformAttestationProvider` (unless a custom `attestationProvider` is passed) to perform stateless `/auth/challenge` → `/auth/enroll` → `/auth/exchange` hardware attestation.
+3. Initializes `SqfliteLocalLogRepository` to back up unsent logs to a local SQLite database (`remote_logs.db`).
+4. Bridges log entries directly into the `remote_logging` transmission engine.
 
 ---
 
@@ -125,6 +129,7 @@ When calling `FlutterRemoteLogging.initRemote(...)`, the library automatically:
 static Future<RemoteLogging> initRemote({
   required RemoteLoggingConfig remoteLoggingConfig,
   DeviceDataGenerator? deviceDataGenerator,
+  AttestationProvider? attestationProvider,
   GetAttestationTokenCallback? getAttestationTokenCallback,
   LocalLogRepository? localLogRepository,
   bool enableDefaultLocalFallbackStorage = true,
@@ -135,9 +140,10 @@ static Future<RemoteLogging> initRemote({
 
 | Parameter                           | Type                           | Description                                                                                                    |
 |-------------------------------------|--------------------------------|----------------------------------------------------------------------------------------------------------------|
-| `remoteLoggingConfig`               | `RemoteLoggingConfig`          | Gateway configuration (URL, channel ID, batch size, flush interval).                                           |
+| `remoteLoggingConfig`               | `RemoteLoggingConfig`          | Gateway configuration (URL, channel ID, log levels, truncation).                                               |
 | `deviceDataGenerator`               | `DeviceDataGenerator?`         | Optional custom generator. Defaults to `FlutterDeviceDataGenerator()`.                                         |
-| `getAttestationTokenCallback`       | `GetAttestationTokenCallback?` | Optional async callback returning an attestation token for gateway authentication.                             |
+| `attestationProvider`               | `AttestationProvider?`         | Hardware attestation strategy. Defaults to `const PlatformAttestationProvider()`. Use `FakeAttestationProvider()` in simulators/tests. |
+| `getAttestationTokenCallback`       | `GetAttestationTokenCallback?` | Optional legacy fallback callback used only when `attestationProvider.isSupported()` returns `false`.          |
 | `localLogRepository`                | `LocalLogRepository?`          | Optional custom storage repository. Defaults to `SqfliteLocalLogRepository()`.                                 |
 | `enableDefaultLocalFallbackStorage` | `bool`                         | Set to `false` to disable SQLite local fallback storage when `localLogRepository` is null. Defaults to `true`. |
 | `onLog`                             | `OnLog?`                       | Callback invoked when a log record is processed.                                                               |

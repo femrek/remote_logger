@@ -33,11 +33,11 @@ Internet / Mobile Clients
                             • Discovers workers via Consul catalog
                             • Routes auth vs ingest traffic
         │
-        ├── POST /auth/exchange (Proxied to auth-worker)
+        ├── /auth/{challenge,enroll,exchange} (Proxied to auth-worker)
         │   ▼
         │ auth-worker              (Deployment, 2 replicas)
-        │  Axum microservice       • Google Play Integrity / Apple App Attest
-        │                          • ES256 session JWT minting (private.pem)
+        │  Axum microservice       • Android Key Attestation / Apple App Attest
+        │                          • ES256 enrollment & session JWT minting (private.pem)
         │                          • Startup metadata published to Kafka
         │
         └── POST /v1/logs/:channel (Proxied to validation-worker)
@@ -98,6 +98,8 @@ kubernetes/
 │   └── htpasswd.example            ← OpenSearch Dashboards HTTP basic auth template
 ├── fluent-bit/
 │   └── fluent-bit.yaml             ← Fluent Bit forwarder deployment
+├── auth-worker/
+│   └── auth-worker.yaml            ← Axum authentication & attestation worker deployment & service
 ├── validation-worker/
 │   └── validation-worker.yaml      ← Axum validation worker deployment & service
 ├── gateway/
@@ -141,12 +143,12 @@ cp kubernetes/config/docker-config.json.example kubernetes/config/docker-config.
 ```
 
 ### 4. ECDSA P-256 Key Pair (JWT Authentication)
-The pipeline uses **ES256 (ECDSA P-256)** for session JWT minting and verification. Generate a production key pair:
+The pipeline uses **ES256 (ECDSA P-256)** for enrollment and session JWT minting and verification. Generate a production key pair:
 ```bash
 openssl ecparam -name prime256v1 -genkey -noout -out private.pem
 openssl ec -in private.pem -pubout -out public.pem
 ```
-Mount `private.pem` into the `validation-worker` pod (configured via `GATEWAY_PRIVATE_KEY_PATH`) and `public.pem` into the `logger-gateway` pod (configured via `GATEWAY_PUBLIC_KEY_PATH`).
+Mount `private.pem` into the `auth-worker` pod (via the `logger-jwt-keys` secret, configured at `GATEWAY_PRIVATE_KEY_PATH=/etc/logger/keys/private.pem`) and `public.pem` into the `logger-gateway` pod (configured via `GATEWAY_PUBLIC_KEY_PATH=/etc/logger/keys/public.pem`).
 
 ---
 
@@ -163,12 +165,12 @@ curl -X PUT "http://consul.logger-backend.svc.cluster.local:8500/v1/kv/gateway/c
   -d '{
     "id": "example-app-dev",
     "app_id": "dev.femrek.exampleapp.dev",
-    "validate_attestation": false,
-    "require_apple_key_hash": false
+    "android_attestation_mode": "off",
+    "ios_attestation_mode": "off"
   }'
 ```
 
-Both `logger-gateway` and `validation-worker` watch Consul KV using HTTP blocking queries and hot-reload changes without pod restarts.
+`logger-gateway` (watching `gateway/config/global`) and `auth-worker` (watching `gateway/config/channels/`) use Consul HTTP blocking queries and hot-reload changes without pod restarts.
 
 ---
 
@@ -186,6 +188,7 @@ kubectl apply -k kubernetes/
 kubectl rollout status statefulset/broker            -n logger-backend
 kubectl rollout status deployment/consul             -n logger-backend
 kubectl rollout status statefulset/opensearch        -n logger-backend
+kubectl rollout status deployment/auth-worker        -n logger-backend
 kubectl rollout status deployment/validation-worker  -n logger-backend
 kubectl rollout status deployment/fluent-bit         -n logger-backend
 kubectl rollout status deployment/logger-gateway     -n logger-backend
@@ -204,6 +207,8 @@ kubectl get pods -n logger-backend
 Expected output:
 ```
 NAME                                  READY   STATUS    RESTARTS   AGE
+auth-worker-xxxxxxxx-xxxxx            1/1     Running   0          2m
+auth-worker-xxxxxxxx-xxxxx            1/1     Running   0          2m
 broker-0                              1/1     Running   0          2m
 consul-xxxxxxxxx-xxxxx                1/1     Running   0          2m
 fluent-bit-xxxxxxxxx-xxxxx            1/1     Running   0          2m

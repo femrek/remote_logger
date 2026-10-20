@@ -28,15 +28,15 @@ Legend:
 
 ### A3. iOS App Attest entitlement is a manual host-app step — 🟡 `dx`
 - **Finding (#5):** A plugin can't add the App Attest capability. If the host app forgets it, `attestKey` fails at runtime.
-- **What the plan does:** documents the step in the README, and the backend checks AAGUID per channel.
+- **What the plan does:** ~~documents the step in the README~~ (implemented in `mobile/flutter_remote_logging/README.md` & `docs/attestation.md`), and the backend checks AAGUID per channel (pending real verifier in `auth_worker`).
 - **Suggestions:**
   - Have the plugin detect the missing entitlement and emit **one** clear `internalLog.severe` message with setup instructions.
-  - Add a `doctor`-style check to the example app.
+  - ~~Add a `doctor`-style check to the example app.~~ *(Implemented in `mobile/example` via `AttestationTab` and `DiagnosticController`)*
   - Report "attestation unavailable: entitlement missing" as a distinct error code to the backend so it's visible in dashboards.
 
 ### A4. Non-GMS Android devices (Huawei, some Chinese OEMs, AOSP builds) — 🟡 `product`
 - **Finding (#7):** Devices without Google Mobile Services attest to OEM vendor roots (e.g. Huawei), not Google's.
-- **Decision:** **Treat as `att=none` for now** (per user decision). In `monitor` and `off` modes, logs from these devices are accepted normally with the `att=none` trust tag.
+- **Decision:** ~~**Treat as `att=none` for now** (per user decision). In `monitor` and `off` modes, logs from these devices are accepted normally with the `att=none` trust tag.~~ *(Implemented)*
 - **Future Options:** Add support for OEM vendor-specific root certificate sets (e.g. Huawei Key Attestation Root CA) configurable per channel in Consul KV.
 
 ---
@@ -44,8 +44,8 @@ Legend:
 ## B. Known limitations of the chosen design
 
 ### B1. Stateless challenge is not single-use — 🟡 `security`
-- An HMAC challenge can be reused within its 5-minute TTL. It's bound to a channel, and the session proof also binds `session_id` and `device_id`, so the replay value is low.
-- **If needed:** keep a short-lived seen-nonce set (in-memory LRU per `auth_worker` replica, or Redis for exact enforcement).
+- An HMAC challenge can be reused within its 5-minute TTL. Note that [`create_challenge`](../auth_worker/src/auth/jwt.rs) currently signs `nonce:exp:private_key` (not bound to `channel_id`), and [`prove`](../mobile/flutter_remote_logging/android/src/main/kotlin/dev/femrek/flutter_remote_logging/KeyAttestationPlugin.kt) signs `challenge` bytes directly (ignoring `sessionId` and `deviceId` parameters), though `/auth/exchange` verifies that the enrollment token's `app`, `sub` (`device_id`), and `plt` match the request.
+- **If needed:** bind `channel_id` into `create_challenge`, sign `challenge:session_id:device_id` in `prove()`, and keep a short-lived seen-nonce set (in-memory LRU per `auth_worker` replica, or Redis for exact enforcement).
 
 ### B2. iOS assertion counter not checked — 🟡 `security`
 - App Attest assertions include a monotonic counter. Enforcing it requires storing per-key state on the server, which conflicts with the stateless design. Freshness relies on the challenge (see B1).
@@ -63,7 +63,7 @@ Legend:
 
 ---
 
-## C. Other issues found in the codebase (outside the attestation scope)
+## C. Other issues & TODOs found in the codebase
 
 ### C1. Duplicate logs on retry (no idempotency) — 🟠 `reliability`
 - [`ServerLog.toJsonPayload`](../mobile/remote_logging/lib/src/model/server_log.dart) **does not send the client `id`** ("Only for saving local database").
@@ -74,38 +74,45 @@ Legend:
   - Use it as the OpenSearch document `_id` (Fluent Bit `Id_Key`), so duplicates become idempotent overwrites.
   - Optionally use the Kafka idempotent producer, or produce the whole batch and then await all delivery futures.
 
-### C2. Non-2xx "specified" responses drop the in-memory batch — 🟠 `reliability`
-- In [`_sendAll`](../mobile/remote_logging/lib/src/remote/log_sender_service.dart), the `SpecifiedResponseResult` branch logs an error but **doesn't** call `_addFailedBatch`. The batch only survives in SQLite (if enabled) until the next launch.
+### ~~C2. Non-2xx "specified" responses drop the in-memory batch~~ (Status-code classification & 401 token invalidation still open) — 🟠 `reliability`
+- ~~In [`_sendAll`](../mobile/remote_logging/lib/src/remote/log_sender_service.dart), the `SpecifiedResponseResult` branch logs an error but **doesn't** call `_addFailedBatch`. The batch only survives in SQLite (if enabled) until the next launch.~~ *(Implemented: `_sendAll` now calls `_addFailedBatch(request)` on `SpecifiedResponseResult`)*
+- Neither `_sendAll` nor `_resendFailedRequests` classifies status codes or invalidates `_authService` on `401 Unauthorized`.
 - **Suggestions:** classify responses:
   - `4xx` other than 401/429 → drop and remove locally (poison data)
-  - `401` → re-auth and retry
+  - `401` → call `_authService.invalidate()`, re-auth, and retry
   - `429` / `5xx` → retry with backoff
-
-  (The 401 path is already in the plan; the rest is not.)
 
 ### C3. Path channel is not bound to the token — 🟡 `security`
 - [`request_filter`](../logger_gateway/src/proxy/handler.rs) parses `{channel}` from `/v1/logs/{channel}` but doesn't check it against the JWT. The JWT has no channel claim, so a token from channel A is accepted on `/v1/logs/B`.
-- Data still lands in the token's `app` index (via `x-app-id`), so impact is low. But the OpenAPI description says the channel is enforced, which is misleading.
+- Data still lands in the token's `app` index (via `x-app-id`), so impact is low. ~~But the OpenAPI description says the channel is enforced, which is misleading.~~ *(OpenAPI description fixed in `openapi.json`)*
 - **Suggestion:** add a `ch` claim at exchange and enforce `ch == path channel` in the gateway.
 
 ### C4. JWT signing key has no `kid` and no rotation support — 🟡 `ops`
 - Tokens are minted with `Header::new(ES256)` and no `kid`, and the gateway trusts one public key. Rotating the key invalidates every live 24h token at once.
-- The plan's 401 → re-exchange handling keeps clients recovering, but rotation still causes a re-auth storm.
 - **Suggestion:** add `kid`, let the gateway accept a key set (current + previous), and rotate with overlap ≥ access TTL.
 
 ### C5. Error JSON built by string formatting — 🟡 `reliability`
 - `send_error` in the gateway escapes only `"`. Messages containing `\` or control characters (e.g. JWT error text) can produce invalid JSON.
 - **Suggestion:** use `serde_json::json!`.
 
-### C6. Stale docs and tooling — 🟡 `dx`
-- [`validation_worker/README.md`](../validation_worker/README.md) still says the validation worker mints JWTs and lists `REFRESH_JWT_TTL_SECONDS`.
+### C6. ~~Stale docs~~ and tooling — 🟡 `dx`
+- ~~[`validation_worker/README.md`](../validation_worker/README.md) still says the validation worker mints JWTs and lists `REFRESH_JWT_TTL_SECONDS`.~~ *(Implemented: cleaned up in `validation_worker/README.md`, `docker-compose.yaml`, and `kubernetes/auth-worker/auth-worker.yaml`)*
 - `validation_worker/config/channels.yaml` still holds attestation config that moved to `auth_worker`/Consul.
 - [`load_tests/stress_test.js`](../load_tests/stress_test.js) hard-codes a 15-minute token assumption.
-- *(Refresh-related docs are cleaned up in the plan; the rest is not.)*
 
 ### C7. Integration tests need Docker — 🟡 `dx`
-- `validation_worker/tests/integration_test.rs` fails without a Docker socket (testcontainers).
-- **Suggestion:** gate it behind a feature flag or `#[ignore]` plus a CI job that provides Docker, so `cargo test` stays green locally.
+- `validation_worker/tests/integration_test.rs` fails without a Docker socket (testcontainers), though `SKIP_INTEGRATION=1` opt-out is implemented in [`integration_test.rs`](../validation_worker/tests/integration_test.rs).
+- **Suggestion:** gate it behind a feature flag or `#[ignore]` plus a CI job that provides Docker, so bare `cargo test` stays green locally without setting `SKIP_INTEGRATION=1`.
+
+### C8. TODO: Re-enrollment recovery when local hardware key is lost (`prove()` failure) — 🟠 `reliability`
+- In [`AuthService._exchangeWithAttestation`](../mobile/remote_logging/lib/src/remote/auth_service.dart), `await attestationProvider.prove(...)` is called before `POST /auth/exchange`.
+- If a cached `enrollment_token` still exists in `SharedPreferences` / Keychain, but the underlying hardware key in Android KeyStore or iOS Keychain was lost or invalidated locally (throwing `KEY_NOT_FOUND` or `PROVE_FAILED`), `prove()` throws an uncaught `PlatformException` and never reaches the `reset()` + re-enroll retry block.
+- **TODO:** Wrap `attestationProvider.prove(...)` in a `try / catch`; if `!isRetry`, call `await attestationProvider.reset()` and retry `_exchangeWithAttestation(..., isRetry: true)`.
+
+### C9. TODO: Avoid wiping hardware key on `5xx` server errors during `/auth/exchange` — 🟠 `reliability`
+- In [`AuthService._exchangeWithAttestation`](../mobile/remote_logging/lib/src/remote/auth_service.dart), the `SpecifiedResponseResult` branch unconditionally calls `await attestationProvider.reset()` and re-enrolls when `!isRetry`.
+- Because `auth_worker` returns a structured `GatewayError` on `503 Service Unavailable` (e.g., when Kafka is temporarily unreachable while publishing `SystemStartupEvent`), a transient backend/Kafka outage during `/auth/exchange` causes the client to unnecessarily delete its valid 90-day hardware key and re-enroll.
+- **TODO:** Check `response.statusCode` in `SpecifiedResponseResult` and only call `attestationProvider.reset()` + re-enroll on client/auth rejections (`400`, `401`, `403`), not on `5xx` server errors.
 
 ---
 

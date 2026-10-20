@@ -12,10 +12,140 @@
     }
   ],
   "paths": {
+    "/auth/challenge": {
+      "get": {
+        "summary": "Issue stateless attestation & session challenge",
+        "description": "Generates a 5-minute HMAC-signed challenge string (`<nonce>.<exp>.<sha256_sig>`) bound to the server's private key. Used as the cryptographic nonce for hardware key enrollment (`POST /auth/enroll`) and per-session proof of possession (`POST /auth/exchange`).",
+        "parameters": [
+          {
+            "name": "X-Channel-Id",
+            "in": "header",
+            "required": true,
+            "description": "Unique routing channel identifier (e.g., `example-app-prod`, `example-app-dev`).",
+            "schema": {
+              "type": "string",
+              "example": "example-app-prod"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stateless challenge issued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthChallengeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (missing or empty X-Channel-Id header).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found (no channel exists for the provided X-Channel-Id).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/enroll": {
+      "post": {
+        "summary": "Enroll hardware-attested P-256 public key for 90-day enrollment token",
+        "description": "Verifies a fresh challenge from `GET /auth/challenge` and validates the client's hardware attestation statement (Android Keystore Key Attestation certificate chain or Apple App Attest CBOR receipt) according to the channel's platform attestation mode (`off`, `monitor`, or `enforce`).\n\nUpon verification, issues a 90-day ES256 `enrollment_token` binding the device's hardware P-256 `public_key` and attestation trust tier (`att`).",
+        "parameters": [
+          {
+            "name": "X-Channel-Id",
+            "in": "header",
+            "required": true,
+            "description": "Unique routing channel identifier (e.g., `example-app-prod`, `example-app-dev`).",
+            "schema": {
+              "type": "string",
+              "example": "example-app-prod"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthEnrollRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Hardware key enrolled. 90-day ES256 enrollment token issued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthEnrollResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (missing headers or malformed JSON body).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (challenge invalid/expired, or hardware attestation failed in `enforce` mode).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found (no channel exists for the provided X-Channel-Id).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error (e.g. enrollment JWT issuance failure).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/exchange": {
       "post": {
-        "summary": "Exchange device attestation for gateway session token",
-        "description": "Validates a mobile hardware attestation token (Google Play Integrity on Android or Apple App Attest on iOS) for a specific routing channel. Upon successful validation, issues a short-lived ECDSA P-256 (ES256) session JWT to be used for authenticating subsequent log ingestion requests.\n\nIf the targeted channel's configuration has `validate_attestation: false`, the attestation validation step is skipped, but the session token is still issued.",
+        "summary": "Exchange enrollment session proof or attestation token for session access JWT",
+        "description": "Issues an ES256 (`token_type: \"access\"`) session JWT for authenticating log ingestion requests and publishes a `SystemStartupEvent` with `device_metadata` to the `device-metadata` Kafka topic.\n\nSupports two authentication modes:\n1. **Enrollment Proof Flow (Recommended):** Client supplies `enrollment_token` (from `POST /auth/enroll`), a fresh `challenge` (from `GET /auth/challenge`), and an ECDSA P-256 `challenge_signature` created by the device's hardware private key.\n2. **Direct Attestation Flow:** Client supplies `attestation_token`, which is evaluated against the channel's platform attestation mode (`off`, `monitor`, or `enforce`).",
         "parameters": [
           {
             "name": "X-Channel-Id",
@@ -40,7 +170,7 @@
         },
         "responses": {
           "200": {
-            "description": "Attestation verified. Session JWT token issued.",
+            "description": "Session proof or attestation verified. Session JWT token issued.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60,7 +190,7 @@
             }
           },
           "403": {
-            "description": "Forbidden (attestation verification failed).",
+            "description": "Forbidden (challenge signature mismatch, invalid enrollment token, or attestation verification failed in `enforce` mode).",
             "content": {
               "application/json": {
                 "schema": {
@@ -115,7 +245,7 @@
     "/v1/logs/{channel}": {
       "post": {
         "summary": "Ingest single log record",
-        "description": "Uploads a single log record. Requires Bearer JWT authentication.\n\nThe gateway enforces:\n- Bearer JWT token presence and signature validation.\n- The token subject (`sub` claim) must match the path's `{channel}` parameter.\n- The token application (`app` claim) must match the routing channel's allowed `app_id`.",
+        "description": "Uploads a single log record. Requires Bearer JWT authentication.\n\nThe gateway enforces:\n- Bearer ES256 JWT presence, signature validation, expiry, and `token_type == \"access\"`.\n- Extracts `app` (`x-app-id`), `sub` (`x-device-id`), `session_id` (`x-session-id`), and `att` (`x-attestation`) from the validated JWT claims and injects them upstream.",
         "security": [
           {
             "BearerAuth": []
@@ -223,7 +353,7 @@
     "/v1/logs/{channel}/batch": {
       "post": {
         "summary": "Ingest a batch of log records",
-        "description": "Uploads a JSON array of log records in a single payload. Requires Bearer JWT authentication.\n\nThe gateway enforces:\n- Bearer JWT token presence and signature validation.\n- The token subject (`sub` claim) must match the path's `{channel}` parameter.\n- The token application (`app` claim) must match the routing channel's allowed `app_id`.",
+        "description": "Uploads a JSON array of log records in a single payload. Requires Bearer JWT authentication.\n\nThe gateway enforces:\n- Bearer ES256 JWT presence, signature validation, expiry, and `token_type == \"access\"`.\n- Extracts `app` (`x-app-id`), `sub` (`x-device-id`), `session_id` (`x-session-id`), and `att` (`x-attestation`) from the validated JWT claims and injects them upstream.",
         "security": [
           {
             "BearerAuth": []
@@ -341,11 +471,90 @@
       }
     },
     "schemas": {
+      "AuthChallengeResponse": {
+        "type": "object",
+        "required": [
+          "challenge",
+          "expires_in"
+        ],
+        "properties": {
+          "challenge": {
+            "type": "string",
+            "description": "Stateless HMAC-signed challenge string (`<nonce>.<exp>.<sha256_sig>`).",
+            "example": "550e8400-e29b-41d4-a716-446655440000.1760840000.9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+          },
+          "expires_in": {
+            "type": "integer",
+            "description": "Challenge lifetime in seconds (default 300).",
+            "example": 300
+          }
+        }
+      },
+      "AuthEnrollRequest": {
+        "type": "object",
+        "required": [
+          "platform",
+          "device_id",
+          "public_key",
+          "attestation",
+          "challenge"
+        ],
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "android",
+              "ios"
+            ],
+            "description": "Mobile client OS platform."
+          },
+          "device_id": {
+            "type": "string",
+            "description": "Unique client-generated device ID.",
+            "example": "a809b022-7934-4b53-90d2-bf7cb95a947d"
+          },
+          "public_key": {
+            "type": "string",
+            "description": "Base64-encoded client P-256 public key (65-byte uncompressed SEC1 or 91-byte SPKI DER).",
+            "example": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE..."
+          },
+          "attestation": {
+            "type": "string",
+            "description": "Base64-encoded hardware attestation statement (Android Keystore X.509 PEM certificate chain or iOS App Attest CBOR receipt)."
+          },
+          "challenge": {
+            "type": "string",
+            "description": "Stateless challenge string obtained from `GET /auth/challenge`."
+          },
+          "client_data_signature": {
+            "type": "string",
+            "description": "Optional signature over the challenge proving key possession at enrollment time."
+          }
+        }
+      },
+      "AuthEnrollResponse": {
+        "type": "object",
+        "required": [
+          "enrollment_token",
+          "expires_in"
+        ],
+        "properties": {
+          "enrollment_token": {
+            "type": "string",
+            "description": "90-day ES256 enrollment JWT binding the device's hardware P-256 public key and attestation tier.",
+            "example": "eyJhbGciOiJFUzI1NiIsInR5cCI6..."
+          },
+          "expires_in": {
+            "type": "integer",
+            "description": "Lifetime of the enrollment token in seconds (default 7776000 / 90 days).",
+            "example": 7776000
+          }
+        }
+      },
       "AuthExchangeRequest": {
         "type": "object",
         "required": [
           "platform",
-          "attestation_token",
           "device_id",
           "device_metadata"
         ],
@@ -360,23 +569,31 @@
           },
           "attestation_token": {
             "type": "string",
-            "description": "Raw attestation blob from Google Play Integrity or Apple App Attest.",
-            "example": "eyJhbGciOiJSUzI1NiIsImtpZCI6"
-          },
-          "tenant_id": {
-            "type": "string",
-            "description": "The tenant ID identifier claimed by the client.",
-            "example": "example_tenant"
+            "description": "Raw attestation blob for direct exchange. Optional (defaults to empty string) when `enrollment_token`, `challenge`, and `challenge_signature` are supplied.",
+            "example": ""
           },
           "device_id": {
             "type": "string",
-            "description": "Unique client-generated device ID.",
+            "description": "Unique client-generated device ID (embedded in JWT `sub` claim).",
             "example": "a809b022-7934-4b53-90d2-bf7cb95a947d"
           },
           "device_public_key": {
             "type": "string",
-            "description": "Base64-encoded public key from client hardware keystore/App Attest.",
+            "description": "Optional Base64-encoded public key from client hardware keystore/App Attest.",
             "example": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE..."
+          },
+          "enrollment_token": {
+            "type": "string",
+            "description": "90-day server-signed ES256 enrollment token obtained from `POST /auth/enroll`.",
+            "example": "eyJhbGciOiJFUzI1NiIsInR5cCI6..."
+          },
+          "challenge": {
+            "type": "string",
+            "description": "Fresh stateless challenge string from `GET /auth/challenge`. Required when `enrollment_token` is supplied."
+          },
+          "challenge_signature": {
+            "type": "string",
+            "description": "Base64-encoded ECDSA P-256 signature over `challenge` produced by the enrolled hardware private key. Required when `enrollment_token` is supplied."
           },
           "device_metadata": {
             "$ref": "#/components/schemas/DeviceMetadata"
@@ -520,8 +737,7 @@
           "loggerName",
           "message",
           "level",
-          "zone",
-          "deviceId"
+          "zone"
         ],
         "properties": {
           "timestamp": {
@@ -552,12 +768,12 @@
           },
           "deviceId": {
             "type": "string",
-            "description": "Unique client-generated device ID.",
+            "description": "Optional client device ID (automatically populated/overridden by gateway `x-device-id` header from JWT `sub`).",
             "example": "a809b022-7934-4b53-90d2-bf7cb95a947d"
           },
           "sessionId": {
             "type": "string",
-            "description": "Unique logging session identifier.",
+            "description": "Optional logging session identifier (backfilled from gateway `x-session-id` header if omitted).",
             "example": "3f338d38-9588-46d4-83b6-96d5395a12ef"
           },
           "error": {
@@ -569,6 +785,11 @@
             "type": "string",
             "description": "Stringified exception stack trace.",
             "example": "#0      DB.connect (db.dart:45)\n#1      main (main.dart:12)"
+          },
+          "attestation": {
+            "type": "string",
+            "description": "Hardware attestation trust tier (`strongbox`, `tee`, `secure_enclave`, or `none`) injected by the gateway from the JWT `att` claim.",
+            "example": "tee"
           }
         }
       }

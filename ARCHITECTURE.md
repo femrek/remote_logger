@@ -21,9 +21,9 @@ The platform separates fast edge ingestion from search indexing using an event-d
 ### Data Plane Pipeline
 
 The data plane processes all inbound authentication and log ingestion requests:
-1. **`logger_gateway` (Pingora)** terminates client HTTP connections, validates ES256 session JWT signatures against `public.pem`, verifies channel path bindings, and dynamically routes traffic to `auth_worker` or `validation_worker` based on Consul service discovery.
-2. **`auth_worker` (Axum)** performs hardware attestation (Google Play Integrity & Apple App Attest), mints short-lived access and long-lived refresh JWTs signed with `private.pem`, and publishes `SystemStartupEvent` device metadata to Kafka (`device-metadata`).
-3. **`validation_worker` (Axum)** performs high-throughput `ServerLog` schema validation (single or batch), enriches payloads with gateway-injected identity headers (`x-app-id`, `x-device-id`, `x-session-id`), and publishes to Kafka (`mobile-logs`).
+1. **`logger_gateway` (Pingora)** terminates client HTTP connections, proxies `/auth/*` (`GET /auth/challenge`, `POST /auth/enroll`, `POST /auth/exchange`) to `auth_worker`, validates ES256 session JWT signatures (`token_type == "access"`) against `public.pem` on `/v1/logs/:channel` routes, and dynamically routes traffic to `auth_worker` or `validation_worker` based on Consul service discovery.
+2. **`auth_worker` (Axum)** issues stateless 5-minute challenges (`/auth/challenge`), verifies hardware attestation (Android Keystore Key Attestation & Apple App Attest), mints 90-day ES256 enrollment JWTs (`/auth/enroll`) and session access JWTs (`/auth/exchange`) signed with `private.pem`, and publishes `SystemStartupEvent` device metadata to Kafka (`device-metadata`).
+3. **`validation_worker` (Axum)** performs high-throughput `ServerLog` schema validation (single or batch), enriches payloads with gateway-injected identity and attestation headers (`x-app-id`, `x-device-id`, `x-session-id`, `x-attestation`), and publishes to Kafka (`mobile-logs`).
 4. **Apache Kafka (KRaft)** acts as a resilient buffer topic (`mobile-logs` and `device-metadata`). Workers await broker ACKs before responding `200 OK`.
 5. **Fluent Bit** consumes log streams from Kafka and bulk POSTs to OpenSearch every 2 seconds.
 6. **OpenSearch & Dashboards** provides document indexing, search APIs, and Kibana-compatible visualization.
@@ -37,8 +37,8 @@ The data plane processes all inbound authentication and log ingestion requests:
                           │    logger_gateway     │
                           │    (Pingora Proxy)    │
                           └───┬───────────────┬───┘
-          /auth/exchange      │               │  /v1/logs/:channel (JWT validated)
-          (blind proxy)       ▼               ▼
+  /auth/{challenge,enroll,    │               │  /v1/logs/:channel (JWT validated)
+         exchange}            ▼               ▼
         ┌─────────────────────────┐       ┌─────────────────────────┐
         │       auth_worker       │       │    validation_worker    │
         │   (Attestation & JWT)   │       │   (Log Schema & Sink)   │
@@ -69,7 +69,7 @@ The data plane processes all inbound authentication and log ingestion requests:
 The control plane coordinates service discovery and hot-reloadable channel routing:
 1. **HashiCorp Consul** acts as the service registry and configuration KV store (`gateway/config/global` and `gateway/config/channels/{id}`).
 2. **`logger_admin` (Axum + Web UI)** provides an intuitive dashboard on `:8082` (secured by `ADMIN_TOKEN`) to manage channels and attestation policies.
-3. **Hot-Reloading:** `auth_worker` runs a background task watching Consul KV using HTTP blocking queries, propagating attestation policy changes in real time without downtime. `logger_gateway` watches Consul service health to dynamically discover replicas of both `auth_worker` and `validation_worker`.
+3. **Hot-Reloading:** `auth_worker` runs a background task watching Consul KV using HTTP blocking queries, propagating attestation policy changes in real time without downtime. `logger_gateway` watches `gateway/config/global` and Consul service health to dynamically discover replicas of both `auth_worker` and `validation_worker`.
 
 ```
   ┌────────────────────────┐         ┌────────────────────────┐
@@ -77,8 +77,8 @@ The control plane coordinates service discovery and hot-reloadable channel routi
   │   (Web UI & API :8082) │  Writes │       (KV & DNS)       │
   └────────────────────────┘         └───────────┬────────────┘
                                                  │
-                                                 ├── Dynamic Discovery ──▶ logger_gateway
-                                                 └── Channel Config KV ──▶ auth_worker
+                                                 ├── Dynamic Discovery & Global KV ──▶ logger_gateway
+                                                 └── Channel Config KV ──────────────▶ auth_worker
 ```
 
 ---
@@ -120,10 +120,10 @@ remote_logger/
 │
 ├── auth_worker/              # Dedicated authentication service (Rust lib + bin crate)
 │   ├── src/
-│   │   ├── auth/             # Play Integrity & App Attest verifiers, ES256 minting
+│   │   ├── auth/             # Hardware attestation verifiers, ES256 enrollment & access minting
 │   │   ├── config/           # Consul KV channel subscriber
-│   │   ├── domain/           # Models (AuthExchangeRequest, DeviceMetadata, SystemStartupEvent)
-│   │   ├── handler/          # Attestation & JWT exchange (/auth/exchange)
+│   │   ├── domain/           # Models (AuthEnrollRequest, AuthExchangeRequest, SystemStartupEvent)
+│   │   ├── handler/          # Challenge, enrollment, & JWT exchange (/auth/{challenge,enroll,exchange})
 │   │   ├── kafka/            # Rdkafka sink for device-metadata topic
 │   │   └── main.rs
 │   └── Dockerfile
@@ -144,7 +144,7 @@ remote_logger/
 │
 ├── mobile/                   # Client SDK libraries
 │   ├── remote_logging/       # Pure Dart logging engine with batching & truncation
-│   └── flutter_remote_logging/ # Flutter extension with device info & SQLite offline cache
+│   └── flutter_remote_logging/ # Flutter extension with native attestation, device info & SQLite cache
 │
 ├── docker/                   # Local development container stack
 │   ├── docker-compose.yaml   # Base compose definition
@@ -154,6 +154,7 @@ remote_logger/
 │   └── .env.template         # Environment variable template
 │
 ├── kubernetes/               # Production Kubernetes manifests (Kustomize)
+│   ├── auth-worker/          # Auth worker Deployment & Service
 │   ├── broker/               # Kafka KRaft StatefulSet
 │   ├── consul/               # Consul agent Deployment & Service
 │   ├── gateway/              # Logger gateway Deployment & Service

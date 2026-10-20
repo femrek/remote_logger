@@ -158,6 +158,10 @@ class AuthService {
     }
 
     // 3. Generate session proof (signed challenge)
+    // TODO(attestation): If a cached enrollmentToken exists in storage but the
+    // underlying hardware key was lost/invalidated locally (causing prove() to
+    // throw KEY_NOT_FOUND / PROVE_FAILED), catch the exception, call
+    // attestationProvider.reset(), and retry enrollment once (!isRetry).
     final signature = await attestationProvider.prove(
       challenge,
       deviceMetadata.sessionId,
@@ -189,6 +193,10 @@ class AuthService {
           Duration(seconds: response.data.accessExpiresIn),
         );
       case SpecifiedResponseResult():
+        // TODO(attestation): Only reset the hardware key and re-enroll on
+        // client/auth rejections (e.g. HTTP 400/401/403). Do not wipe the valid
+        // 90-day enrollment key on transient 5xx server errors (such as 503
+        // when Kafka is temporarily unavailable).
         if (!isRetry) {
           internalLog.warning(
             'Auth exchange failed with enrollment token; resetting key '

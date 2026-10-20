@@ -13,8 +13,8 @@ Built on top of the standard Dart [`package:logging`](https://pub.dev/packages/l
 - 🚀 **Standard Logging API**: Re-exports and integrates with `package:logging`. Use familiar `Logger` instances and log levels.
 - 📦 **Batch Ingestion**: Queues records and flushes them in batches over HTTP to minimize mobile network radio wakeups.
 - 🛡️ **Defensive Truncation**: Configurable bounds on message lengths, error descriptions, and stack trace frames (`LogTruncationConfig`) to prevent oversized payloads.
-- 🔌 **Pluggable Strategies**: Customize how device metadata is generated (`DeviceDataGenerator`) and how logs are cached locally during outages (`LocalLogRepository`).
-- 🔒 **Attestation Integration**: Supports asynchronous hardware attestation callbacks for token exchange against protected backend routes.
+- 🔌 **Pluggable Strategies**: Customize how device metadata is generated (`DeviceDataGenerator`), how hardware attestation is performed (`AttestationProvider`), and how logs are cached locally during outages (`LocalLogRepository`).
+- 🔒 **Two-Tier Attestation & Session Proof**: Supports hardware key enrollment (`/auth/challenge` → `/auth/enroll` → `/auth/exchange`) via `AttestationProvider`, as well as direct token exchange via `getAttestationTokenCallback`.
 - 📴 **Local-Only Mode**: Toggle between remote network transmission and local console formatting without rewriting logging calls.
 
 ---
@@ -38,26 +38,26 @@ dart pub add remote_logging
 
 ## Quick Start
 
-### 1. Initialize Remote Logging
+### 1. Initialize & Start Remote Logging
 
-Call `RemoteLoggingInit.initRemote` at application startup:
+Call `RemoteLoggingInit.initRemote` and start the sender loop with an `INetworkInvoker`:
 
 ```dart
+import 'package:dart_network_layer_dio/dart_network_layer_dio.dart';
 import 'package:remote_logging/remote_logging.dart';
 
 void main() async {
+  const gatewayUrl = 'https://logger.example.com';
+
   final remoteLogger = await RemoteLoggingInit.initRemote(
     config: const RemoteLoggingConfig(
-      gatewayUrl: 'https://logger.example.com',
+      gatewayUrl: gatewayUrl,
       channelId: 'example-app-dev',
       logSendLevel: Level.INFO,
       logPrintLevel: Level.ALL,
     ),
     deviceDataGenerator: AnonymousDeviceDataGenerator(),
-    getAttestationTokenCallback: () async {
-      // Return dynamic attestation token if your backend channel enforces it
-      return 'attestation-token';
-    },
+    attestationProvider: const NoAttestationProvider(),
     onLog: (record) {
       // Optional callback for custom monitoring or debugging
     },
@@ -66,12 +66,16 @@ void main() async {
     },
   );
 
+  // Start the background transmission loop & initial auth exchange
+  final invoker = DioNetworkInvoker.fromBaseUrl(gatewayUrl);
+  remoteLogger.start(invoker);
+
   // Obtain a logger and log records normally
   final logger = Logger('DatabaseService');
   logger.info('Database connection established.');
 
-  // Stop pipeline gracefully when shutting down
-  // await remoteLogger.stop();
+  // Flush & stop pipeline gracefully when shutting down
+  await remoteLogger.stop();
 }
 ```
 
