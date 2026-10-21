@@ -10,8 +10,8 @@ pub mod metrics;
 
 pub use app::{AppError, AppState, build_app};
 pub use auth::attestation::{
-    AppleAppAttestVerifier, AttestationVerifier, GooglePlayIntegrityVerifier,
-    NoopVerifier, Platform, PlatformDispatchVerifier,
+    AndroidKeyAttestationVerifier, AppleAppAttestVerifier, AttestationContext, AttestationTier,
+    AttestationVerifier, NoopVerifier, Platform, PlatformDispatchVerifier,
 };
 pub use config::{
     SharedWorkerConfig, WorkerChannelConfig, WorkerConfig, bootstrap as bootstrap_config,

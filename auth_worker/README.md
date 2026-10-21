@@ -10,8 +10,8 @@ The dedicated authentication and hardware attestation microservice in the Remote
    - Validates that the requested `X-Channel-Id` exists in the active channel configuration.
    - Issues a 5-minute (`300s`) HMAC-signed challenge (`<nonce>.<exp>.<sha256_sig>`) used to bind hardware key enrollment and per-session proofs of possession.
 2. **Hardware Key Enrollment (`POST /auth/enroll`)**:
-   - Verifies the stateless challenge and validates the device's hardware attestation statement (Android Keystore Key Attestation or Apple DeviceCheck App Attest) according to the channel's per-platform policy (`off`, `monitor`, or `enforce`).
-   - Mints a 90-day (`7,776,000s`) ES256 enrollment JWT (`token_type: "enrollment"`) embedding `sub` (`device_id`), `app` (`app_id`), `plt` (`platform`), `att` (attestation trust tier), and `pub_key` (the client's hardware-backed P-256 public key).
+   - Verifies the stateless challenge and validates the device's hardware attestation statement offline using `AndroidKeyAttestationVerifier` (Android Keystore X.509 certificate chain + `1.3.6.1.4.1.11129.2.1.17` extension) or `AppleAppAttestVerifier` (Apple DeviceCheck App Attest CBOR or Secure Enclave P-256 signature) according to the channel's per-platform policy (`off`, `monitor`, or `enforce`).
+   - Mints a 90-day (`7,776,000s`) ES256 enrollment JWT (`token_type: "enrollment"`) embedding `sub` (`device_id`), `app` (`app_id`), `plt` (`platform`), `att` (attestation trust tier: `"strongbox"`, `"tee"`, `"secure_enclave"`, or `"none"`), and `pub_key` (the client's hardware-backed P-256 public key).
 3. **Session Token Exchange & Metadata Ingestion (`POST /auth/exchange`)**:
    - Supports two exchange flows:
      - **Enrollment Proof Flow**: Verifies the fresh challenge, decodes the 90-day `enrollment_token`, verifies that `app`, `sub`, and `plt` match the request, and verifies the client's ECDSA P-256 `challenge_signature` using the enrolled `pub_key`.

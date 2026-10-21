@@ -171,8 +171,12 @@ function buildChannelRow(ch, modifyIndex = 0, isNew = false) {
   row.dataset.id = ch.id || '';
   row.dataset.modifyIndex = modifyIndex;
 
-  const androidMode = ch.android_attestation_mode || (ch.validate_attestation ? 'enforce' : 'off');
-  const iosMode     = ch.ios_attestation_mode     || (ch.validate_attestation ? 'enforce' : 'off');
+  const androidMode  = ch.android_attestation_mode || 'off';
+  const iosMode      = ch.ios_attestation_mode     || 'off';
+  const androidCerts = Array.isArray(ch.android_signing_cert_sha256)
+    ? ch.android_signing_cert_sha256.join(', ')
+    : '';
+  const appleEnv     = ch.apple_app_attest_env || '';
 
   row.innerHTML = `
     <div class="channel-fields">
@@ -185,12 +189,20 @@ function buildChannelRow(ch, modifyIndex = 0, isNew = false) {
         <input class="ch-appid mono" type="text" value="${esc(ch.app_id)}" placeholder="dev.femrek.exampleapp" />
       </div>
       <div class="field-group">
-        <label>Google Project Number <span class="hint">Android Play Integrity</span></label>
-        <input class="ch-google-proj mono" type="text" value="${esc(ch.google_project_number)}" placeholder="optional" />
+        <label>Android Signing Cert SHA-256 <span class="hint">Key Attestation (optional, comma-separated hex)</span></label>
+        <input class="ch-android-certs mono" type="text" value="${esc(androidCerts)}" placeholder="optional — skip cert check if empty" />
       </div>
       <div class="field-group">
         <label>Apple Team ID <span class="hint">App Attest</span></label>
         <input class="ch-apple-team mono" type="text" value="${esc(ch.apple_team_id)}" placeholder="optional" />
+      </div>
+      <div class="field-group">
+        <label>Apple App Attest Env <span class="hint">App Attest</span></label>
+        <select class="ch-apple-env">
+          <option value=""${appleEnv === '' ? ' selected' : ''}>Any (unset)</option>
+          <option value="development"${appleEnv === 'development' ? ' selected' : ''}>Development</option>
+          <option value="production"${appleEnv === 'production' ? ' selected' : ''}>Production</option>
+        </select>
       </div>
       <div class="field-group">
         <label>Android Mode</label>
@@ -253,7 +265,7 @@ addChannelBtn.addEventListener('click', () => {
   noChannels.classList.add('hidden');
   const row = buildChannelRow(
     { id: '', app_id: '', android_attestation_mode: 'off', ios_attestation_mode: 'off',
-      google_project_number: '', apple_team_id: '' },
+      android_signing_cert_sha256: [], apple_team_id: '', apple_app_attest_env: '' },
     0, true
   );
   channelsList.appendChild(row);
@@ -312,15 +324,21 @@ saveBtn.addEventListener('click', async () => {
 function buildSavePayload() {
   const channelRows = [...channelsList.querySelectorAll('.channel-item')];
   const channels = channelRows.map(row => {
-    const googleProj = row.querySelector('.ch-google-proj').value.trim();
+    const rawCerts   = row.querySelector('.ch-android-certs').value;
+    const androidCerts = rawCerts
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
     const appleTeam  = row.querySelector('.ch-apple-team').value.trim();
+    const appleEnv   = row.querySelector('.ch-apple-env').value.trim();
     return {
       id:                       row.querySelector('.ch-id').value.trim(),
       app_id:                   row.querySelector('.ch-appid').value.trim(),
       android_attestation_mode: row.querySelector('.ch-android-mode').value,
       ios_attestation_mode:     row.querySelector('.ch-ios-mode').value,
-      ...(googleProj ? { google_project_number: googleProj } : {}),
-      ...(appleTeam  ? { apple_team_id:         appleTeam  } : {}),
+      ...(androidCerts.length > 0 ? { android_signing_cert_sha256: androidCerts } : {}),
+      ...(appleTeam  ? { apple_team_id:        appleTeam } : {}),
+      ...(appleEnv   ? { apple_app_attest_env: appleEnv  } : {}),
     };
   });
 

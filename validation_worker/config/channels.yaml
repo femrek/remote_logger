@@ -1,20 +1,20 @@
 channels:
   # ── Production channel ────────────────────────────────────────────────────────
-  # validate_attestation: true requires real vendor credentials.
-  # require_apple_key_hash: true forces iOS clients to supply device_public_key
-  # so the refresh JWT can carry an apk_hash for stateless device binding.
+  # android_attestation_mode / ios_attestation_mode: "enforce" requires hardware
+  # key attestation (Android Keystore X.509 chain / Apple App Attest or Secure Enclave).
   - id: "example-app-prod"
     app_id: "dev.femrek.exampleapp"
-    validate_attestation: true
-    google_project_number: "1234567890"
+    android_attestation_mode: "enforce"
+    ios_attestation_mode: "enforce"
     apple_team_id: "STUBTEAMID"
-    require_apple_key_hash: true
+    apple_app_attest_env: "production"
+    # Optional: list of allowed APK signing certificate SHA-256 hex digests
+    android_signing_cert_sha256: []
 
   # ── Local development / CI channel ────────────────────────────────────────────
-  # Attestation is disabled (validate_attestation: false) so tests and
-  # simulators can exchange tokens without real Play Integrity / App Attest.
-  # require_apple_key_hash: false so iOS simulator builds don't need a key.
+  # Attestation is disabled ("off") so tests and emulators/simulators can
+  # exchange tokens without hardware attestation.
   - id: "example-app-dev"
     app_id: "dev.femrek.exampleapp.dev"
-    validate_attestation: false
-    require_apple_key_hash: false
+    android_attestation_mode: "off"
+    ios_attestation_mode: "off"

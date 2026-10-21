@@ -29,9 +29,10 @@ gateway:
 # Each entry defines one application channel. Add/remove channels and send a
 # SIGHUP (or just save the file) to hot-reload without dropping connections.
 #
-# NOTE: Attestation policy (validate_attestation, google_project_number,
-#       apple_team_id, require_apple_key_hash) has moved to the validation
-#       worker's channels.yaml. This file now only controls JWT routing.
+# NOTE: Attestation policy (android_attestation_mode, ios_attestation_mode,
+#       android_signing_cert_sha256, apple_team_id, apple_app_attest_env) lives
+#       in Consul KV under gateway/config/channels/<id> and is enforced by
+#       auth_worker. This file only controls JWT routing.
 channels:
   - id: "example-app-prod"
     # Requests whose path starts with this prefix are routed to this channel.

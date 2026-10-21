@@ -75,7 +75,7 @@ pub struct AuthEnrollResponse {
 pub struct AuthExchangeRequest {
     /// Mobile platform — routes to the correct attestation verifier.
     pub platform: Platform,
-    /// Raw attestation blob from Google Play Integrity or Apple App Attest.
+    /// Raw attestation blob from Android Hardware Keystore or Apple App Attest.
     /// Optional when `enrollment_token` and `challenge_signature` are supplied.
     #[serde(default)]
     pub attestation_token: String,

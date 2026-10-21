@@ -92,6 +92,7 @@ class MockInvoker implements INetworkInvoker {
 
 class TestAttestationProvider implements AttestationProvider {
   bool supported = true;
+  bool throwOnFirstProve = false;
   String? storedToken;
   int enrollCallCount = 0;
   int proveCallCount = 0;
@@ -116,6 +117,9 @@ class TestAttestationProvider implements AttestationProvider {
     String deviceId,
   ) async {
     proveCallCount++;
+    if (throwOnFirstProve && proveCallCount == 1) {
+      throw Exception('KEY_NOT_FOUND: Hardware key invalidated');
+    }
     return 'mock-p256-signature-b64';
   }
 
@@ -220,7 +224,7 @@ void main() {
     });
 
     test(
-      'resets and retries enrollment once if exchange with token fails',
+      'resets and retries enrollment once if exchange with token fails (403)',
       () async {
         final invoker = MockInvoker();
         final provider = TestAttestationProvider()..storedToken = 'stale.token';
@@ -260,6 +264,68 @@ void main() {
         expect(provider.resetCallCount, 1);
         expect(provider.enrollCallCount, 1);
         expect(exchangeAttempts, 2);
+      },
+    );
+
+    test(
+      'resets and retries enrollment once if prove() throws (key lost locally)',
+      () async {
+        final invoker = MockInvoker();
+        final provider = TestAttestationProvider()
+          ..storedToken = 'cached.token.without.key'
+          ..throwOnFirstProve = true;
+
+        final authService = AuthService(
+          config: config,
+          deviceMetadata: metadata,
+          invoker: invoker,
+          attestationProvider: provider,
+        );
+
+        await authService.exchangeAuthToken();
+
+        expect(authService.hasValidToken, isTrue);
+        expect(authService.accessToken, 'jwt.access.token');
+        expect(provider.resetCallCount, 1);
+        expect(provider.enrollCallCount, 1);
+        expect(provider.proveCallCount, 2);
+      },
+    );
+
+    test(
+      'does NOT reset hardware key on 5xx server error during exchange',
+      () async {
+        final invoker = MockInvoker();
+        final provider = TestAttestationProvider()
+          ..storedToken = 'valid.90day.token';
+
+        invoker.exchangeHandler = (cmd) {
+          return SpecifiedResponseResult<AuthExchangeResponse>(
+            statusCode: 503,
+            headers: {},
+            data: const GatewayError(
+              error: 'Service Unavailable',
+              code: 'KAFKA_UNAVAILABLE',
+            ),
+            type: GatewayError,
+          );
+        };
+
+        final authService = AuthService(
+          config: config,
+          deviceMetadata: metadata,
+          invoker: invoker,
+          attestationProvider: provider,
+        );
+
+        await expectLater(
+          authService.exchangeAuthToken(),
+          throwsA(isA<Exception>()),
+        );
+
+        expect(provider.resetCallCount, 0);
+        expect(provider.enrollCallCount, 0);
+        expect(provider.storedToken, 'valid.90day.token');
       },
     );
 

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use auth_worker::{
     build_app, AppState, RdkafkaSink,
     auth::attestation::{
-        AppleAppAttestVerifier, GooglePlayIntegrityVerifier, PlatformDispatchVerifier,
+        AndroidKeyAttestationVerifier, AppleAppAttestVerifier, PlatformDispatchVerifier,
     },
     config::{bootstrap, spawn_kv_watcher},
     metrics,
@@ -102,7 +102,7 @@ async fn main() {
 
     // ── Attestation verifier ──────────────────────────────────────────────────
     let verifier = Arc::new(PlatformDispatchVerifier {
-        android: Box::new(GooglePlayIntegrityVerifier),
+        android: Box::new(AndroidKeyAttestationVerifier::new()),
         ios: Box::new(AppleAppAttestVerifier),
     });
 

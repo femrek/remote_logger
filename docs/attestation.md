@@ -11,9 +11,7 @@ This guide explains how **Remote Logger** verifies mobile device authenticity us
   - [Attestation Modes (`off` · `monitor` · `enforce`)](#attestation-modes-off--monitor--enforce)
   - [Attestation Trust Tiers (`att` Claim)](#attestation-trust-tiers-att-claim)
 - [2. Backend Prerequisites (ECDSA P-256 Keys)](#2-backend-prerequisites-ecdsa-p-256-keys)
-- [3. Android Setup](#3-android-setup)
-  - [Option A (Recommended): Hardware Keystore Attestation (TEE / StrongBox)](#option-a-recommended-hardware-keystore-attestation-tee--strongbox)
-  - [Option B (Optional): Google Play Integrity API](#option-b-optional-google-play-integrity-api)
+- [3. Android Setup (Hardware Keystore Attestation — TEE / StrongBox)](#3-android-setup-hardware-keystore-attestation--tee--strongbox)
 - [4. iOS Host App Setup (Apple App Attest & Secure Enclave)](#4-ios-host-app-setup-apple-app-attest--secure-enclave)
 - [5. Activating Attestation in Consul KV](#5-activating-attestation-in-consul-kv)
   - [Option A: Via Logger Admin UI (`:8082`)](#option-a-via-logger-admin-ui-8082)
@@ -22,7 +20,7 @@ This guide explains how **Remote Logger** verifies mobile device authenticity us
   - [Production (Real Hardware Attestation)](#production-real-hardware-attestation)
   - [Simulators, Emulators & Automated Tests](#simulators-emulators--automated-tests)
 - [7. Recommended Rollout Strategy (`off` → `monitor` → `enforce`)](#7-recommended-rollout-strategy-off--monitor--enforce)
-- [8. Backend Verifier Implementation & Production Readiness Checklist](#8-backend-verifier-implementation--production-readiness-checklist)
+- [8. Backend Verifier Architecture & Production Readiness Checklist](#8-backend-verifier-architecture--production-readiness-checklist)
 
 ---
 
@@ -67,14 +65,16 @@ Each channel configures Android (`android_attestation_mode`) and iOS (`ios_attes
 | Mode | Behavior at `/auth/enroll` and `/auth/exchange` | When to Use |
 |---|---|---|
 | **`off`** *(default)* | Skips attestation verification completely. Mints tokens with `att = "none"`. | Local development, CI pipelines, and simulator/emulator channels. |
-| **`monitor`** | Runs full attestation verification. If verification **succeeds**, mints tokens with `att = "tee"` (or hardware tier). If verification **fails**, logs a warning and still mints tokens with `att = "none"`. | Staging and initial production rollout to verify client configuration without dropping logs. |
+| **`monitor`** | Runs full attestation verification. If verification **succeeds**, mints tokens with the verified hardware tier (`"strongbox"`, `"tee"`, or `"secure_enclave"`). If verification **fails**, logs a warning and still mints tokens with `att = "none"`. | Staging and initial production rollout to verify client configuration without dropping logs. |
 | **`enforce`** | Runs full attestation verification. If verification **fails**, rejects the request with `403 Forbidden` (`ATTESTATION_FAILED`). | Production channels after confirming clean metrics in `monitor` mode. |
 
 ### Attestation Trust Tiers (`att` Claim)
 
 When `logger_gateway` validates an `access` JWT on log ingestion routes, it extracts `claims.att` and injects the internal `x-attestation` header upstream. `validation_worker` attaches this value as the `attestation` field on every indexed log document in OpenSearch (`mobile-logs-{app_id}`):
-- `"strongbox"` / `"tee"` / `"secure_enclave"` — Hardware-backed attestation verified.
-- `"none"` — Unverified session (channel mode is `off`, or attestation failed while in `monitor` mode, or legacy direct exchange).
+- `"strongbox"` — Android hardware key backed by dedicated StrongBox secure element (`attestationSecurityLevel == 2`).
+- `"tee"` — Android hardware key backed by Trusted Execution Environment (`attestationSecurityLevel == 1`).
+- `"secure_enclave"` — iOS hardware key backed by Apple Secure Enclave / DeviceCheck App Attest.
+- `"none"` — Unverified session (channel mode is `off`, or attestation failed while in `monitor` mode, or legacy direct exchange without attestation).
 
 ---
 
@@ -94,75 +94,45 @@ openssl ec -in private.pem -pubout -out public.pem
 
 ---
 
-## 3. Android Setup
+## 3. Android Setup (Hardware Keystore Attestation — TEE / StrongBox)
 
-You can verify Android devices using **Option A (Hardware Keystore Attestation — Recommended)** or **Option B (Google Play Integrity API)**.
-
-### Option A (Recommended): Hardware Keystore Attestation (TEE / StrongBox)
-
-This is the **default mechanism already built into [`KeyAttestationPlugin.kt`](../mobile/flutter_remote_logging/android/src/main/kotlin/dev/femrek/flutter_remote_logging/KeyAttestationPlugin.kt)**.
+Android attestation uses the offline **Android Keystore Key Attestation** mechanism built into [`KeyAttestationPlugin.kt`](../mobile/flutter_remote_logging/android/src/main/kotlin/dev/femrek/flutter_remote_logging/KeyAttestationPlugin.kt) and verified by [`AndroidKeyAttestationVerifier`](../auth_worker/src/auth/attestation.rs):
 - Generates a hardware-backed EC P-256 (`secp256r1`) key pair inside **StrongBox** (API 28+) or **TEE** with `.setAttestationChallenge(challenge)`.
-- Produces an X.509 certificate chain (`attestation` in `/auth/enroll`) verified directly by `auth_worker` against Google's Hardware Attestation Root CA.
-- **No Google Cloud project, service account, or API quota is required.**
+- Produces an X.509 PEM certificate chain (`attestation` in `/auth/enroll`) verified offline by `auth_worker` against Google's Hardware Attestation Root CAs.
+- **No Google Cloud project, service account, or external API quota is required.**
 
-#### Step A.1: Set Minimum SDK Version
+### Step 3.1: Set Minimum SDK Version
 Ensure `minSdkVersion` is **24** (Android 7.0) or higher in `android/app/build.gradle`.
 
-#### Step A.2: Get Your Android Signing Certificate SHA-256 Digest
-The hardware attestation certificate embeds your app's package name (`app_id`) and signing certificate SHA-256 digest inside its `AttestationApplicationId` ASN.1 extension.
-1. **For Local / Upload / Internal Keystores:**
-   Extract the SHA-256 fingerprint using `keytool`:
-   ```bash
-   keytool -list -v -keystore your-release-key.jks -alias your-key-alias | grep "SHA256:"
-   ```
-2. **For Google Play Store Builds (if using Play App Signing):**
-   Go to **Google Play Console → Test and release → App integrity → App signing** and copy the **SHA-256 certificate fingerprint** under *App signing key certificate*.
-3. **Format for Consul KV:**
-   Normalize the fingerprint to lowercase hex (or colon-separated hex as expected by your verifier) and add it to `android_signing_cert_sha256` in Consul KV:
-   ```bash
-   echo "AB:CD:12:..." | tr -d ':' | tr '[:upper:]' '[:lower:]'
-   ```
+### Step 3.2: Optional — Restrict Allowed APK Signing Certificate SHA-256 Digests
+The Android hardware attestation certificate embeds your app's package name (`app_id`) and APK signing certificate SHA-256 digest inside its `AttestationApplicationId` ASN.1 extension (`1.3.6.1.4.1.11129.2.1.17`).
 
----
-
-### Option B (Optional): Google Play Integrity API
-
-Use this option only if you use the legacy direct `/auth/exchange` flow (`attestation_token`) or want to add an extra cloud Play Integrity check alongside hardware keystore attestation to detect unrevoked leaked keyboxes.
-
-#### Step B.1: Create a Google Cloud Project & Enable Play Integrity API
-1. Open the **Google Cloud Console** (`https://console.cloud.google.com/`).
-2. Create a new project or select your existing project.
-3. On the **Project Dashboard**, copy the numeric **Project Number** (e.g., `123456789012` — *not* the string Project ID).
-   - Set this as `google_project_number` in Consul KV.
-4. Go to **APIs & Services → Library**, search for **Google Play Integrity API**, and click **Enable**.
-
-#### Step B.2: Create a Service Account for `auth_worker`
-1. In Google Cloud Console, navigate to **IAM & Admin → Service Accounts**.
-2. Click **+ Create Service Account** (e.g., `auth-worker-integrity-verifier`) and grant **Service Usage Consumer** (`roles/serviceusage.serviceUsageConsumer`).
-3. Open the service account → **Keys → Add Key → Create new key → JSON**.
-4. Store the downloaded JSON key as a Kubernetes Secret and mount it into `auth_worker`.
-
-#### Step B.3: Link Google Cloud Project in Google Play Console
-1. Open **Google Play Console** (`https://play.google.com/console/`) and select your Android app.
-2. Navigate to **Test and release → App integrity** (or **Setup → App integrity**).
-3. Next to **Play Integrity API**, click **Link a Cloud project** and select the Google Cloud project from Step B.1.
+- **Default (`android_signing_cert_sha256: []`)**: `auth_worker` always verifies the X.509 chain up to Google's Hardware Attestation Root CA, checks that `attestationSecurityLevel` is `TrustedEnvironment (1)` or `StrongBox (2)`, verifies `attestationChallenge`, and enforces that the attested package name matches `channel.app_id`. Leaving `android_signing_cert_sha256` empty skips the APK signing certificate hash check so both debug and release builds work out-of-the-box.
+- **Strict Production Pinning (Recommended for Release Channels)**: Populate `android_signing_cert_sha256` with one or more allowed SHA-256 digests (lowercase/uppercase hex, with or without colons) to block repackaged APKs signed with unauthorized keys:
+  1. **For Local / Upload / Internal Keystores:**
+     ```bash
+     keytool -list -v -keystore your-release-key.jks -alias your-key-alias | grep "SHA256:"
+     ```
+  2. **For Google Play Store Builds (Play App Signing):**
+     Go to **Google Play Console → Test and release → App integrity → App signing** and copy the **SHA-256 certificate fingerprint** under *App signing key certificate*.
 
 ---
 
 ## 4. iOS Host App Setup (Apple App Attest & Secure Enclave)
 
-`flutter_remote_logging` includes [`AppAttestPlugin.swift`](../mobile/flutter_remote_logging/ios/Classes/AppAttestPlugin.swift), which uses Apple **Secure Enclave** (`SecureEnclave.P256.Signing.PrivateKey`) and **DeviceCheck App Attest** (`DCAppAttestService`).
+`flutter_remote_logging` includes [`AppAttestPlugin.swift`](../mobile/flutter_remote_logging/ios/Classes/AppAttestPlugin.swift), which supports two hardware-backed modes verified by [`AppleAppAttestVerifier`](../auth_worker/src/auth/attestation.rs):
+1. **Full Apple DeviceCheck App Attest (CBOR)**: Used when App Attest is available and entitled, and enforced when `apple_team_id` is configured on the channel.
+2. **Secure Enclave Key Possession Fallback**: When `apple_team_id` is omitted (`None`), `auth_worker` accepts either a valid App Attest CBOR object or a hardware-backed Secure Enclave ECDSA P-256 signature over the challenge (`AttestationTier::SecureEnclave`).
 
-### Step 4.1: Enable App Attest in Apple Developer Portal
+### Step 4.1: Enable App Attest in Apple Developer Portal (When Using `apple_team_id`)
 1. Sign in to the **Apple Developer Portal** (`https://developer.apple.com/account`).
-2. Copy your 10-character **Team ID** (e.g., `ABCDE12345`) from the top-right account header.
-   - You will set this as `apple_team_id` in Consul KV.
+2. Copy your 10-character **Team ID** (e.g., `ABCDE12345`) from the top-right account header and set it as `apple_team_id` in Consul KV.
 3. Navigate to **Certificates, Identifiers & Profiles → Identifiers** and select your app's **App ID** (matching `app_id`, e.g., `com.company.app`).
 4. Scroll down the **Capabilities** list, check **App Attest**, and click **Save**.
 5. Regenerate your provisioning profiles if you manage profiles manually (Xcode Automatic Signing refreshes them automatically).
 
 ### Step 4.2: Add the App Attest Capability in Xcode
-Because a Flutter plugin cannot add entitlements to the host app automatically, you must enable it on your iOS Runner target:
+Because a Flutter plugin cannot add entitlements to the host app automatically, enable it on your iOS Runner target:
 1. Ensure your iOS deployment target is **iOS 14.0** or higher in `ios/Podfile` and Xcode.
 2. Open `ios/Runner.xcworkspace` in **Xcode**.
 3. Select the **Runner** target → **Signing & Capabilities** tab.
@@ -179,7 +149,7 @@ Because a Flutter plugin cannot add entitlements to the host app automatically, 
    </dict>
    </plist>
    ```
-6. Set `apple_app_attest_env` in Consul KV to match (`"development"` or `"production"`).
+6. Optionally set `apple_app_attest_env` in Consul KV to match (`"development"` or `"production"`).
 
 ---
 
@@ -193,8 +163,9 @@ Channel attestation policies live in HashiCorp Consul KV under `gateway/config/c
 2. Add or edit your target channel:
    - **Channel ID**: e.g., `mobile-app-prod`
    - **App ID**: Your application bundle/package identifier (e.g., `com.company.app`)
-   - **Google Project Number**: Your GCP project number (required when Android mode is `monitor` or `enforce`)
-   - **Apple Team ID**: Your 10-character Apple Team ID (required when iOS mode is `monitor` or `enforce`)
+   - **Android Signing Cert SHA-256**: Optional comma-separated list of allowed APK signing certificate SHA-256 digests (leave empty to skip certificate hash pinning)
+   - **Apple Team ID**: Optional 10-character Apple Team ID (set to require full CBOR App Attest; leave empty to allow Secure Enclave fallback)
+   - **Apple App Attest Env**: Optional environment (`Any (unset)`, `Development`, or `Production`)
    - **Android Mode**: Select `Off`, `Monitor`, or `Enforce`
    - **iOS Mode**: Select `Off`, `Monitor`, or `Enforce`
 3. Click **Save Changes**.
@@ -211,7 +182,6 @@ curl -X PUT "http://localhost:8500/v1/kv/gateway/config/channels/mobile-app-prod
     "app_id": "com.company.app",
     "android_attestation_mode": "monitor",
     "ios_attestation_mode": "monitor",
-    "google_project_number": "123456789012",
     "apple_team_id": "ABCDE12345",
     "android_signing_cert_sha256": [
       "ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67"
@@ -277,56 +247,36 @@ final remoteLogger = await FlutterRemoteLogging.initRemote(
 2. **Stage 2 — Shadow Validation (`monitor`)**:
    Set your production channel's `android_attestation_mode` and `ios_attestation_mode` to `monitor`.
    - Test on real physical devices using the interactive diagnostic app in [`mobile/example`](../mobile/example/README.md).
-   - Query OpenSearch (`mobile-logs-*`) and inspect the `attestation` field across incoming logs (`"tee"` vs `"none"`), and monitor `auth_worker` logs for any attestation warnings.
+   - Query OpenSearch (`mobile-logs-*`) and inspect the `attestation` field across incoming logs (`"strongbox"`, `"tee"`, `"secure_enclave"`, vs `"none"`), and monitor `auth_worker` logs for any attestation warnings.
 3. **Stage 3 — Strict Enforcement (`enforce`)**:
-   Once legitimate physical devices consistently produce `attestation: "tee"` (or `"strongbox"` / `"secure_enclave"`), switch the channel mode to `enforce` in Logger Admin UI. Any unverified or tampered client will immediately receive `403 Forbidden` during `/auth/enroll` and `/auth/exchange`.
+   Once legitimate physical devices consistently produce hardware-backed `attestation` tiers, switch the channel mode to `enforce` in Logger Admin UI. Any unverified or tampered client will immediately receive `403 Forbidden` during `/auth/enroll` and `/auth/exchange`.
 
 ---
 
-## 8. Backend Verifier Implementation & Production Readiness Checklist
+## 8. Backend Verifier Architecture & Production Readiness Checklist
 
-> [!IMPORTANT]
-> Before switching a production channel to `enforce`, ensure the following backend verifier implementation items are completed in [`auth_worker/src/auth/attestation.rs`](../auth_worker/src/auth/attestation.rs):
+The offline cryptographic verifiers in [`auth_worker/src/auth/attestation.rs`](../auth_worker/src/auth/attestation.rs) perform the following checks during `POST /auth/enroll` and direct `POST /auth/exchange`:
 
-### 8.1 Android Option A (Recommended): Keystore Key Attestation Verifier (`POST /auth/enroll`)
-1. **Parse Certificate Chain:** Base64-decode `req.attestation` into the DER X.509 certificate chain (`cert[0]` = leaf key certificate, `cert[n-1]` = root CA).
-2. **Verify Signatures & Root CA:** Validate each certificate signature up to the pinned **Google Hardware Attestation Root CA** public key.
-3. **Check Keybox Revocation List:** Verify that no serial number in the chain appears on Google's revocation list (`https://android.googleapis.com/attestation/status`).
+### 8.1 Android Keystore Key Attestation Verifier (`AndroidKeyAttestationVerifier`)
+1. **Parse Certificate Chain:** Base64-decodes `req.attestation` and parses the concatenated PEM X.509 certificate chain (`cert[0]` = leaf key certificate, `cert[n-1]` = root CA).
+2. **Verify Signatures & Root CA:** Validates every certificate signature (`cert[i]` signed by `cert[i+1]`) and confirms `cert[n-1]` is self-signed and matches one of the pinned **Google Hardware Attestation Root CAs** (RSA-4096 and EC P-384 roots).
+3. **Public Key Binding:** Confirms `cert[0]`'s SubjectPublicKeyInfo EC P-256 public key matches `req.public_key`.
 4. **Parse ASN.1 Key Attestation Extension (`1.3.6.1.4.1.11129.2.1.17`):**
-   - Confirm `attestationChallenge == req.challenge`.
-   - Confirm `attestationSecurityLevel` is `TrustedEnvironment (1)` or `StrongBox (2)`.
-   - Confirm `rootOfTrust.verifiedBootState == Verified (0)` and `deviceLocked == true`.
-   - Extract `AttestationApplicationId` and verify the package name equals `channel.app_id` and its signing certificate digest matches `channel.android_signing_cert_sha256`.
-5. **Public Key Binding:** Confirm `cert[0]`'s SubjectPublicKeyInfo matches `req.public_key`.
+   - Confirms `attestationChallenge == req.challenge`.
+   - Confirms `attestationSecurityLevel` is `TrustedEnvironment (1)` → `AttestationTier::Tee` (`"tee"`) or `StrongBox (2)` → `AttestationTier::StrongBox` (`"strongbox"`). Rejects `Software (0)`.
+   - Extracts `AttestationApplicationId` (tag `[709]`) from `softwareEnforced` / `teeEnforced` `AuthorizationList` and verifies the attested package name equals `channel.app_id`.
+   - When `channel.android_signing_cert_sha256` is non-empty, verifies that at least one attested APK signing certificate SHA-256 digest matches the configured list.
 
-### 8.2 Android Option B (Optional): Google Play Integrity API Verifier (`GooglePlayIntegrityVerifier`)
-1. **Acquire OAuth2 Token:** Use the Google Cloud Service Account JSON (from Step B.2) to mint a short-lived Bearer token for scope `https://www.googleapis.com/auth/playintegrity`.
-2. **Call `decodeIntegrityToken`:**
-   ```http
-   POST https://playintegrity.googleapis.com/v1/{app_id}:decodeIntegrityToken
-   Authorization: Bearer <google_oauth_token>
-   Content-Type: application/json
+### 8.2 Apple App Attest & Secure Enclave Verifier (`AppleAppAttestVerifier`)
+1. **Mode 1 — Full CBOR App Attest (`fmt == "apple-appattest"`):**
+   - Validates `attStmt.x5c` certificate chain signatures up to the pinned **Apple App Attest Root CA**.
+   - Computes `clientDataHash = SHA256(req.challenge)` and `expectedNonce = SHA256(authData || clientDataHash)`, and confirms leaf certificate (`x5c[0]`) extension `1.2.840.113635.100.8.2` equals `expectedNonce`.
+   - When `channel.apple_team_id` is configured, verifies `authData[0..32]` (`rpIdHash`) equals `SHA256("{apple_team_id}.{app_id}")`.
+   - When `channel.apple_app_attest_env` is configured, verifies `authData[37..53]` (`aaguid`) matches `"development"` (`appattestdevelop`) or `"production"` (`appattest\0\0\0\0\0\0\0`).
+   - Returns `AttestationTier::SecureEnclave` (`"secure_enclave"`).
+2. **Mode 2 — Secure Enclave ECDSA P-256 Signature Fallback:**
+   - When `channel.apple_team_id` is `None` and the token is an ECDSA P-256 DER signature over `challenge`, verifies the signature against `req.public_key` and returns `AttestationTier::SecureEnclave` (`"secure_enclave"`).
 
-   { "integrity_token": "<token>" }
-   ```
-3. **Validate Verdict (`tokenPayloadExternal`):**
-   - `requestDetails.requestPackageName == channel.app_id`
-   - `requestDetails.nonce == expected_challenge`
-   - `appIntegrity.appRecognitionVerdict == "PLAY_RECOGNIZED"`
-   - `appIntegrity.certificateSha256Digest` intersects `channel.android_signing_cert_sha256`
-   - `deviceIntegrity.deviceRecognitionVerdict` contains `"MEETS_DEVICE_INTEGRITY"` or `"MEETS_STRONG_INTEGRITY"`
-
-### 8.3 Apple App Attest Verifier (`AppleAppAttestVerifier`)
-1. **Decode CBOR Attestation Object:** Base64-decode `req.attestation` and parse the CBOR map (`fmt == "apple-appattest"`, `attStmt.x5c`, `authData`).
-2. **Verify Certificate Chain:** Validate `attStmt.x5c` up to the pinned **Apple App Attest Root CA**.
-3. **Verify Nonce Extension (`1.2.840.113635.100.8.2`):**
-   - Compute `clientDataHash = SHA256(req.challenge)` and `nonce = SHA256(authData || clientDataHash)`.
-   - Confirm the leaf certificate (`x5c[0]`) extension `1.2.840.113635.100.8.2` equals `nonce`.
-4. **Verify Authenticator Data (`authData`):**
-   - `rpIdHash == SHA256("{apple_team_id}.{app_id}")`
-   - `signCount == 0`
-   - `aaguid` matches `channel.apple_app_attest_env` (`appattestdevelop` for `"development"`, `appattest\0\0\0\0\0\0\0` for `"production"`).
-
-### 8.4 Production Key Rotation
+### 8.3 Production Key Rotation Checklist
 - [ ] Replace `docker/keys/private.pem` and `docker/keys/public.pem` with freshly generated production ECDSA P-256 keys (Section 2).
 

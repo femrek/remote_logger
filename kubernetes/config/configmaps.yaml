@@ -43,16 +43,18 @@ data:
       # Production channel
       - id: "example-app-prod"
         app_id: "dev.femrek.exampleapp"
-        validate_attestation: true
-        google_project_number: "1234567890"
+        android_attestation_mode: "enforce"
+        ios_attestation_mode: "enforce"
         apple_team_id: "STUBTEAMID"
-        require_apple_key_hash: true
+        apple_app_attest_env: "production"
+        # Optional: restrict Android Key Attestation to specific APK signing cert SHA-256 digests
+        android_signing_cert_sha256: []
 
       # Local development / CI channel
       - id: "example-app-dev"
         app_id: "dev.femrek.exampleapp.dev"
-        validate_attestation: false
-        require_apple_key_hash: false
+        android_attestation_mode: "off"
+        ios_attestation_mode: "off"
 
 ---
 apiVersion: v1

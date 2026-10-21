@@ -2,7 +2,7 @@
 
 A high-throughput, multi-tenant mobile log ingestion and search pipeline built with **Rust**, **Apache Kafka**, and **OpenSearch**.
 
-Remote Logger enables mobile applications to stream telemetry and diagnostic logs securely at scale. Built with Cloudflare's **Pingora** reverse proxy and **Axum** microservices, the system enforces hardware attestation (Google Play Integrity & Apple App Attest), mints cryptographic ES256 session tokens, buffers events through Kafka, and indexes them into OpenSearch for real-time query and dashboard visualization.
+Remote Logger enables mobile applications to stream telemetry and diagnostic logs securely at scale. Built with Cloudflare's **Pingora** reverse proxy and **Axum** microservices, the system enforces hardware key attestation (Android Keystore Key Attestation & Apple App Attest / Secure Enclave), mints cryptographic ES256 session tokens, buffers events through Kafka, and indexes them into OpenSearch for real-time query and dashboard visualization.
 
 Includes native client SDKs for **Dart** and **Flutter** with built-in batching, truncation, and offline persistence.
 
@@ -27,9 +27,9 @@ Includes native client SDKs for **Dart** and **Flutter** with built-in batching,
 
 ## 🚀 Key Features
 
-- 🛡️ **Hardware Attestation**: Enforce authentic application builds via Google Play Integrity and Apple App Attest before granting ingest access.
+- 🛡️ **Offline Hardware Key Attestation**: Verify authentic devices and application builds using Android Keystore Key Attestation (StrongBox / TEE) and Apple App Attest / Secure Enclave without external cloud API dependencies.
 - ⚡  **High-Performance Ingestion**: Powered by Pingora and Axum for zero-copy streaming, sub-millisecond overhead, and memory efficiency.
-- 🔒 **Stateless ES256 Authentication**: Short-lived ECDSA P-256 session tokens with channel binding and identity enrichment.
+- 🔒 **Stateless ES256 Authentication**: Two-tier 90-day hardware key enrollment + per-session ECDSA P-256 proofs of possession with channel binding and identity enrichment.
 - 📡 **Zero-Data-Loss Reliability**: Kafka producer pipeline waits for broker ACKs prior to client response.
 - 🔄 **Dynamic Hot-Reloading**: Channels, attestation rules, and routing live in HashiCorp Consul KV with zero-downtime subscriber updates.
 - 📱 **Ready-to-Use Mobile SDKs**: First-class Dart core and Flutter plugins with local SQLite offline caching and queue recovery.
@@ -40,7 +40,7 @@ Includes native client SDKs for **Dart** and **Flutter** with built-in batching,
 ## 📌 Roadmap / TODO
 
 - [x] **Split Auth Service from Validation Worker**: Decouple hardware attestation and session JWT issuance (`/auth/exchange`) into a dedicated authentication microservice (`auth_worker`), keeping `validation_worker` focused strictly on log validation and Kafka ingestion.
-- [ ] **Hardware Attestation Production Readiness & Documentation**: Finalize end-to-end verification workflows for Google Play Integrity (Android) and Apple App Attest (iOS) with complete setup guides and configuration documentation.
+- [x] **Hardware Attestation Production Readiness & Documentation**: End-to-end offline cryptographic verification for Android Keystore Key Attestation (`strongbox` / `tee`) and Apple App Attest / Secure Enclave (`secure_enclave`) with full Logger Admin UI support and setup guides.
 
 ---
 
@@ -193,13 +193,12 @@ Open `http://localhost:8082` in your browser and enter your `GATEWAY_ADMIN_TOKEN
 - Configure global settings (e.g. `max_body_bytes`, `jwt.issuer`).
 - Create and edit application channels:
     - `id`: Routing channel slug (e.g. `my-app-prod`).
-    - `app_id`: Application bundle ID (e.g. `com.company.app`).
+    - `app_id`: Application bundle/package ID (e.g. `com.company.app`).
     - `android_attestation_mode`: Android attestation enforcement (`off`, `monitor`, or `enforce`).
     - `ios_attestation_mode`: iOS attestation enforcement (`off`, `monitor`, or `enforce`).
-    - `google_project_number`: GCP project number for Android attestation.
-    - `apple_team_id`: Apple Developer Team ID for iOS App Attest.
-    - `android_signing_cert_sha256` *(Consul KV)*: Allowed Android signing certificate SHA-256 digests.
-    - `apple_app_attest_env` *(Consul KV)*: Apple App Attest environment (`development` or `production`).
+    - `android_signing_cert_sha256` *(optional)*: Allowed Android APK signing certificate SHA-256 digests (skipped when empty so debug/release builds work out-of-the-box).
+    - `apple_team_id` *(optional)*: Apple Developer Team ID for full iOS App Attest CBOR verification (falls back to Secure Enclave signature verification when omitted).
+    - `apple_app_attest_env` *(optional)*: Apple App Attest environment (`development` or `production`).
 
 ### Consul KV Key Structure
 

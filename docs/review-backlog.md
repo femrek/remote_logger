@@ -21,14 +21,14 @@ Legend:
   3. Shorter access token TTL (e.g. 1–4h).
 
 ### A2. Leaked Android keyboxes that are not yet revoked — 🟠 `security`
-- **Finding (#4):** The plan checks Google's revocation list, but leaked keyboxes often stay unrevoked for days or weeks. With one, a rooted device or emulator can produce attestations that look valid.
+- **Finding (#4):** Leaked OEM keyboxes often stay unrevoked for days or weeks. With one, a rooted device or emulator can produce hardware keystore attestations that look valid.
 - **Suggestions:**
+  - Periodically fetch and check Google's Keybox revocation list (`https://android.googleapis.com/attestation/status`).
   - Track a per-certificate-serial enrollment rate. One intermediate certificate behind thousands of "devices" is a leak signal.
-  - Optionally add a periodic Play Integrity check (`MEETS_STRONG_INTEGRITY`) in `enforce` mode. It needs a Google API call and has a quota, so use it at enrollment only.
 
 ### A3. iOS App Attest entitlement is a manual host-app step — 🟡 `dx`
 - **Finding (#5):** A plugin can't add the App Attest capability. If the host app forgets it, `attestKey` fails at runtime.
-- **What the plan does:** ~~documents the step in the README~~ (implemented in `mobile/flutter_remote_logging/README.md` & `docs/attestation.md`), and the backend checks AAGUID per channel (pending real verifier in `auth_worker`).
+- **What the plan does:** ~~documents the step in the README~~ (implemented in `mobile/flutter_remote_logging/README.md` & `docs/attestation.md`), and the backend checks AAGUID per channel in `AppleAppAttestVerifier` (`auth_worker`). When `apple_team_id` is omitted, `AppleAppAttestVerifier` also supports Secure Enclave P-256 signature verification.
 - **Suggestions:**
   - Have the plugin detect the missing entitlement and emit **one** clear `internalLog.severe` message with setup instructions.
   - ~~Add a `doctor`-style check to the example app.~~ *(Implemented in `mobile/example` via `AttestationTab` and `DiagnosticController`)*
@@ -52,7 +52,7 @@ Legend:
 
 ### B3. Compromise after enrollment — 🟡 `security`
 - An enrollment token stays valid for 30–90 days. If the device is rooted or jailbroken after enrollment, we won't notice until it re-enrolls.
-- **Mitigations:** shorter enrollment TTL; check RootOfTrust only at enrollment; optional periodic Play Integrity / DeviceCheck.
+- **Mitigations:** shorter enrollment TTL; check `RootOfTrust` at enrollment.
 
 ### B4. Runtime hooking (Frida, Xposed, jailbreak tweaks) — 🟡 `security`
 - Attestation proves the key is in hardware and the app is genuine at enrollment. It can't stop a hooked app on a compromised device from signing fake data. This limit is inherent to client attestation, so we accept it.
@@ -95,24 +95,19 @@ Legend:
 - `send_error` in the gateway escapes only `"`. Messages containing `\` or control characters (e.g. JWT error text) can produce invalid JSON.
 - **Suggestion:** use `serde_json::json!`.
 
-### C6. ~~Stale docs~~ and tooling — 🟡 `dx`
-- ~~[`validation_worker/README.md`](../validation_worker/README.md) still says the validation worker mints JWTs and lists `REFRESH_JWT_TTL_SECONDS`.~~ *(Implemented: cleaned up in `validation_worker/README.md`, `docker-compose.yaml`, and `kubernetes/auth-worker/auth-worker.yaml`)*
-- `validation_worker/config/channels.yaml` still holds attestation config that moved to `auth_worker`/Consul.
+### ~~C6. Stale docs and tooling~~ — 🟡 `dx`
+- ~~[`validation_worker/README.md`](../validation_worker/README.md) still says the validation worker mints JWTs and lists `REFRESH_JWT_TTL_SECONDS`.~~ *(Implemented: cleaned up in `validation_worker/README.md`, `docker-compose.yaml`, `kubernetes/auth-worker/auth-worker.yaml`, and `validation_worker/config/channels.yaml`)*
 - [`load_tests/stress_test.js`](../load_tests/stress_test.js) hard-codes a 15-minute token assumption.
 
 ### C7. Integration tests need Docker — 🟡 `dx`
 - `validation_worker/tests/integration_test.rs` fails without a Docker socket (testcontainers), though `SKIP_INTEGRATION=1` opt-out is implemented in [`integration_test.rs`](../validation_worker/tests/integration_test.rs).
 - **Suggestion:** gate it behind a feature flag or `#[ignore]` plus a CI job that provides Docker, so bare `cargo test` stays green locally without setting `SKIP_INTEGRATION=1`.
 
-### C8. TODO: Re-enrollment recovery when local hardware key is lost (`prove()` failure) — 🟠 `reliability`
-- In [`AuthService._exchangeWithAttestation`](../mobile/remote_logging/lib/src/remote/auth_service.dart), `await attestationProvider.prove(...)` is called before `POST /auth/exchange`.
-- If a cached `enrollment_token` still exists in `SharedPreferences` / Keychain, but the underlying hardware key in Android KeyStore or iOS Keychain was lost or invalidated locally (throwing `KEY_NOT_FOUND` or `PROVE_FAILED`), `prove()` throws an uncaught `PlatformException` and never reaches the `reset()` + re-enroll retry block.
-- **TODO:** Wrap `attestationProvider.prove(...)` in a `try / catch`; if `!isRetry`, call `await attestationProvider.reset()` and retry `_exchangeWithAttestation(..., isRetry: true)`.
+### ~~C8. Re-enrollment recovery when local hardware key is lost (`prove()` failure)~~ — 🟠 `reliability`
+- *(Implemented in [`AuthService._exchangeWithAttestation`](../mobile/remote_logging/lib/src/remote/auth_service.dart): `attestationProvider.prove(...)` is wrapped in `try / catch`; when `!isRetry`, it calls `await attestationProvider.reset()` and retries enrollment once.)*
 
-### C9. TODO: Avoid wiping hardware key on `5xx` server errors during `/auth/exchange` — 🟠 `reliability`
-- In [`AuthService._exchangeWithAttestation`](../mobile/remote_logging/lib/src/remote/auth_service.dart), the `SpecifiedResponseResult` branch unconditionally calls `await attestationProvider.reset()` and re-enrolls when `!isRetry`.
-- Because `auth_worker` returns a structured `GatewayError` on `503 Service Unavailable` (e.g., when Kafka is temporarily unreachable while publishing `SystemStartupEvent`), a transient backend/Kafka outage during `/auth/exchange` causes the client to unnecessarily delete its valid 90-day hardware key and re-enroll.
-- **TODO:** Check `response.statusCode` in `SpecifiedResponseResult` and only call `attestationProvider.reset()` + re-enroll on client/auth rejections (`400`, `401`, `403`), not on `5xx` server errors.
+### ~~C9. Avoid wiping hardware key on `5xx` server errors during `/auth/exchange`~~ — 🟠 `reliability`
+- *(Implemented in [`AuthService._exchangeWithAttestation`](../mobile/remote_logging/lib/src/remote/auth_service.dart): `SpecifiedResponseResult` only resets the hardware key and re-enrolls on HTTP `400`, `401`, or `403`, preserving the 90-day hardware key across transient `5xx` outages.)*
 
 ---
 

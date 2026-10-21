@@ -265,8 +265,8 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     let channel_config = serde_json::json!({
         "id": "example-app-dev",
         "app_id": "dev.femrek.exampleapp.dev",
-        "validate_attestation": false,
-        "require_apple_key_hash": false
+        "android_attestation_mode": "off",
+        "ios_attestation_mode": "off"
     });
 
     ureq::put(&format!("{consul_url}/v1/kv/gateway/config/global"))

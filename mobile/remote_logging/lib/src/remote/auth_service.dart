@@ -158,15 +158,30 @@ class AuthService {
     }
 
     // 3. Generate session proof (signed challenge)
-    // TODO(attestation): If a cached enrollmentToken exists in storage but the
-    // underlying hardware key was lost/invalidated locally (causing prove() to
-    // throw KEY_NOT_FOUND / PROVE_FAILED), catch the exception, call
-    // attestationProvider.reset(), and retry enrollment once (!isRetry).
-    final signature = await attestationProvider.prove(
-      challenge,
-      deviceMetadata.sessionId,
-      deviceMetadata.deviceId,
-    );
+    final String signature;
+    try {
+      signature = await attestationProvider.prove(
+        challenge,
+        deviceMetadata.sessionId,
+        deviceMetadata.deviceId,
+      );
+    } on Object catch (e, st) {
+      if (!isRetry) {
+        internalLog.warning(
+          'Hardware key signing failed ($e); resetting key & retrying '
+          'enrollment once.',
+        );
+        await attestationProvider.reset();
+        return _exchangeWithAttestation(
+          gatewayUrl,
+          channelId,
+          platform,
+          isRetry: true,
+        );
+      }
+      onError?.call(e, st);
+      rethrow;
+    }
 
     // 4. Send exchange request
     final exchangeReq = AuthExchangeRequest(
@@ -193,14 +208,13 @@ class AuthService {
           Duration(seconds: response.data.accessExpiresIn),
         );
       case SpecifiedResponseResult():
-        // TODO(attestation): Only reset the hardware key and re-enroll on
-        // client/auth rejections (e.g. HTTP 400/401/403). Do not wipe the valid
-        // 90-day enrollment key on transient 5xx server errors (such as 503
-        // when Kafka is temporarily unavailable).
-        if (!isRetry) {
+        final status = response.statusCode;
+        final isAuthRejection =
+            status == 400 || status == 401 || status == 403;
+        if (!isRetry && isAuthRejection) {
           internalLog.warning(
-            'Auth exchange failed with enrollment token; resetting key '
-            '& retrying enrollment once.',
+            'Auth exchange rejected (HTTP $status) with enrollment token; '
+            'resetting key & retrying enrollment once.',
           );
           await attestationProvider.reset();
           return _exchangeWithAttestation(
@@ -210,7 +224,9 @@ class AuthService {
             isRetry: true,
           );
         }
-        final err = Exception('Exchange with attestation failed');
+        final err = Exception(
+          'Exchange with attestation failed (HTTP $status)',
+        );
         onError?.call(err, StackTrace.current);
         throw err;
       case NetworkErrorResult():

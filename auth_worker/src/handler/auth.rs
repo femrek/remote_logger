@@ -76,8 +76,9 @@ pub async fn auth_enroll_handler(
     })?;
 
     let app_id = channel.app_id.clone();
-    let google_project_number = channel.google_project_number.clone();
+    let android_signing_cert_sha256 = channel.android_signing_cert_sha256.clone();
     let apple_team_id = channel.apple_team_id.clone();
+    let apple_app_attest_env = channel.apple_app_attest_env.clone();
     let att_mode = channel.mode_for_platform(req.platform);
     drop(cfg);
 
@@ -87,59 +88,56 @@ pub async fn auth_enroll_handler(
         return Err(AppError::AttestationFailed(format!("Invalid challenge: {err}")));
     }
 
+    let att_ctx = crate::auth::attestation::AttestationContext {
+        token: &req.attestation,
+        platform: req.platform,
+        app_id: &app_id,
+        challenge: Some(&req.challenge),
+        public_key: Some(&req.public_key),
+        android_signing_cert_sha256: &android_signing_cert_sha256,
+        apple_team_id: apple_team_id.as_deref(),
+        apple_app_attest_env: apple_app_attest_env.as_deref(),
+    };
+
     // Verify attestation statement based on platform mode
     let att = match att_mode {
         crate::config::AttestationMode::Off => {
             tracing::debug!(channel = %channel_id, "Attestation skipped in enrollment (off)");
             "none"
         }
-        crate::config::AttestationMode::Monitor => {
-            match state
-                .verifier
-                .verify(
-                    &req.attestation,
-                    req.platform,
-                    &app_id,
-                    google_project_number.as_deref(),
-                    apple_team_id.as_deref(),
-                )
-                .await
-            {
-                Ok(()) => {
-                    tracing::info!(channel = %channel_id, "Attestation passed in monitor enrollment");
-                    "tee"
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        channel = %channel_id,
-                        error = %e,
-                        "Attestation failed in monitor enrollment; minting enrollment with att=none"
-                    );
-                    "none"
-                }
+        crate::config::AttestationMode::Monitor => match state.verifier.verify(att_ctx).await {
+            Ok(tier) => {
+                tracing::info!(
+                    channel = %channel_id,
+                    tier = %tier,
+                    "Attestation passed in monitor enrollment"
+                );
+                tier.as_str()
             }
-        }
+            Err(e) => {
+                tracing::warn!(
+                    channel = %channel_id,
+                    error = %e,
+                    "Attestation failed in monitor enrollment; minting enrollment with att=none"
+                );
+                "none"
+            }
+        },
         crate::config::AttestationMode::Enforce => {
-            state
-                .verifier
-                .verify(
-                    &req.attestation,
-                    req.platform,
-                    &app_id,
-                    google_project_number.as_deref(),
-                    apple_team_id.as_deref(),
-                )
-                .await
-                .map_err(|e| {
-                    tracing::warn!(
-                        channel = %channel_id,
-                        error = %e,
-                        "Attestation failed in enforce enrollment"
-                    );
-                    AppError::AttestationFailed(e.to_string())
-                })?;
-            tracing::info!(channel = %channel_id, "Attestation passed in enforce enrollment");
-            "tee"
+            let tier = state.verifier.verify(att_ctx).await.map_err(|e| {
+                tracing::warn!(
+                    channel = %channel_id,
+                    error = %e,
+                    "Attestation failed in enforce enrollment"
+                );
+                AppError::AttestationFailed(e.to_string())
+            })?;
+            tracing::info!(
+                channel = %channel_id,
+                tier = %tier,
+                "Attestation passed in enforce enrollment"
+            );
+            tier.as_str()
         }
     };
 
@@ -204,8 +202,9 @@ pub async fn auth_exchange_handler(
     })?;
 
     let app_id = channel.app_id.clone();
-    let google_project_number = channel.google_project_number.clone();
+    let android_signing_cert_sha256 = channel.android_signing_cert_sha256.clone();
     let apple_team_id = channel.apple_team_id.clone();
+    let apple_app_attest_env = channel.apple_app_attest_env.clone();
     let att_mode = channel.mode_for_platform(req.platform);
     drop(cfg);
 
@@ -273,60 +272,57 @@ pub async fn auth_exchange_handler(
             _ => "none",
         }
     } else {
+        let att_ctx = crate::auth::attestation::AttestationContext {
+            token: &req.attestation_token,
+            platform: req.platform,
+            app_id: &app_id,
+            challenge: req.challenge.as_deref(),
+            public_key: req.device_public_key.as_deref(),
+            android_signing_cert_sha256: &android_signing_cert_sha256,
+            apple_team_id: apple_team_id.as_deref(),
+            apple_app_attest_env: apple_app_attest_env.as_deref(),
+        };
+
         match att_mode {
             crate::config::AttestationMode::Off => {
                 tracing::debug!(channel = %channel_id, "Attestation skipped (off for this platform)");
                 "none"
             }
-            crate::config::AttestationMode::Monitor => {
-                match state
-                    .verifier
-                    .verify(
-                        &req.attestation_token,
-                        req.platform,
-                        &app_id,
-                        google_project_number.as_deref(),
-                        apple_team_id.as_deref(),
-                    )
-                    .await
-                {
-                    Ok(()) => {
-                        tracing::info!(channel = %channel_id, "Attestation passed in monitor mode");
-                        "tee"
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            channel = %channel_id,
-                            platform = %req.platform,
-                            error = %e,
-                            "Attestation failed in monitor mode; granting access with att=none"
-                        );
-                        "none"
-                    }
+            crate::config::AttestationMode::Monitor => match state.verifier.verify(att_ctx).await {
+                Ok(tier) => {
+                    tracing::info!(
+                        channel = %channel_id,
+                        tier = %tier,
+                        "Attestation passed in monitor mode"
+                    );
+                    tier.as_str()
                 }
-            }
+                Err(e) => {
+                    tracing::warn!(
+                        channel = %channel_id,
+                        platform = %req.platform,
+                        error = %e,
+                        "Attestation failed in monitor mode; granting access with att=none"
+                    );
+                    "none"
+                }
+            },
             crate::config::AttestationMode::Enforce => {
-                state
-                    .verifier
-                    .verify(
-                        &req.attestation_token,
-                        req.platform,
-                        &app_id,
-                        google_project_number.as_deref(),
-                        apple_team_id.as_deref(),
-                    )
-                    .await
-                    .map_err(|e| {
-                        tracing::warn!(
-                            channel = %channel_id,
-                            platform = %req.platform,
-                            error = %e,
-                            "Attestation failed in enforce mode"
-                        );
-                        AppError::AttestationFailed(e.to_string())
-                    })?;
-                tracing::info!(channel = %channel_id, "Attestation passed in enforce mode");
-                "tee"
+                let tier = state.verifier.verify(att_ctx).await.map_err(|e| {
+                    tracing::warn!(
+                        channel = %channel_id,
+                        platform = %req.platform,
+                        error = %e,
+                        "Attestation failed in enforce mode"
+                    );
+                    AppError::AttestationFailed(e.to_string())
+                })?;
+                tracing::info!(
+                    channel = %channel_id,
+                    tier = %tier,
+                    "Attestation passed in enforce mode"
+                );
+                tier.as_str()
             }
         }
     };
@@ -426,7 +422,10 @@ mod tests {
 
     use crate::{
         app::{AppState, build_app},
-        auth::attestation::{AttestationError, AttestationVerifier, NoopVerifier, Platform, PlatformDispatchVerifier},
+        auth::attestation::{
+            AttestationContext, AttestationError, AttestationVerifier, NoopVerifier,
+            PlatformDispatchVerifier,
+        },
         config::{AttestationMode, WorkerChannelConfig, WorkerConfig},
         kafka::{BoxFuture, KafkaSink, KafkaSinkError},
     };
@@ -448,11 +447,7 @@ mod tests {
     impl AttestationVerifier for FailingVerifier {
         fn verify<'a>(
             &'a self,
-            _token: &'a str,
-            _platform: Platform,
-            _app_id: &'a str,
-            _google_project_number: Option<&'a str>,
-            _apple_team_id: Option<&'a str>,
+            _ctx: AttestationContext<'a>,
         ) -> crate::auth::attestation::VerifyFuture<'a> {
             Box::pin(async { Err(AttestationError::Invalid("simulated failure".into())) })
         }
@@ -489,10 +484,8 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             app_id: "dev.femrek.exampleapp.dev".to_string(),
             android_attestation_mode: Some(AttestationMode::Off),
             ios_attestation_mode: Some(AttestationMode::Off),
-            validate_attestation: None,
-            google_project_number: None,
-            apple_team_id: None,
             android_signing_cert_sha256: vec![],
+            apple_team_id: None,
             apple_app_attest_env: None,
         }
     }
@@ -503,10 +496,8 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             app_id: "dev.femrek.exampleapp".to_string(),
             android_attestation_mode: Some(AttestationMode::Enforce),
             ios_attestation_mode: Some(AttestationMode::Enforce),
-            validate_attestation: None,
-            google_project_number: None,
-            apple_team_id: Some("STUBTEAMID".to_string()),
             android_signing_cert_sha256: vec![],
+            apple_team_id: Some("STUBTEAMID".to_string()),
             apple_app_attest_env: None,
         }
     }
@@ -517,10 +508,8 @@ zdNiDxBcAFRguq8C6zYQ55IRjRehRANCAASUJHTKzY9L+qzNyS7xub7wknzA0sog\n\
             app_id: "dev.femrek.exampleapp".to_string(),
             android_attestation_mode: Some(AttestationMode::Monitor),
             ios_attestation_mode: Some(AttestationMode::Monitor),
-            validate_attestation: None,
-            google_project_number: None,
-            apple_team_id: Some("STUBTEAMID".to_string()),
             android_signing_cert_sha256: vec![],
+            apple_team_id: Some("STUBTEAMID".to_string()),
             apple_app_attest_env: None,
         }
     }

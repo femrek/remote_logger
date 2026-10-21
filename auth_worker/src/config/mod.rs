@@ -35,7 +35,7 @@ pub enum AttestationMode {
 /// Unified channel config — stored at `gateway/config/channels/<id>` in Consul.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkerChannelConfig {
-    /// Unique channel identifier — matches the JWT `sub` claim.
+    /// Unique channel identifier — matches the channel routing slug.
     pub id: String,
 
     /// Application bundle identifier — used as the `app` JWT claim and
@@ -50,36 +50,26 @@ pub struct WorkerChannelConfig {
     #[serde(default)]
     pub ios_attestation_mode: Option<AttestationMode>,
 
-    /// Legacy boolean flag for backward compatibility:
-    /// true -> Enforce, false -> Off.
-    #[serde(default)]
-    pub validate_attestation: Option<bool>,
-
-    /// Google Cloud Project Number for Android Play Integrity verification.
-    pub google_project_number: Option<String>,
-
-    /// Apple Developer Team ID for Apple App Attest verification.
-    pub apple_team_id: Option<String>,
-
-    /// Android release/play signing certificate SHA-256 digests.
+    /// Optional Android release/play signing certificate SHA-256 digests.
+    /// When empty, APK signing certificate digest check is skipped (any valid
+    /// hardware-backed key for `app_id` is accepted).
     #[serde(default)]
     pub android_signing_cert_sha256: Vec<String>,
 
-    /// Apple App Attest environment ("development" | "production").
+    /// Optional Apple Developer Team ID for Apple App Attest verification.
+    pub apple_team_id: Option<String>,
+
+    /// Optional Apple App Attest environment ("development" | "production").
     pub apple_app_attest_env: Option<String>,
 }
 
 impl WorkerChannelConfig {
     pub fn android_mode(&self) -> AttestationMode {
-        self.android_attestation_mode
-            .or_else(|| self.validate_attestation.map(|v| if v { AttestationMode::Enforce } else { AttestationMode::Off }))
-            .unwrap_or(AttestationMode::Off)
+        self.android_attestation_mode.unwrap_or(AttestationMode::Off)
     }
 
     pub fn ios_mode(&self) -> AttestationMode {
-        self.ios_attestation_mode
-            .or_else(|| self.validate_attestation.map(|v| if v { AttestationMode::Enforce } else { AttestationMode::Off }))
-            .unwrap_or(AttestationMode::Off)
+        self.ios_attestation_mode.unwrap_or(AttestationMode::Off)
     }
 
     pub fn mode_for_platform(&self, platform: crate::auth::attestation::Platform) -> AttestationMode {
