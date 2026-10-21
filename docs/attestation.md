@@ -256,7 +256,7 @@ void main() async {
 
 ### Simulators, Emulators & Automated Tests
 
-Hardware-backed attestation keys (`DCAppAttestService` / Android hardware Keystore) are unavailable in iOS Simulators, uncertified emulators, and CI test runners. For development channels (configured with `android_attestation_mode: "off"` and `ios_attestation_mode: "off"`), pass `FakeAttestationProvider()` or `NoAttestationProvider()`:
+Hardware-backed attestation keys (`DCAppAttestService` / Android hardware Keystore) are unavailable in iOS Simulators, uncertified emulators, and CI test runners. For development channels (configured with `android_attestation_mode: "off"` and `ios_attestation_mode: "off"`), pass `const NoAttestationProvider()`:
 
 ```dart
 final remoteLogger = await FlutterRemoteLogging.initRemote(
@@ -264,7 +264,7 @@ final remoteLogger = await FlutterRemoteLogging.initRemote(
     gatewayUrl: 'http://localhost:8080',
     channelId: 'example-app-dev',
   ),
-  attestationProvider: FakeAttestationProvider(),
+  attestationProvider: const NoAttestationProvider(),
 );
 ```
 

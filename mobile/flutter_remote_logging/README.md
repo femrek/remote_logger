@@ -16,7 +16,7 @@ tracking, and attestation token handling.
   Logs survive network outages and app restarts.
 - 🆔 **Device & Session Tracking**: Automatically manages persistent device UUIDs (persisted in `shared_preferences`) and
   unique per-session UUIDs.
-- 🔒 **Hardware Attestation Built-In**: Defaults to `PlatformAttestationProvider` (Android Keystore Key Attestation & Apple DeviceCheck App Attest / Secure Enclave) for 90-day key enrollment and per-session challenge signing, with `FakeAttestationProvider` for simulators and tests.
+- 🔒 **Hardware Attestation Built-In**: Defaults to `PlatformAttestationProvider` (Android Keystore Key Attestation & Apple DeviceCheck App Attest / Secure Enclave) for 90-day key enrollment and per-session challenge signing, with `NoAttestationProvider` for simulators, emulators, and environments without hardware attestation.
 - 📦 **Single-Import Convenience**: Re-exports all core classes from `package:remote_logging`, eliminating duplicate
   package imports.
 
@@ -142,7 +142,7 @@ static Future<RemoteLogging> initRemote({
 |-------------------------------------|--------------------------------|----------------------------------------------------------------------------------------------------------------|
 | `remoteLoggingConfig`               | `RemoteLoggingConfig`          | Gateway configuration (URL, channel ID, log levels, truncation).                                               |
 | `deviceDataGenerator`               | `DeviceDataGenerator?`         | Optional custom generator. Defaults to `FlutterDeviceDataGenerator()`.                                         |
-| `attestationProvider`               | `AttestationProvider?`         | Hardware attestation strategy. Defaults to `const PlatformAttestationProvider()`. Use `FakeAttestationProvider()` in simulators/tests. |
+| `attestationProvider`               | `AttestationProvider?`         | Hardware attestation strategy. Defaults to `const PlatformAttestationProvider()`. Use `const NoAttestationProvider()` in simulators or environments without hardware attestation. |
 | `getAttestationTokenCallback`       | `GetAttestationTokenCallback?` | Optional legacy fallback callback used only when `attestationProvider.isSupported()` returns `false`.          |
 | `localLogRepository`                | `LocalLogRepository?`          | Optional custom storage repository. Defaults to `SqfliteLocalLogRepository()`.                                 |
 | `enableDefaultLocalFallbackStorage` | `bool`                         | Set to `false` to disable SQLite local fallback storage when `localLogRepository` is null. Defaults to `true`. |
@@ -227,12 +227,12 @@ await FlutterRemoteLogging.initRemote(
 2. **Signing Certificate Fingerprints:**
    - Register your release keystore and Google Play App Signing SHA-256 certificate fingerprints in your channel configuration (`android_signing_cert_sha256`).
 
-### Running in Tests, CI, or Emulators
-When running unit tests, CI pipelines, or simulators where hardware-backed keys are unavailable:
+### Running in Simulators, Emulators, or Environments Without Hardware Attestation
+When running in simulators, desktop environments, or CI where hardware-backed keys are unavailable:
 ```dart
 await FlutterRemoteLogging.initRemote(
   remoteLoggingConfig: config,
-  attestationProvider: FakeAttestationProvider(),
+  attestationProvider: const NoAttestationProvider(),
 );
 ```
 

@@ -1,7 +1,6 @@
 import 'package:remote_logging/remote_logging.dart';
 
-/// Fake attestation provider for testing, desktop, simulator, and CI
-/// environments.
+/// Fake attestation provider for testing environments.
 class FakeAttestationProvider implements AttestationProvider {
   /// Creates a [FakeAttestationProvider].
   FakeAttestationProvider({

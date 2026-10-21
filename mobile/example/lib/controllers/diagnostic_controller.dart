@@ -68,7 +68,7 @@ class DiagnosticController extends ChangeNotifier {
     if (_useHardwareAttestation) {
       return const PlatformAttestationProvider();
     }
-    return FakeAttestationProvider();
+    return const NoAttestationProvider();
   }
 
   /// Inspects device metadata and hardware attestation support.
@@ -223,6 +223,18 @@ class DiagnosticController extends ChangeNotifier {
     notifyListeners();
 
     final provider = getAttestationProvider();
+    if (!await provider.isSupported()) {
+      _lastEnrollResult =
+          'Hardware attestation is disabled or unsupported on this provider.';
+      addConsoleLog(
+        'WARNING',
+        'Hardware enroll skipped: provider reports isSupported() == false.',
+      );
+      _isAttestationBusy = false;
+      notifyListeners();
+      return;
+    }
+
     final dummyChallenge =
         'test-challenge-${DateTime.now().millisecondsSinceEpoch}';
 
@@ -264,6 +276,18 @@ class DiagnosticController extends ChangeNotifier {
     notifyListeners();
 
     final provider = getAttestationProvider();
+    if (!await provider.isSupported()) {
+      _lastProveResult =
+          'Hardware attestation is disabled or unsupported on this provider.';
+      addConsoleLog(
+        'WARNING',
+        'Hardware prove skipped: provider reports isSupported() == false.',
+      );
+      _isAttestationBusy = false;
+      notifyListeners();
+      return;
+    }
+
     final dummyChallenge =
         'proof-challenge-${DateTime.now().millisecondsSinceEpoch}';
     final sessionId = _deviceMetadata?.sessionId ?? 'dummy-session';

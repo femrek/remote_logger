@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_remote_logging/flutter_remote_logging.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'fake_attestation_provider.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 

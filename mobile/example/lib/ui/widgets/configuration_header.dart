@@ -52,7 +52,7 @@ class ConfigurationHeader extends StatelessWidget {
                   onChanged: (val) => controller.useHardwareAttestation = val,
                 ),
                 Text(
-                  controller.useHardwareAttestation ? 'Real HW' : 'Fake HW',
+                  controller.useHardwareAttestation ? 'Hardware' : 'No Attest',
                   style: theme.textTheme.bodySmall,
                 ),
               ],

@@ -1,5 +1,4 @@
 export 'package:remote_logging/remote_logging.dart';
-export 'src/attestation/fake_attestation_provider.dart';
 export 'src/attestation/platform_attestation_provider.dart';
 export 'src/flutter_remote_logging.dart';
 export 'src/strategies/flutter_device_data_generator.dart';
