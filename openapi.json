@@ -737,7 +737,9 @@
           "loggerName",
           "message",
           "level",
-          "zone"
+          "zone",
+          "deviceId",
+          "sessionId"
         ],
         "properties": {
           "timestamp": {
@@ -768,12 +770,14 @@
           },
           "deviceId": {
             "type": "string",
-            "description": "Optional client device ID (automatically populated/overridden by gateway `x-device-id` header from JWT `sub`).",
+            "nullable": true,
+            "description": "Client device ID. Mandatory in request payload (nullable).",
             "example": "a809b022-7934-4b53-90d2-bf7cb95a947d"
           },
           "sessionId": {
             "type": "string",
-            "description": "Optional logging session identifier (backfilled from gateway `x-session-id` header if omitted).",
+            "nullable": true,
+            "description": "Logging session identifier. Mandatory in request payload (nullable).",
             "example": "3f338d38-9588-46d4-83b6-96d5395a12ef"
           },
           "error": {

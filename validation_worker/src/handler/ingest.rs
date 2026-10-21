@@ -2,12 +2,16 @@
 //!
 //! ## Request contract (post-refactor)
 //!
-//! The gateway validates the client's JWT and injects one mandatory header:
-//! - `x-app-id`   — application ID from the JWT `app` claim.
+//! The gateway validates the client's JWT and injects internal headers:
+//! - `x-app-id`      — application ID from the JWT `app` claim (mandatory).
+//! - `x-device-id`   — device ID from the JWT `sub` claim.
+//! - `x-session-id`  — session ID from the JWT `session_id` claim.
+//! - `x-attestation` — hardware attestation tier from the JWT `att` claim.
 //!
-//! The HTTP body MUST be a raw `ServerLog` JSON object. The `IngestEnvelope`
-//! wrapper (`{ app_id, payload }`) has been removed; the gateway
-//! now carries identity exclusively via headers.
+//! The HTTP body MUST be a raw `ServerLog` JSON object from the client.
+//! The validation worker does NOT expect `*IdJwt` fields from the client;
+//! it reads `deviceIdJwt` and `sessionIdJwt` strictly from the gateway headers
+//! and stamps them onto the Kafka payload.
 //!
 //! ## Processing pipeline
 //!
@@ -87,18 +91,24 @@ pub async fn ingest_handler(
         }
     };
 
-    // Populate device_id from verified JWT claims header if available
-    if let Some(id) = device_id {
-        log_payload.device_id = id;
-    }
-    // Only backfill session_id if empty in payload, preserving client-persisted session ID
-    if log_payload.session_id.as_deref().unwrap_or("").is_empty() {
-        log_payload.session_id = session_id;
-    }
+    // Stamped from gateway headers (JWT claims)
+    log_payload.device_id_jwt = device_id;
+    log_payload.session_id_jwt = session_id;
     // Set attestation tier from gateway-verified JWT claims header
     log_payload.attestation = attestation;
 
-    if log_payload.device_id.is_empty() {
+    let has_device_id = log_payload
+        .device_id
+        .as_deref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false)
+        || log_payload
+            .device_id_jwt
+            .as_deref()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+
+    if !has_device_id {
         tracing::warn!("device_id is missing from both headers and payload");
         let elapsed = start.elapsed().as_secs_f64();
         REQUESTS_TOTAL.with_label_values(&[&app_id, "400"]).inc();
@@ -205,15 +215,22 @@ pub async fn batch_ingest_handler(
 
     // ── 3. Assemble and deliver each log ──────────────────────────────────────
     for mut log_payload in log_payloads {
-        if let Some(ref id) = device_id {
-            log_payload.device_id = id.clone();
-        }
-        if log_payload.session_id.as_deref().unwrap_or("").is_empty() {
-            log_payload.session_id = session_id.clone();
-        }
+        log_payload.device_id_jwt = device_id.clone();
+        log_payload.session_id_jwt = session_id.clone();
         log_payload.attestation = attestation.clone();
 
-        if log_payload.device_id.is_empty() {
+        let has_device_id = log_payload
+            .device_id
+            .as_deref()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false)
+            || log_payload
+                .device_id_jwt
+                .as_deref()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false);
+
+        if !has_device_id {
             tracing::warn!("device_id is missing from both headers and payload in batch item");
             let elapsed = start.elapsed().as_secs_f64();
             REQUESTS_TOTAL.with_label_values(&[&app_id, "400"]).inc();
@@ -578,8 +595,10 @@ mod tests {
         assert_eq!(sent.len(), 1);
         let (_, _, payload) = &sent[0];
         let kafka_json: serde_json::Value = serde_json::from_str(payload).unwrap();
-        assert_eq!(kafka_json["deviceId"], "jwt-device-id-999");
-        assert_eq!(kafka_json["sessionId"], "jwt-session-id-888");
+        assert_eq!(kafka_json["deviceIdJwt"], "jwt-device-id-999");
+        assert_eq!(kafka_json["sessionIdJwt"], "jwt-session-id-888");
+        assert!(kafka_json.get("deviceId").is_none() || kafka_json["deviceId"].is_null());
+        assert!(kafka_json.get("sessionId").is_none() || kafka_json["sessionId"].is_null());
     }
 
     #[tokio::test]
@@ -591,13 +610,14 @@ mod tests {
         });
         let app = build_app(state);
 
-        // Payload with existing client-side sessionId
+        // Payload with existing client-side sessionId and deviceId
         let body = serde_json::json!({
             "timestamp":  "2026-06-23T15:00:00Z",
             "loggerName": "AppDatabase",
             "message":    "Offline log replayed.",
             "level":      "INFO",
             "zone":       "",
+            "deviceId":   "client-device-000",
             "sessionId":  "client-historical-session-111"
         });
 
@@ -619,8 +639,10 @@ mod tests {
         assert_eq!(sent.len(), 1);
         let (_, _, payload) = &sent[0];
         let kafka_json: serde_json::Value = serde_json::from_str(payload).unwrap();
-        assert_eq!(kafka_json["deviceId"], "jwt-device-id-999");
+        assert_eq!(kafka_json["deviceId"], "client-device-000");
+        assert_eq!(kafka_json["deviceIdJwt"], "jwt-device-id-999");
         assert_eq!(kafka_json["sessionId"], "client-historical-session-111");
+        assert_eq!(kafka_json["sessionIdJwt"], "jwt-session-id-current-222");
         assert_eq!(kafka_json["attestation"], "tee");
     }
 
@@ -640,6 +662,7 @@ mod tests {
                 "message":    "Log from older session",
                 "level":      "INFO",
                 "zone":       "",
+                "deviceId":   "client-dev-batch-1",
                 "sessionId":  "older-session-aaa"
             },
             {
@@ -669,11 +692,106 @@ mod tests {
         assert_eq!(sent.len(), 2);
 
         let k1: serde_json::Value = serde_json::from_str(&sent[0].2).unwrap();
+        assert_eq!(k1["deviceId"], "client-dev-batch-1");
+        assert_eq!(k1["deviceIdJwt"], "jwt-device-id-999");
         assert_eq!(k1["sessionId"], "older-session-aaa");
+        assert_eq!(k1["sessionIdJwt"], "jwt-session-id-current-bbb");
         assert_eq!(k1["attestation"], "software");
 
         let k2: serde_json::Value = serde_json::from_str(&sent[1].2).unwrap();
-        assert_eq!(k2["sessionId"], "jwt-session-id-current-bbb");
+        assert!(k2.get("deviceId").is_none() || k2["deviceId"].is_null());
+        assert_eq!(k2["deviceIdJwt"], "jwt-device-id-999");
+        assert!(k2.get("sessionId").is_none() || k2["sessionId"].is_null());
+        assert_eq!(k2["sessionIdJwt"], "jwt-session-id-current-bbb");
         assert_eq!(k2["attestation"], "software");
+    }
+
+    #[tokio::test]
+    async fn test_ingest_ignores_client_provided_jwt_fields() {
+        let capturing_sink = Arc::new(CapturingSink::default());
+        let state = Arc::new(AppState {
+            sink: capturing_sink.clone(),
+            kafka_topic: "test-topic".to_string(),
+        });
+        let app = build_app(state);
+
+        // Client attempts to spoof or send deviceIdJwt / sessionIdJwt in body
+        let body = serde_json::json!({
+            "timestamp":    "2026-06-23T15:00:00Z",
+            "loggerName":   "AppDatabase",
+            "message":      "Spoof attempt.",
+            "level":        "INFO",
+            "zone":         "",
+            "deviceId":     "legit-client-device",
+            "deviceIdJwt":  "spoofed-device-id",
+            "sessionIdJwt": "spoofed-session-id",
+            "attestation":  "spoofed-tee"
+        });
+
+        let resp = post_json_with_headers(
+            app,
+            "/v1/logs/example-app-dev",
+            body,
+            &[
+                ("x-app-id", "dev.femrek.exampleapp.dev"),
+                ("x-device-id", "header-device-id-verified"),
+                ("x-session-id", "header-session-id-verified"),
+                ("x-attestation", "software"),
+            ],
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let sent = capturing_sink.sent.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        let (_, _, payload) = &sent[0];
+        let kafka_json: serde_json::Value = serde_json::from_str(payload).unwrap();
+        assert_eq!(kafka_json["deviceId"], "legit-client-device");
+        // Must read from gateway headers, NOT from client body
+        assert_eq!(kafka_json["deviceIdJwt"], "header-device-id-verified");
+        assert_eq!(kafka_json["sessionIdJwt"], "header-session-id-verified");
+        assert_eq!(kafka_json["attestation"], "software");
+    }
+
+    #[tokio::test]
+    async fn test_ingest_handles_explicit_null_device_id_and_session_id() {
+        let capturing_sink = Arc::new(CapturingSink::default());
+        let state = Arc::new(AppState {
+            sink: capturing_sink.clone(),
+            kafka_topic: "test-topic".to_string(),
+        });
+        let app = build_app(state);
+
+        let body = serde_json::json!({
+            "timestamp":  "2026-06-23T15:00:00Z",
+            "loggerName": "AppDatabase",
+            "message":    "Null fields test.",
+            "level":      "INFO",
+            "zone":       "",
+            "deviceId":   null,
+            "sessionId":  null
+        });
+
+        let resp = post_json_with_headers(
+            app,
+            "/v1/logs/example-app-dev",
+            body,
+            &[
+                ("x-app-id", "dev.femrek.exampleapp.dev"),
+                ("x-device-id", "jwt-device-id-999"),
+                ("x-session-id", "jwt-session-id-888"),
+            ],
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let sent = capturing_sink.sent.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        let (_, _, payload) = &sent[0];
+        let kafka_json: serde_json::Value = serde_json::from_str(payload).unwrap();
+        assert!(kafka_json.get("deviceId").is_none() || kafka_json["deviceId"].is_null());
+        assert!(kafka_json.get("sessionId").is_none() || kafka_json["sessionId"].is_null());
+        assert_eq!(kafka_json["deviceIdJwt"], "jwt-device-id-999");
+        assert_eq!(kafka_json["sessionIdJwt"], "jwt-session-id-888");
     }
 }

@@ -361,16 +361,19 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
     // ── 5. POST a log with a unique message marker ────────────────────────────
     //
     // Route: /v1/logs/{channel} — the workaround path from spec report §1.
-    // (The /log suffix causes a 404 on the validation worker.)
     let test_marker = format!("e2e-test-marker-{}", epoch_ms());
     eprintln!("[e2e] Sending log with unique marker: {test_marker}");
+    let client_entry_device_id = format!("client-dev-{}", epoch_ms());
+    let client_entry_session_id = format!("client-sess-{}", epoch_ms());
 
     let log_body = serde_json::json!({
         "timestamp":  "2026-06-23T15:00:00Z",
         "loggerName": "E2ETestLogger",
         "message":    test_marker,
         "level":      "INFO",
-        "zone":       "main"
+        "zone":       "main",
+        "deviceId":   client_entry_device_id,
+        "sessionId":  client_entry_session_id
     });
 
     let log_response = match ureq::post(&format!("{gateway_url}/v1/logs/{channel}"))
@@ -447,15 +450,23 @@ fn e2e_full_pipeline_log_reaches_opensearch() {
 
     let log_hit_source = &search_response["hits"]["hits"][0]["_source"];
     assert_eq!(
-        log_hit_source["deviceId"], test_device_id,
-        "deviceId in log must be stamped from JWT claims"
+        log_hit_source["deviceId"], client_entry_device_id,
+        "deviceId in log must be kept from client log entry"
+    );
+    assert_eq!(
+        log_hit_source["sessionId"], client_entry_session_id,
+        "sessionId in log must be kept from client log entry"
+    );
+    assert_eq!(
+        log_hit_source["deviceIdJwt"], test_device_id,
+        "deviceIdJwt in log must be stamped from JWT claims"
     );
     assert!(
-        log_hit_source["sessionId"].is_string() && !log_hit_source["sessionId"].as_str().unwrap().is_empty(),
-        "sessionId in log must be stamped from JWT claims"
+        log_hit_source["sessionIdJwt"].is_string() && !log_hit_source["sessionIdJwt"].as_str().unwrap().is_empty(),
+        "sessionIdJwt in log must be stamped from JWT claims"
     );
 
-    eprintln!("[e2e] ✓ Found {total_hits} document(s) in mobile-logs-* with stamped deviceId and sessionId!");
+    eprintln!("[e2e] ✓ Found {total_hits} document(s) in mobile-logs-* with kept log entry fields and stamped JWT fields!");
 
     // ── 9. Query OpenSearch for the device metadata in mobile-devices-* ───────
     let device_search_url = format!(
