@@ -53,9 +53,27 @@ class AttestationTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hardwareSupported = controller.hardwareSupported;
+    final checkError = controller.hardwareCheckError;
+    final isBusy = controller.isAttestationBusy;
     final metadata = controller.deviceMetadata;
     final storedToken = controller.storedEnrollmentToken;
     final claims = controller.decodedTokenClaims;
+
+    final String statusLabel;
+    final Color statusColor;
+    if (isBusy) {
+      statusLabel = 'Checking...';
+      statusColor = Colors.blue;
+    } else if (checkError != null) {
+      statusLabel = 'ERROR';
+      statusColor = Colors.red;
+    } else if (hardwareSupported == true) {
+      statusLabel = 'SUPPORTED';
+      statusColor = Colors.green;
+    } else {
+      statusLabel = 'UNSUPPORTED';
+      statusColor = Colors.orange;
+    }
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
@@ -72,10 +90,10 @@ class AttestationTab extends StatelessWidget {
                     Icon(
                       hardwareSupported == true
                           ? Icons.verified_user
-                          : Icons.warning_amber,
-                      color: hardwareSupported == true
-                          ? Colors.green
-                          : Colors.orange,
+                          : (checkError != null
+                              ? Icons.error_outline
+                              : Icons.warning_amber),
+                      color: statusColor,
                     ),
                     const SizedBox(width: 8),
                     Text(
@@ -87,20 +105,50 @@ class AttestationTab extends StatelessWidget {
                     const Spacer(),
                     Chip(
                       label: Text(
-                        hardwareSupported == null
-                            ? 'Checking...'
-                            : (hardwareSupported ? 'SUPPORTED' : 'UNSUPPORTED'),
+                        statusLabel,
                         style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      backgroundColor: hardwareSupported == true
-                          ? Colors.green.withValues(alpha: 0.15)
-                          : Colors.orange.withValues(alpha: 0.15),
+                      backgroundColor: statusColor.withValues(alpha: 0.15),
                     ),
                   ],
                 ),
+                if (checkError != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: Colors.red.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.error_outline,
+                          color: Colors.red,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: SelectableText(
+                            'Hardware check error: $checkError',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.red,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Text(
                   'Android: Hardware KeyStore (StrongBox / TEE) with Key Attestation.\n'
@@ -129,7 +177,15 @@ class AttestationTab extends StatelessWidget {
                 ),
                 const Divider(),
                 if (metadata == null)
-                  const Text('Collecting device metadata...')
+                  Text(
+                    checkError != null
+                        ? 'Metadata unavailable (see error above).'
+                        : 'Collecting device metadata...',
+                    style: TextStyle(
+                      fontStyle: FontStyle.italic,
+                      color: Colors.grey[600],
+                    ),
+                  )
                 else ...[
                   InfoRow(
                     label: 'Platform OS',

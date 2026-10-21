@@ -22,6 +22,10 @@ class LogSenderTab extends StatelessWidget {
     final text = controller.customLogController.text.trim();
     if (text.isNotEmpty) {
       if (!controller.isConnected) {
+        controller.addConsoleLog(
+          'WARNING',
+          'Cannot send log: RemoteLogger is not initialized. Tap Initialize first.',
+        );
         onShowSnackbar('Initialize logger first!');
         return;
       }
@@ -32,6 +36,10 @@ class LogSenderTab extends StatelessWidget {
 
   void _emit(Level level, String msg, {Object? error, StackTrace? st}) {
     if (!controller.isConnected) {
+      controller.addConsoleLog(
+        'WARNING',
+        'Cannot emit ${level.name} log: RemoteLogger is not initialized. Tap Initialize first.',
+      );
       onShowSnackbar('Initialize logger first!');
       return;
     }

@@ -72,7 +72,11 @@ class PlatformAttestationProvider implements AttestationProvider {
 
   @override
   Future<String?> loadEnrollmentToken() async {
-    return _channel.invokeMethod<String>('loadEnrollmentToken');
+    try {
+      return await _channel.invokeMethod<String>('loadEnrollmentToken');
+    } on Object {
+      return null;
+    }
   }
 
   @override

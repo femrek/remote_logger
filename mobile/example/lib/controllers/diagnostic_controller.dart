@@ -33,6 +33,7 @@ class DiagnosticController extends ChangeNotifier {
   bool _isAttestationBusy = false;
 
   bool? _hardwareSupported;
+  String? _hardwareCheckError;
   DeviceMetadata? _deviceMetadata;
   String? _storedEnrollmentToken;
   Map<String, dynamic>? _decodedTokenClaims;
@@ -49,6 +50,7 @@ class DiagnosticController extends ChangeNotifier {
   bool get isAttestationBusy => _isAttestationBusy;
 
   bool? get hardwareSupported => _hardwareSupported;
+  String? get hardwareCheckError => _hardwareCheckError;
   DeviceMetadata? get deviceMetadata => _deviceMetadata;
   String? get storedEnrollmentToken => _storedEnrollmentToken;
   Map<String, dynamic>? get decodedTokenClaims => _decodedTokenClaims;
@@ -59,6 +61,10 @@ class DiagnosticController extends ChangeNotifier {
   set useHardwareAttestation(bool value) {
     if (_useHardwareAttestation != value) {
       _useHardwareAttestation = value;
+      addConsoleLog(
+        'HARDWARE',
+        'Attestation mode changed to: ${value ? "Hardware (PlatformAttestationProvider)" : "No Attestation (NoAttestationProvider)"}',
+      );
       notifyListeners();
       unawaited(checkHardwareSupportAndMetadata());
     }
@@ -74,27 +80,108 @@ class DiagnosticController extends ChangeNotifier {
   /// Inspects device metadata and hardware attestation support.
   Future<void> checkHardwareSupportAndMetadata() async {
     _isAttestationBusy = true;
+    _hardwareCheckError = null;
     notifyListeners();
 
+    final provider = getAttestationProvider();
+    addConsoleLog(
+      'HARDWARE',
+      'Checking hardware attestation support with ${provider.runtimeType}...',
+    );
+
     try {
-      final provider = getAttestationProvider();
-      final supported = await provider.isSupported();
-      final token = await provider.loadEnrollmentToken();
+      bool supported = false;
+      try {
+        supported = await provider.isSupported();
+        addConsoleLog(
+          'HARDWARE',
+          '${provider.runtimeType}.isSupported() returned: $supported',
+        );
+      } on Object catch (e, s) {
+        addConsoleLog(
+          'ERROR',
+          'provider.isSupported() threw exception: $e',
+          error: e,
+          stackTrace: s,
+        );
+      }
+
+      String? token;
+      try {
+        token = await provider.loadEnrollmentToken();
+        if (token != null && token.isNotEmpty) {
+          addConsoleLog(
+            'HARDWARE',
+            'Found stored enrollment token (${token.length} chars).',
+          );
+        } else {
+          addConsoleLog(
+            'HARDWARE',
+            'No stored enrollment token found.',
+          );
+        }
+      } on Object catch (e, s) {
+        addConsoleLog(
+          'ERROR',
+          'provider.loadEnrollmentToken() threw exception: $e',
+          error: e,
+          stackTrace: s,
+        );
+      }
 
       Map<String, dynamic>? claims;
       if (token != null && token.isNotEmpty) {
-        claims = JwtHelper.tryDecodePayload(token);
+        try {
+          claims = JwtHelper.tryDecodePayload(token);
+          if (claims != null) {
+            addConsoleLog(
+              'HARDWARE',
+              'Decoded token claims: ${claims.keys.join(", ")}',
+            );
+          }
+        } on Object catch (e, s) {
+          addConsoleLog(
+            'ERROR',
+            'Failed to decode enrollment token claims: $e',
+            error: e,
+            stackTrace: s,
+          );
+        }
       }
 
-      final generator = FlutterDeviceDataGenerator();
-      await generator.init();
+      try {
+        final generator = FlutterDeviceDataGenerator();
+        await generator.init();
+        _deviceMetadata = generator.deviceMetadata;
+        addConsoleLog(
+          'INFO',
+          'Device metadata collected: ${_deviceMetadata?.os} ${_deviceMetadata?.osVersion} (${_deviceMetadata?.model})',
+        );
+      } on Object catch (e, s) {
+        addConsoleLog(
+          'ERROR',
+          'Failed to collect device metadata: $e',
+          error: e,
+          stackTrace: s,
+        );
+      }
 
       _hardwareSupported = supported;
       _storedEnrollmentToken = token;
       _decodedTokenClaims = claims;
-      _deviceMetadata = generator.deviceMetadata;
-    } on Object catch (e) {
-      addConsoleLog('ERROR', 'Error checking hardware: $e');
+      addConsoleLog(
+        'HARDWARE',
+        'Hardware check complete: status=${supported ? "SUPPORTED" : "UNSUPPORTED"}.',
+      );
+    } on Object catch (e, s) {
+      _hardwareSupported = false;
+      _hardwareCheckError = e.toString();
+      addConsoleLog(
+        'ERROR',
+        'Unexpected error checking hardware: $e',
+        error: e,
+        stackTrace: s,
+      );
     } finally {
       _isAttestationBusy = false;
       notifyListeners();
@@ -109,6 +196,10 @@ class DiagnosticController extends ChangeNotifier {
     final channel = channelIdController.text.trim();
 
     if (gateway.isEmpty || channel.isEmpty) {
+      addConsoleLog(
+        'WARNING',
+        'Initialization aborted: Gateway URL and Channel ID cannot be empty.',
+      );
       onMessage('Gateway URL and Channel ID cannot be empty');
       return;
     }
@@ -118,11 +209,12 @@ class DiagnosticController extends ChangeNotifier {
 
     addConsoleLog(
       'INFO',
-      'Initializing RemoteLogging for $gateway [$channel]...',
+      'Starting RemoteLogging initialization: Gateway=$gateway, Channel=$channel',
     );
 
     try {
       if (_remoteLogger != null) {
+        addConsoleLog('INFO', 'Stopping active RemoteLogger instance...');
         await _remoteLogger!.stop(flush: false);
         _remoteLogger = null;
       }
@@ -134,6 +226,10 @@ class DiagnosticController extends ChangeNotifier {
       );
 
       final attestationProvider = getAttestationProvider();
+      addConsoleLog(
+        'INFO',
+        'Configuring logger with provider: ${attestationProvider.runtimeType}',
+      );
 
       final loggerInstance = await FlutterRemoteLogging.initRemote(
         remoteLoggingConfig: config,
@@ -143,24 +239,36 @@ class DiagnosticController extends ChangeNotifier {
             record.level.name,
             '[${record.loggerName}] ${record.message}',
             error: record.error,
+            stackTrace: record.stackTrace,
           );
         },
         onError: (error, stackTrace) {
           addConsoleLog(
             'ERROR',
-            'Logger error: $error',
+            'Logger internal error: $error',
             error: error,
             stackTrace: stackTrace,
           );
         },
       );
 
+      addConsoleLog('INFO', 'Starting network invoker for $gateway...');
       final invoker = DioNetworkInvoker.fromBaseUrl(gateway);
-      unawaited(loggerInstance.start(invoker));
+      unawaited(
+        loggerInstance.start(invoker).catchError((Object error, StackTrace st) {
+          addConsoleLog(
+            'ERROR',
+            'Background logger service failed: $error',
+            error: error,
+            stackTrace: st,
+          );
+        }),
+      );
 
       _remoteLogger = loggerInstance;
       addConsoleLog('SUCCESS', 'RemoteLogging started successfully!');
       onMessage('RemoteLogging started successfully!');
+      addConsoleLog('INFO', 'Refreshing hardware support and tokens...');
       await checkHardwareSupportAndMetadata();
     } on Object catch (e, s) {
       addConsoleLog(
@@ -178,14 +286,18 @@ class DiagnosticController extends ChangeNotifier {
 
   /// Stops the remote logger service.
   Future<void> stopRemoteLogger() async {
-    if (_remoteLogger == null) return;
+    if (_remoteLogger == null) {
+      addConsoleLog('WARNING', 'stopRemoteLogger called but no logger is running.');
+      return;
+    }
+    addConsoleLog('INFO', 'Stopping remote logger service...');
     try {
       await _remoteLogger!.stop(flush: false);
       _remoteLogger = null;
-      addConsoleLog('INFO', 'RemoteLogging stopped.');
+      addConsoleLog('INFO', 'RemoteLogging stopped successfully.');
       notifyListeners();
-    } on Object catch (e) {
-      addConsoleLog('ERROR', 'Error stopping logger: $e');
+    } on Object catch (e, s) {
+      addConsoleLog('ERROR', 'Error stopping logger: $e', error: e, stackTrace: s);
     }
   }
 
@@ -194,6 +306,7 @@ class DiagnosticController extends ChangeNotifier {
     required void Function(String message) onMessage,
   }) async {
     if (_remoteLogger == null) {
+      addConsoleLog('WARNING', 'Flush requested but logger is not initialized.');
       onMessage('Initialize logger first!');
       return;
     }
@@ -328,16 +441,17 @@ class DiagnosticController extends ChangeNotifier {
     _isAttestationBusy = true;
     notifyListeners();
 
+    addConsoleLog('HARDWARE', 'Resetting hardware key and stored enrollment token...');
     try {
       final provider = getAttestationProvider();
       await provider.reset();
-      addConsoleLog('HARDWARE', 'Hardware key and enrollment token wiped.');
+      addConsoleLog('SUCCESS', 'Hardware key and enrollment token wiped successfully.');
       onMessage('Hardware state reset successfully.');
       _lastEnrollResult = null;
       _lastProveResult = null;
       await checkHardwareSupportAndMetadata();
-    } on Object catch (e) {
-      addConsoleLog('ERROR', 'Reset failed: $e');
+    } on Object catch (e, s) {
+      addConsoleLog('ERROR', 'Reset failed: $e', error: e, stackTrace: s);
       onMessage('Reset failed: $e');
     } finally {
       _isAttestationBusy = false;
@@ -347,7 +461,20 @@ class DiagnosticController extends ChangeNotifier {
 
   /// Emits an application log entry.
   void emitLog(Level level, String msg, {Object? error, StackTrace? st}) {
-    if (_remoteLogger == null) return;
+    if (_remoteLogger == null) {
+      addConsoleLog(
+        'WARNING',
+        'emitLog ignored: RemoteLogger is not initialized.',
+      );
+      return;
+    }
+
+    addConsoleLog(
+      level.name,
+      'Emit [${level.name}]: $msg',
+      error: error,
+      stackTrace: st,
+    );
 
     if (level == Level.FINE) {
       _appLogger.fine(msg);
@@ -369,6 +496,12 @@ class DiagnosticController extends ChangeNotifier {
     Object? error,
     StackTrace? stackTrace,
   }) {
+    // Print to IDE / terminal console (flutter run, logcat, Xcode)
+    debugPrint('[$tag] $message${error != null ? " | Error: $error" : ""}');
+    if (stackTrace != null) {
+      debugPrint('[$tag] StackTrace: $stackTrace');
+    }
+
     final item = ConsoleLogItem(
       timestamp: DateTime.now(),
       tag: tag,

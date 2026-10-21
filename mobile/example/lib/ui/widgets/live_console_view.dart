@@ -99,6 +99,8 @@ class ConsoleLogTile extends StatelessWidget {
         return Colors.green;
       case 'HARDWARE':
         return Colors.teal;
+      case 'CONFIG':
+        return Colors.indigo;
       default:
         return Colors.grey;
     }
@@ -144,7 +146,7 @@ class ConsoleLogTile extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               Expanded(
-                child: Text(
+                child: SelectableText(
                   item.message,
                   style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
                 ),
@@ -154,11 +156,24 @@ class ConsoleLogTile extends StatelessWidget {
           if (item.error != null) ...[
             Padding(
               padding: const EdgeInsets.only(left: 60, top: 2),
-              child: Text(
+              child: SelectableText(
                 'Error: ${item.error}',
                 style: const TextStyle(
                   fontSize: 11,
                   color: Colors.red,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ),
+          ],
+          if (item.stackTrace != null) ...[
+            Padding(
+              padding: const EdgeInsets.only(left: 60, top: 2),
+              child: SelectableText(
+                'StackTrace:\n${item.stackTrace}',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.red.shade300,
                   fontFamily: 'monospace',
                 ),
               ),

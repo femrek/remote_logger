@@ -97,24 +97,42 @@ class ConfigurationHeader extends StatelessWidget {
                     'hs-logger.femrek.dev',
                     style: TextStyle(fontSize: 11),
                   ),
-                  onPressed: () => controller.gatewayUrlController.text =
-                      'https://hs-logger.femrek.dev',
+                  onPressed: () {
+                    controller.gatewayUrlController.text =
+                        'https://hs-logger.femrek.dev';
+                    controller.addConsoleLog(
+                      'CONFIG',
+                      'Gateway URL set to: https://hs-logger.femrek.dev',
+                    );
+                  },
                 ),
                 ActionChip(
                   label: const Text(
                     '10.0.2.2:8080 (Android)',
                     style: TextStyle(fontSize: 11),
                   ),
-                  onPressed: () => controller.gatewayUrlController.text =
-                      'http://10.0.2.2:8080',
+                  onPressed: () {
+                    controller.gatewayUrlController.text =
+                        'http://10.0.2.2:8080';
+                    controller.addConsoleLog(
+                      'CONFIG',
+                      'Gateway URL set to: http://10.0.2.2:8080 (Android Emulator)',
+                    );
+                  },
                 ),
                 ActionChip(
                   label: const Text(
                     'localhost:8080 (iOS)',
                     style: TextStyle(fontSize: 11),
                   ),
-                  onPressed: () => controller.gatewayUrlController.text =
-                      'http://localhost:8080',
+                  onPressed: () {
+                    controller.gatewayUrlController.text =
+                        'http://localhost:8080';
+                    controller.addConsoleLog(
+                      'CONFIG',
+                      'Gateway URL set to: http://localhost:8080 (iOS Simulator/Local)',
+                    );
+                  },
                 ),
               ],
             ),
