@@ -212,8 +212,9 @@ await FlutterRemoteLogging.initRemote(
 
 ### iOS Setup Requirements
 1. **Deployment Target:** iOS 14.0 or higher.
-2. **App Attest Capability:**
+2. **App Attest Capability (When `apple_team_id` is configured on the channel):**
    - In Xcode, go to **Signing & Capabilities** -> click `+ Capability` -> add **App Attest**.
+   - *(Note: If `apple_team_id` is omitted on the backend channel, `auth_worker` also accepts hardware-backed Secure Enclave P-256 challenge signatures when App Attest is not entitled.)*
 3. **App Attest Environment Entitlement:**
    - In `ios/Runner/Runner.entitlements`:
      ```xml
@@ -224,8 +225,9 @@ await FlutterRemoteLogging.initRemote(
 
 ### Android Setup Requirements
 1. **Minimum SDK:** Android 7.0 (API level 24) or higher. StrongBox hardware backing is supported on API level 28+.
-2. **Signing Certificate Fingerprints:**
-   - Register your release keystore and Google Play App Signing SHA-256 certificate fingerprints in your channel configuration (`android_signing_cert_sha256`).
+2. **Optional Signing Certificate Fingerprints (`android_signing_cert_sha256`):**
+   - By default (`android_signing_cert_sha256: []`), `auth_worker` verifies the hardware X.509 certificate chain up to Google's Hardware Attestation Root CA, checks `attestationSecurityLevel` (`strongbox` or `tee`), verifies `attestationChallenge`, and enforces that the attested package name matches `app_id` (allowing debug and release builds out-of-the-box).
+   - For strict production APK pinning, register your release keystore and/or Google Play App Signing SHA-256 certificate fingerprints in `android_signing_cert_sha256` via Logger Admin UI or Consul KV.
 
 ### Running in Simulators, Emulators, or Environments Without Hardware Attestation
 When running in simulators, desktop environments, or CI where hardware-backed keys are unavailable:

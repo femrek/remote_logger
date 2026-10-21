@@ -16,10 +16,13 @@ Thank you for your interest in contributing to **Remote Logger**! We welcome con
 ### Repository Layout
 
 - `logger_gateway/`: Pingora-based reverse proxy (Rust binary crate)
+- `auth_worker/`: Hardware attestation verifier and ES256 JWT minting service (Rust library & binary)
 - `validation_worker/`: Axum schema validator and Kafka producer (Rust library & binary)
 - `logger_admin/`: Admin dashboard and Consul KV configuration management (Rust crate)
 - `mobile/remote_logging/`: Platform-agnostic Dart logging client
-- `mobile/flutter_remote_logging/`: Flutter-specific logging extension with SQLite cache
+- `mobile/flutter_remote_logging/`: Flutter-specific logging extension with native hardware attestation and SQLite cache
+- `mobile/example/`: Interactive Flutter diagnostic and hardware attestation test app
+- `docs/`: Hardware attestation setup guide and architecture review backlog
 - `load_tests/`: k6 and bash load testing suites
 - `e2e/`: End-to-end integration test crate
 
@@ -29,19 +32,19 @@ Thank you for your interest in contributing to **Remote Logger**! We welcome con
 
 Before submitting a Pull Request, verify that all test suites pass.
 
-### Rust Workspace Tests
+### Rust Crate Tests
 
 ```bash
-# Run unit tests across all Rust crates (fast, in-process)
-cargo test --workspace --lib
+# Run fast in-process unit tests
+cargo test --manifest-path auth_worker/Cargo.toml
+cargo test --manifest-path validation_worker/Cargo.toml --lib
+cargo test --manifest-path logger_gateway/Cargo.toml
 
 # Run validation_worker integration tests (requires Docker)
-cd validation_worker
-cargo test --test integration_test
+cargo test --manifest-path validation_worker/Cargo.toml --test integration_test
 
 # Run e2e tests (requires Docker)
-cd ../e2e
-cargo test --test e2e_test
+cargo test --manifest-path e2e/Cargo.toml --test e2e_test
 ```
 
 ### Mobile SDK Tests
@@ -60,8 +63,10 @@ flutter test
 
 ```bash
 # Rust
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
+for crate in logger_gateway auth_worker validation_worker logger_admin e2e; do
+  cargo fmt --manifest-path "$crate/Cargo.toml" --all -- --check
+  cargo clippy --manifest-path "$crate/Cargo.toml" --all-targets -- -D warnings
+done
 
 # Dart & Flutter
 cd mobile/remote_logging

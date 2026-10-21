@@ -520,7 +520,7 @@
           },
           "attestation": {
             "type": "string",
-            "description": "Base64-encoded hardware attestation statement (Android Keystore X.509 PEM certificate chain or iOS App Attest CBOR receipt)."
+            "description": "Base64-encoded hardware attestation statement (Android Keystore X.509 PEM certificate chain, iOS App Attest CBOR receipt, or iOS Secure Enclave ECDSA P-256 signature fallback)."
           },
           "challenge": {
             "type": "string",
@@ -541,7 +541,7 @@
         "properties": {
           "enrollment_token": {
             "type": "string",
-            "description": "90-day ES256 enrollment JWT binding the device's hardware P-256 public key and attestation tier.",
+            "description": "90-day ES256 enrollment JWT binding the device's hardware P-256 public key and attestation tier (`strongbox`, `tee`, `secure_enclave`, or `none`).",
             "example": "eyJhbGciOiJFUzI1NiIsInR5cCI6..."
           },
           "expires_in": {
@@ -638,6 +638,8 @@
               "BAD_REQUEST",
               "UNAUTHORIZED",
               "ATTESTATION_FAILED",
+              "CHALLENGE_INVALID",
+              "ENROLLMENT_INVALID",
               "NOT_FOUND",
               "CHANNEL_NOT_FOUND",
               "MISSING_AUTH",

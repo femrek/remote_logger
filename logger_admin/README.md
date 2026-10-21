@@ -10,7 +10,12 @@ An administration dashboard and REST API microservice for configuring the Remote
    - Single-Page Application (vanilla JS/HTML/CSS embedded via `rust-embed`) served on port `8082`.
    - Visual interface for inspecting, adding, editing, and deleting application channels.
 2. **Channel & Attestation Management**:
-   - Manages routing rules and attestation enforcement stored in Consul KV under `gateway/config/channels/{id}`.
+   - Manages routing rules and hardware attestation enforcement stored in Consul KV under `gateway/config/channels/{id}`:
+     - `id` & `app_id`: Channel identifier and application bundle/package ID.
+     - `android_attestation_mode` & `ios_attestation_mode`: Per-platform enforcement policy (`off`, `monitor`, or `enforce`).
+     - `android_signing_cert_sha256` *(optional)*: Allowed APK signing certificate SHA-256 hex digests for Android Keystore Key Attestation (skipped when empty).
+     - `apple_team_id` *(optional)*: 10-character Apple Developer Team ID for full CBOR App Attest verification (falls back to Secure Enclave P-256 signature verification when omitted).
+     - `apple_app_attest_env` *(optional)*: Apple App Attest environment (`development` or `production`).
    - Updates global gateway parameters (`gateway/config/global`).
 3. **Protected Admin API**:
    - Protected by `ADMIN_TOKEN` Bearer authentication.
