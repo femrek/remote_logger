@@ -13,6 +13,12 @@ import 'package:remote_logging/src/util/internal_logger.dart';
 abstract final class RemoteLoggingInit {
   static bool _isInitialized = false;
 
+  /// Whether remote or local logging is currently initialized.
+  static bool get isInitialized => _isInitialized;
+
+  /// Resets the initialization flag.
+  static void reset() => _reset();
+
   /// Initializes remote logging with the specified configuration and device
   /// data generator.
   ///
@@ -32,15 +38,20 @@ abstract final class RemoteLoggingInit {
     }
     _isInitialized = true;
 
-    return RemoteLogging._init(
-      remoteLoggingConfig: config,
-      deviceDataGenerator: deviceDataGenerator,
-      localLogRepository: localLogRepository,
-      attestationProvider: attestationProvider,
-      getAttestationTokenCallback: getAttestationTokenCallback,
-      onLog: onLog,
-      onError: onError,
-    );
+    try {
+      return await RemoteLogging._init(
+        remoteLoggingConfig: config,
+        deviceDataGenerator: deviceDataGenerator,
+        localLogRepository: localLogRepository,
+        attestationProvider: attestationProvider,
+        getAttestationTokenCallback: getAttestationTokenCallback,
+        onLog: onLog,
+        onError: onError,
+      );
+    } catch (_) {
+      _isInitialized = false;
+      rethrow;
+    }
   }
 
   /// Initializes local-only logging with the specified configuration.
@@ -56,10 +67,15 @@ abstract final class RemoteLoggingInit {
     }
     _isInitialized = true;
 
-    return LocalLogging._internal(
-      config: config,
-      onLog: onLog,
-    );
+    try {
+      return LocalLogging._internal(
+        config: config,
+        onLog: onLog,
+      );
+    } catch (_) {
+      _isInitialized = false;
+      rethrow;
+    }
   }
 
   /// Resets the initialization flag. Called internally by [RemoteLogging.stop]

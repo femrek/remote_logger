@@ -22,16 +22,26 @@ class FlutterDeviceDataGenerator implements DeviceDataGenerator {
   Future<void> init() async {
     _sessionId = _uuid.v4();
 
-    final prefs = await SharedPreferences.getInstance();
-    var storedDeviceId = prefs.getString(_deviceIdKey);
-    if (storedDeviceId == null) {
+    String? storedDeviceId;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      storedDeviceId = prefs.getString(_deviceIdKey);
+      if (storedDeviceId == null) {
+        storedDeviceId = _uuid.v4();
+        await prefs.setString(_deviceIdKey, storedDeviceId);
+      }
+    } on Object {
       storedDeviceId = _uuid.v4();
-      await prefs.setString(_deviceIdKey, storedDeviceId);
     }
     _deviceId = storedDeviceId;
 
     final deviceInfo = DeviceInfoPlugin();
-    final packageInfo = await PackageInfo.fromPlatform();
+    PackageInfo? packageInfo;
+    try {
+      packageInfo = await PackageInfo.fromPlatform();
+    } on Object {
+      packageInfo = null;
+    }
 
     var os = 'unknown';
     var osVersion = 'unknown';
@@ -108,7 +118,7 @@ class FlutterDeviceDataGenerator implements DeviceDataGenerator {
       model: model,
       brand: brand,
       device: device,
-      identifier: packageInfo.packageName,
+      identifier: packageInfo?.packageName ?? 'unknown',
       manufacturer: manufacturer,
       isPhysicalDevice: isPhysicalDevice.toString(),
     );

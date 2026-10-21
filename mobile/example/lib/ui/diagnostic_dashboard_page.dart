@@ -35,10 +35,12 @@ class _DiagnosticDashboardPageState extends State<DiagnosticDashboardPage>
 
   void _showSnackbar(String text) {
     if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(text),
-        duration: const Duration(seconds: 3),
+        duration: const Duration(seconds: 10),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }

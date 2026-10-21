@@ -19,7 +19,7 @@ class DiagnosticController extends ChangeNotifier {
     text: 'https://hs-logger.femrek.dev',
   );
   final TextEditingController channelIdController = TextEditingController(
-    text: 'test-channel',
+    text: 'att-test',
   );
   final TextEditingController customLogController = TextEditingController();
   final ScrollController logScrollController = ScrollController();
@@ -217,6 +217,10 @@ class DiagnosticController extends ChangeNotifier {
         addConsoleLog('INFO', 'Stopping active RemoteLogger instance...');
         await _remoteLogger!.stop(flush: false);
         _remoteLogger = null;
+      }
+      if (RemoteLoggingInit.isInitialized) {
+        addConsoleLog('WARNING', 'Resetting dangling RemoteLoggingInit state...');
+        RemoteLoggingInit.reset();
       }
 
       final config = RemoteLoggingConfig(
