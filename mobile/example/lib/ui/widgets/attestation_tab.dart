@@ -91,8 +91,8 @@ class AttestationTab extends StatelessWidget {
                       hardwareSupported == true
                           ? Icons.verified_user
                           : (checkError != null
-                              ? Icons.error_outline
-                              : Icons.warning_amber),
+                                ? Icons.error_outline
+                                : Icons.warning_amber),
                       color: statusColor,
                     ),
                     const SizedBox(width: 8),

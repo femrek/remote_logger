@@ -209,8 +209,7 @@ class AuthService {
         );
       case SpecifiedResponseResult():
         final status = response.statusCode;
-        final isAuthRejection =
-            status == 400 || status == 401 || status == 403;
+        final isAuthRejection = status == 400 || status == 401 || status == 403;
         if (!isRetry && isAuthRejection) {
           internalLog.warning(
             'Auth exchange rejected (HTTP $status) with enrollment token; '

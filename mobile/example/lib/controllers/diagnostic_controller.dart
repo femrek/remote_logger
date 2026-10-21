@@ -219,7 +219,10 @@ class DiagnosticController extends ChangeNotifier {
         _remoteLogger = null;
       }
       if (RemoteLoggingInit.isInitialized) {
-        addConsoleLog('WARNING', 'Resetting dangling RemoteLoggingInit state...');
+        addConsoleLog(
+          'WARNING',
+          'Resetting dangling RemoteLoggingInit state...',
+        );
         RemoteLoggingInit.reset();
       }
 
@@ -291,7 +294,10 @@ class DiagnosticController extends ChangeNotifier {
   /// Stops the remote logger service.
   Future<void> stopRemoteLogger() async {
     if (_remoteLogger == null) {
-      addConsoleLog('WARNING', 'stopRemoteLogger called but no logger is running.');
+      addConsoleLog(
+        'WARNING',
+        'stopRemoteLogger called but no logger is running.',
+      );
       return;
     }
     addConsoleLog('INFO', 'Stopping remote logger service...');
@@ -301,7 +307,12 @@ class DiagnosticController extends ChangeNotifier {
       addConsoleLog('INFO', 'RemoteLogging stopped successfully.');
       notifyListeners();
     } on Object catch (e, s) {
-      addConsoleLog('ERROR', 'Error stopping logger: $e', error: e, stackTrace: s);
+      addConsoleLog(
+        'ERROR',
+        'Error stopping logger: $e',
+        error: e,
+        stackTrace: s,
+      );
     }
   }
 
@@ -310,7 +321,10 @@ class DiagnosticController extends ChangeNotifier {
     required void Function(String message) onMessage,
   }) async {
     if (_remoteLogger == null) {
-      addConsoleLog('WARNING', 'Flush requested but logger is not initialized.');
+      addConsoleLog(
+        'WARNING',
+        'Flush requested but logger is not initialized.',
+      );
       onMessage('Initialize logger first!');
       return;
     }
@@ -445,11 +459,17 @@ class DiagnosticController extends ChangeNotifier {
     _isAttestationBusy = true;
     notifyListeners();
 
-    addConsoleLog('HARDWARE', 'Resetting hardware key and stored enrollment token...');
+    addConsoleLog(
+      'HARDWARE',
+      'Resetting hardware key and stored enrollment token...',
+    );
     try {
       final provider = getAttestationProvider();
       await provider.reset();
-      addConsoleLog('SUCCESS', 'Hardware key and enrollment token wiped successfully.');
+      addConsoleLog(
+        'SUCCESS',
+        'Hardware key and enrollment token wiped successfully.',
+      );
       onMessage('Hardware state reset successfully.');
       _lastEnrollResult = null;
       _lastProveResult = null;

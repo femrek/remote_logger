@@ -124,6 +124,7 @@ final class RemoteLogging {
   final DeviceDataGenerator _deviceDataGenerator;
   final OnError? _onError;
   final GetAttestationTokenCallback? _getAttestationTokenCallback;
+
   /// The hardware attestation provider configured for this instance.
   final AttestationProvider attestationProvider;
   RemoteLoggingConfig _config;
