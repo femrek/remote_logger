@@ -39,8 +39,13 @@ Includes native client SDKs for **Dart** and **Flutter** with built-in batching,
 
 ## 📌 Roadmap / TODO
 
-- [x] **Split Auth Service from Validation Worker**: Decouple hardware attestation and session JWT issuance (`/auth/exchange`) into a dedicated authentication microservice (`auth_worker`), keeping `validation_worker` focused strictly on log validation and Kafka ingestion.
-- [x] **Hardware Attestation Production Readiness & Documentation**: End-to-end offline cryptographic verification for Android Keystore Key Attestation (`strongbox` / `tee`) and Apple App Attest / Secure Enclave (`secure_enclave`) with full Logger Admin UI support and setup guides.
+- [ ] **iOS Attestation Real-Device Verification**: Validate Apple App Attest / Secure Enclave flows on physical iOS devices and production builds (*iOS attestation implementation has not been tested on real devices yet*).
+- [ ] **Log Ingestion Idempotency & Deduplication**: Pass client-side log `id` through the pipeline as the OpenSearch document `_id` to eliminate duplicates during network retries and offline log replays.
+- [ ] **Client Response Classification & Re-Auth**: Handle HTTP 401 in mobile SDKs with automatic token invalidation and re-auth, retry 429/5xx with exponential backoff, and drop unrecoverable 4xx errors.
+- [ ] **Gateway Rate Limiting**: Implement per-session/device token-bucket rate limiting at `logger_gateway` to protect against token replay and log flooding.
+- [ ] **Channel Binding in JWTs**: Add a `ch` claim during token exchange to enforce that access tokens can only ingest logs into their authorized channel.
+- [ ] **JWT Signing Key Rotation & `kid` Support**: Support Key IDs (`kid`) and dual-key verification windows in `logger_gateway` for zero-downtime key rotation.
+- [ ] **Android Keybox Revocation & Non-GMS Roots**: Periodically check Google's Keybox revocation list and add root certificate support for non-GMS Android devices (e.g. Huawei).
 
 ---
 
