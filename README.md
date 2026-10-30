@@ -11,6 +11,8 @@ Includes native client SDKs for [**Dart**](mobile/remote_logging) and [**Flutter
 ## 📑 Table of Contents
 
 - [Key Features](#-key-features)
+  - [Remote Backend System](#-remote-backend-system)
+  - [Mobile Plugins & Client SDKs](#-mobile-plugins--client-sdks)
 - [Roadmap / TODO](#-roadmap--todo)
 - [High-Level Architecture](#high-level-architecture)
 - [Prerequisites](#prerequisites)
@@ -27,13 +29,24 @@ Includes native client SDKs for [**Dart**](mobile/remote_logging) and [**Flutter
 
 ## 🚀 Key Features
 
+### 🌐 Remote Backend System
+
 - 🛡️ **Offline Hardware Key Attestation**: Verify authentic devices and application builds using Android Keystore Key Attestation (StrongBox / TEE) and Apple App Attest / Secure Enclave without external cloud API dependencies.
-- ⚡  **High-Performance Ingestion**: Powered by Pingora and Axum for zero-copy streaming, sub-millisecond overhead, and memory efficiency.
-- 🔒 **Stateless ES256 Authentication**: Two-tier 90-day hardware key enrollment + per-session ECDSA P-256 proofs of possession with channel binding and identity enrichment.
-- 📡 **Zero-Data-Loss Reliability**: Kafka producer pipeline waits for broker ACKs prior to client response.
-- 🔄 **Dynamic Hot-Reloading**: Channels, attestation rules, and routing live in HashiCorp Consul KV with zero-downtime subscriber updates.
-- 📱 **Ready-to-Use Mobile SDKs**: First-class [Dart core](mobile/remote_logging) and [Flutter](mobile/flutter_remote_logging) plugins with local SQLite offline caching and queue recovery (see [example app](mobile/example)).
-- 📊 **Turnkey Observability**: Out-of-the-box Prometheus metrics, Grafana dashboards, and OpenSearch log search UIs.
+- ⚡ **High-Performance Ingestion**: Powered by Cloudflare Pingora reverse proxy and Axum microservices for zero-copy streaming, sub-millisecond overhead, and memory efficiency.
+- 🔒 **Stateless ES256 Authentication**: Two-tier 90-day hardware key enrollment (`/auth/enroll`) + per-session ECDSA P-256 proofs of possession (`/auth/exchange`) with channel binding and identity enrichment.
+- 📡 **Zero-Data-Loss Reliability**: Multi-broker Apache Kafka pipeline waits for broker ACKs prior to client response.
+- 🔄 **Dynamic Hot-Reloading**: Channels, attestation rules, and routing live in HashiCorp Consul KV with zero-downtime subscriber updates via HTTP blocking queries.
+- 📊 **Turnkey Observability**: Out-of-the-box Prometheus metrics, Grafana dashboards, Kafka UI, and OpenSearch log search UIs.
+
+### 📱 Mobile Plugins & Client SDKs
+
+- 📦 **Batch Ingestion & Smart Flushes**: Queues records and flushes them in batches over HTTP to minimize mobile network radio wakeups and battery consumption.
+- 💾 **SQLite Offline Persistence**: Built-in offline queue via SQLite ([`flutter_remote_logging`](mobile/flutter_remote_logging)); logs survive network outages and app restarts with automatic queue recovery.
+- 🛡️ **Defensive Payload Truncation**: Configurable limits on message lengths, error descriptions, and stack trace frames (`LogTruncationConfig`) to safely constrain payloads directly at the source.
+- 🆔 **Device & Session Tracking**: Automatic collection of device metadata across 6 platforms (Android, iOS, macOS, Windows, Linux, and Web), persistent device UUIDs, and unique per-session tracking.
+- 🔑 **Hardware Attestation Integration**: Native integration with Android Keystore Key Attestation and Apple App Attest / Secure Enclave, plus seamless fallbacks (`NoAttestationProvider`) for emulators and local development.
+- 📴 **Local-Only & Dual Logging**: Toggle between local console logging and remote network ingestion without modifying application logging code.
+- 🚀 **Standard Logging API Compatible**: Seamless integration with the standard Dart [`package:logging`](https://pub.dev/packages/logging); available as pure [**Dart**](mobile/remote_logging) and [**Flutter**](mobile/flutter_remote_logging) packages with an [example app](mobile/example).
 
 ---
 
