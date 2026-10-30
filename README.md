@@ -105,18 +105,11 @@ openssl ec -in docker/keys/private.pem -pubout -out docker/keys/public.pem
 
 ### 2. Start the Stack
 
-#### Option A: Pull and Run Stable Pre-built Images
+Pull and Run Stable Pre-built Images
 
 ```bash
 cd docker
 docker compose up -d
-```
-
-#### Option B: Build Local Code with Live-Reloading
-
-```bash
-cd docker
-docker compose -f docker-compose.yaml -f docker-compose-dev.yaml up -d --build
 ```
 
 Wait for services to reach healthy status:
@@ -174,13 +167,6 @@ To run an automated health check against all metrics endpoints:
 
 ```bash
 bash scripts/verify_metrics.sh
-```
-
-### 5. Tear Down
-
-```bash
-cd docker
-docker compose down -v   # -v cleans named volumes (OpenSearch index, Kafka data)
 ```
 
 ---
