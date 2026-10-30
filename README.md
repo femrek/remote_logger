@@ -14,9 +14,10 @@ Includes native client SDKs for [**Dart**](mobile/remote_logging) and [**Flutter
   - [Remote Backend System](#-remote-backend-system)
   - [Mobile Plugins & Client SDKs](#-mobile-plugins--client-sdks)
 - [Roadmap / TODO](#-roadmap--todo)
-- [High-Level Architecture](#high-level-architecture)
 - [Prerequisites](#prerequisites)
-- [Local Development Setup](#local-development-setup)
+- [High-Level Architecture](#high-level-architecture)
+- [Local Development Setup (Native)](#local-development-setup-native)
+- [Deployment Options](#deployment-options)
 - [Configuration & Channel Management](#configuration--channel-management)
 - [Authentication & Cryptography](#authentication--cryptography)
 - [Log Ingestion Format](#log-ingestion-format)
@@ -91,96 +92,134 @@ Mobile Clients ──▶ logger_gateway (:8080) ──┬──▶ auth_worker (
 
 ---
 
-## Local Development Setup
+## Local Development Setup (Native)
 
-### 1. Clone Repository and Prepare Environment
+For rapid iteration and debugging, the Rust microservices can be compiled and run natively using Cargo. Backing infrastructure (Consul and Kafka) can be launched quickly via lightweight Docker containers.
+
+### 1. Start Backing Infrastructure
+
+The services require HashiCorp Consul (for discovery and dynamic channel config) and Apache Kafka (for message streaming). Start both backing services with exposed host ports:
 
 ```bash
-git clone https://github.com/femrek/remote_logger.git
-cd remote_logger
-
-# Copy the environment template
-cp docker/.env.template docker/.env
-
-# Generate a strong Admin Token for logger_admin UI/API
-# and set it in docker/.env:
-# GATEWAY_ADMIN_TOKEN=<your-token>
-vim docker/.env
+# Start Consul (:8500) and Kafka (:9092)
+docker compose -f docker/docker-compose.yaml -f docker/docker-compose-network.yaml up -d consul broker
 ```
 
-The repository provides pre-generated development ECDSA P-256 keys inside `docker/keys/` (`private.pem` and
-`public.pem`). For production, generate a fresh pair:
+Verify Consul is healthy:
+```bash
+curl -s http://localhost:8500/v1/status/leader
+```
+
+---
+
+### 2. Prepare Cryptographic Keys
+
+The repository includes pre-generated development keys in `docker/keys/` (`private.pem` and `public.pem`). For production, generate a fresh ECDSA P-256 key pair:
 
 ```bash
 openssl ecparam -name prime256v1 -genkey -noout -out docker/keys/private.pem
 openssl ec -in docker/keys/private.pem -pubout -out docker/keys/public.pem
 ```
 
-### 2. Start the Stack
+---
 
-Pull and Run Stable Pre-built Images
+### 3. Bootstrap Configuration with Logger Admin
+
+Run `logger_admin` first. When pointed to a fresh Consul instance, it automatically seeds default global gateway settings and seed channels (`example-app-dev` and `example-app-prod`):
 
 ```bash
-cd docker
-docker compose up -d
+ADMIN_TOKEN=my-secret-admin-token \
+CONSUL_HTTP_ADDR=http://localhost:8500 \
+cargo run --manifest-path logger_admin/Cargo.toml
 ```
 
-Wait for services to reach healthy status:
+You can now open `http://localhost:8082` in your browser and enter `my-secret-admin-token` to inspect or create channels in the dashboard.
 
+---
+
+### 4. Run Workers and Gateway
+
+Open separate terminal sessions for each microservice:
+
+**Terminal 1 — Auth Worker** (attestation verification and ES256 JWT minting):
 ```bash
-docker compose ps
+KAFKA_BROKERS=localhost:9092 \
+GATEWAY_PRIVATE_KEY_PATH=docker/keys/private.pem \
+CONSUL_HTTP_ADDR=http://localhost:8500 \
+PORT=8001 \
+METRICS_PORT=9092 \
+cargo run --manifest-path auth_worker/Cargo.toml
+```
+
+**Terminal 2 — Validation Worker** (payload validation and Kafka producer):
+```bash
+KAFKA_BROKERS=localhost:9092 \
+CONSUL_HTTP_ADDR=http://localhost:8500 \
+PORT=8000 \
+METRICS_PORT=9091 \
+cargo run --manifest-path validation_worker/Cargo.toml
+```
+
+**Terminal 3 — Logger Gateway** (Pingora reverse proxy & JWT verification):
+```bash
+GATEWAY_PUBLIC_KEY_PATH=docker/keys/public.pem \
+CONSUL_HTTP_ADDR=http://localhost:8500 \
+GATEWAY_BIND_ADDR=0.0.0.0:8080 \
+GATEWAY_METRICS_ADDR=0.0.0.0:9090 \
+cargo run --manifest-path logger_gateway/Cargo.toml
 ```
 
 ---
 
-### 3. Send a Test Log
+### 5. Send Test Logs
+
+With all services running, send a test log event through the gateway (`http://localhost:8080`):
 
 **Single Request via CLI Helper:**
-
 ```bash
 bash scripts/send_logs.sh
 ```
 
-This script exchanges an attestation payload for an ES256 session token and POSTs a log event to the default
-`example-app-dev` channel.
+This exchanges an attestation challenge for an ES256 access token and submits a structured log to `example-app-dev`.
 
 **Bulk Request:**
-
 ```bash
 bash scripts/send_logs.sh --bulk 10
 ```
 
 **Run Load Tests:**
-
 ```bash
 # Lightweight curl-based concurrency test (200 requests, 10 workers)
 bash load_tests/load_test.sh
-
-# Advanced step-by-step k6 stress test (runs in Docker)
-bash load_tests/run_k6.sh -q
 ```
-
-See [`load_tests/README.md`](load_tests/README.md) for full configuration options.
 
 ---
 
-### 4. Inspect Results
-
-| Service                   | URL                                         | Credentials / Access                               |
-|---------------------------|---------------------------------------------|----------------------------------------------------|
-| **Grafana Dashboards**    | http://localhost:3000                       | `admin` / (set `GRAFANA_ADMIN_PASSWORD` in `.env`) |
-| **Logger Admin UI**       | http://localhost:8082                       | Enter `GATEWAY_ADMIN_TOKEN` when prompted          |
-| **Consul UI**             | http://localhost:8500                       | Open catalog to view healthy services & KV keys    |
-| **OpenSearch Dashboards** | http://localhost:5601                       | Browse indexed log entries                         |
-| **Kafka UI**              | http://localhost:8081                       | Inspect `mobile-logs` and `device-metadata` topics |
-| **OpenSearch REST API**   | http://localhost:9200/mobile-logs-*/_search | Direct JSON query API                              |
-| **Prometheus Targets**    | http://localhost:9090/targets               | Check scrape health of all components              |
-
-To run an automated health check against all metrics endpoints:
+### 6. Run Tests
 
 ```bash
-bash scripts/verify_metrics.sh
+# Rust service tests
+cargo test --manifest-path logger_admin/Cargo.toml
+cargo test --manifest-path auth_worker/Cargo.toml
+cargo test --manifest-path validation_worker/Cargo.toml
+cargo test --manifest-path logger_gateway/Cargo.toml
+
+# Mobile SDK tests
+cd mobile/remote_logging && dart test
+cd ../flutter_remote_logging && flutter test
 ```
+
+---
+
+## Deployment Options
+
+Remote Logger provides two turnkey deployment paths for non-development environments:
+
+- 🐳 **Docker Compose Deployment**: Best suited for single-node virtual machines, dedicated servers, staging environments, and edge computing. Boots the complete pipeline (Pingora gateway, Axum workers, Kafka, Fluent Bit, OpenSearch, Consul, and Prometheus/Grafana) with persistent volumes and health checks.
+  👉 **See the complete [Docker Compose Deployment Guide](docs/DEPLOYMENT_DOCKER.md).**
+
+- ☸️ **Kubernetes Deployment**: Best suited for horizontally scalable cloud production clusters (EKS, GKE, AKS, or on-premise Kubernetes). Includes Kustomize manifests, multi-replica stateless validation workers, Consul-based service discovery, and zero-downtime rolling updates.
+  👉 **See the complete [Kubernetes Deployment Guide](kubernetes/DEPLOYMENT.md).**
 
 ---
 
@@ -229,14 +268,14 @@ Open `http://localhost:8082` in your browser and enter your `GATEWAY_ADMIN_TOKEN
 
 The pipeline enforces separation between network transport encryption and application session security:
 
-1. **Two-Tier Hardware Attestation & Session JWTs (Mandatory):**
+1. **Two-Tier Hardware Attestation & Session JWTs (Optional):**
     - `GET /auth/challenge`: Issues a 5-minute stateless HMAC challenge.
     - `POST /auth/enroll`: Verifies Android Keystore Key Attestation or Apple App Attest against the challenge and mints a 90-day ES256 `enrollment` JWT binding the device's hardware P-256 public key (`pub_key`) and trust tier (`att`).
     - `POST /auth/exchange`: Verifies an ECDSA P-256 signature over a fresh challenge using the enrolled key (or direct attestation token) and mints an **ES256 (ECDSA P-256)** `access` JWT.
     - `auth_worker` signs tokens using `GATEWAY_PRIVATE_KEY_PATH` (`private.pem`).
     - `logger_gateway` verifies `Authorization: Bearer <token>` on ingest routes using `GATEWAY_PUBLIC_KEY_PATH` (`public.pem`).
     - The access token embeds `sub` (device ID), `app` (application bundle ID), `session_id`, and `att` (attestation tier: `strongbox`, `tee`, `secure_enclave`, or `none`).
-    - See **[docs/attestation.md](docs/attestation.md)** for complete setup and activation instructions.
+    - See **[docs/attestation.md](docs/ATTESTATION.md)** for complete setup and activation instructions.
 2. **Transport Layer Security (Optional):**
     - Pingora supports TLS termination directly at the gateway listener.
     - Configure `GATEWAY_TLS_CERT_PATH` (`server.crt`) and `GATEWAY_TLS_KEY_PATH` (`server.key`). If either variable is

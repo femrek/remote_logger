@@ -6,25 +6,96 @@ This guide explains how **Remote Logger** verifies mobile device authenticity us
 
 ## 📑 Table of Contents
 
-- [1. How Attestation Works](#1-how-attestation-works)
+- [1. Why Use Hardware Attestation?](#1-why-use-hardware-attestation)
+  - [Core Problems with Client-Side Log Ingestion](#core-problems-with-client-side-log-ingestion)
+  - [How Hardware Attestation Solves Them](#how-hardware-attestation-solves-them)
+  - [Zero Cloud API Dependencies & Total Privacy](#zero-cloud-api-dependencies--total-privacy)
+  - [Disabled by Default (Server & Mobile Config)](#disabled-by-default-server--mobile-config)
+- [2. How Attestation Works](#2-how-attestation-works)
   - [Two-Tier Token Lifecycle](#two-tier-token-lifecycle)
   - [Attestation Modes (`off` · `monitor` · `enforce`)](#attestation-modes-off--monitor--enforce)
   - [Attestation Trust Tiers (`att` Claim)](#attestation-trust-tiers-att-claim)
-- [2. Backend Prerequisites (ECDSA P-256 Keys)](#2-backend-prerequisites-ecdsa-p-256-keys)
-- [3. Android Setup (Hardware Keystore Attestation — TEE / StrongBox)](#3-android-setup-hardware-keystore-attestation--tee--strongbox)
-- [4. iOS Host App Setup (Apple App Attest & Secure Enclave)](#4-ios-host-app-setup-apple-app-attest--secure-enclave)
-- [5. Activating Attestation in Consul KV](#5-activating-attestation-in-consul-kv)
+- [3. Backend Prerequisites (ECDSA P-256 Keys)](#3-backend-prerequisites-ecdsa-p-256-keys)
+- [4. Android Setup (Hardware Keystore Attestation — TEE / StrongBox)](#4-android-setup-hardware-keystore-attestation--tee--strongbox)
+- [5. iOS Host App Setup (Apple App Attest & Secure Enclave)](#5-ios-host-app-setup-apple-app-attest--secure-enclave)
+- [6. Activating Attestation in Consul KV](#6-activating-attestation-in-consul-kv)
   - [Option A: Via Logger Admin UI (`:8082`)](#option-a-via-logger-admin-ui-8082)
   - [Option B: Via Consul HTTP API](#option-b-via-consul-http-api)
-- [6. Mobile Client SDK Configuration](#6-mobile-client-sdk-configuration)
+- [7. Mobile Client SDK Configuration](#7-mobile-client-sdk-configuration)
   - [Production (Real Hardware Attestation)](#production-real-hardware-attestation)
   - [Simulators, Emulators & Automated Tests](#simulators-emulators--automated-tests)
-- [7. Recommended Rollout Strategy (`off` → `monitor` → `enforce`)](#7-recommended-rollout-strategy-off--monitor--enforce)
-- [8. Backend Verifier Architecture & Production Readiness Checklist](#8-backend-verifier-architecture--production-readiness-checklist)
+- [8. Recommended Rollout Strategy (`off` → `monitor` → `enforce`)](#8-recommended-rollout-strategy-off--monitor--enforce)
+- [9. Backend Verifier Architecture & Production Readiness Checklist](#9-backend-verifier-architecture--production-readiness-checklist)
 
 ---
 
-## 1. How Attestation Works
+## 1. Why Use Hardware Attestation?
+
+### Core Problems with Client-Side Log Ingestion
+
+Unlike internal microservices running behind a private VPC, mobile client telemetry endpoints must be publicly accessible on the open internet so mobile applications can stream diagnostic events from anywhere in the world.
+
+In traditional ingestion architectures, apps use an embedded API key or static shared secret to authenticate with the server. However:
+- **Keys Are Easily Extracted:** Any motivated attacker can decompile an APK/IPA, reverse-engineer strings, or run a proxy tool (e.g., Charles, Proxyman, mitmproxy) to intercept the API key.
+- **Log Poisoning & Fraud:** Once an API key is exposed, an attacker can write a lightweight script or botnet to flood the ingestion pipeline with fake logs, falsified error reports, and misleading analytics events.
+- **Denial of Service & Storage Exhaustion:** Unchecked client endpoints can be inundated with millions of synthetic payloads, degrading Kafka broker performance and exhausting OpenSearch storage capacity.
+- **Fabricated Device Metadata:** Attackers can report arbitrary device models, forged operating system versions, and fake crash traces that skew engineering prioritization.
+
+---
+
+### How Hardware Attestation Solves Them
+
+Hardware attestation moves trust away from extractable software secrets and roots it inside the device's physical security chip:
+- **Android**: **Android Keystore Key Attestation**, backed by a hardware **TEE (Trusted Execution Environment)** or dedicated **StrongBox Keymaster** (tamper-resistant security module).
+- **iOS**: **Apple DeviceCheck App Attest** and the **Apple Secure Enclave**.
+
+When hardware attestation is enabled:
+1. **Unexportable Private Keys:** The mobile app generates a cryptographic P-256 key pair inside the hardware chip. The private key cannot be extracted from the device even if the operating system is rooted, jailbroken, or inspected in memory.
+2. **Cryptographic Proof of App Identity:** The operating system produces an attestation statement signed directly by the hardware manufacturer (Google or Apple Root CA). This statement cryptographically binds the generated key to:
+   - The authentic application package name or bundle ID (`app_id`).
+   - The developer's signing certificate hash or Apple Team ID.
+   - The hardware security tier (e.g. StrongBox, TEE, or Secure Enclave).
+3. **Defense Against Replay & Tampering:** The server issues an ephemeral HMAC challenge for every enrollment and session handshake. The device proves it owns the hardware key by signing that challenge, eliminating replay attacks.
+
+---
+
+### Zero Cloud API Dependencies & Total Privacy
+
+Most mobile integrity solutions (such as Google Play Integrity API or Firebase App Check) require sending runtime attestation requests to Google or third-party servers, introducing:
+- Network roundtrips to external third-party cloud infrastructure.
+- Daily or monthly quota limitations and potential billing charges.
+- External dependencies that can cause telemetry drops during third-party outages.
+
+**Remote Logger verifies hardware statements 100% offline.** `auth_worker` parses the X.509 certificate chain (Android) or App Attest CBOR receipt (Apple) and checks the signatures locally against pinned manufacturer Root CAs. No external network requests are made during token exchange.
+
+---
+
+### Disabled by Default (Server & Mobile Config)
+
+> [!NOTE]
+> **Hardware attestation is disabled (`off`) by default across both backend configurations and mobile development workflows.**
+
+#### Why is it disabled by default?
+- **Developer Ergonomics:** Android emulators, iOS simulators, and desktop development targets do not contain physical hardware security chips (StrongBox / Secure Enclave) or valid manufacturer root certificate chains.
+- **Automated CI/CD Tests:** Automated end-to-end tests, unit tests, and continuous integration runners need to exchange tokens and stream logs without physical mobile devices attached.
+- **Smooth Onboarding:** Teams can deploy the pipeline and immediately test log ingestion without first provisioning Apple Developer Portal entitlements or setting up Android signing keys.
+
+#### How it is configured:
+- **Server Configuration:** In Consul KV, all newly created channels and default seed channels (such as `example-app-dev`) initialize with:
+  ```json
+  "android_attestation_mode": "off",
+  "ios_attestation_mode": "off"
+  ```
+  In `off` mode, `auth_worker` skips hardware statement checks entirely and mints access tokens stamped with `att = "none"`.
+- **Mobile SDK Configuration:** When testing on simulators, emulators, or in local development environments, mobile applications configure `NoAttestationProvider()`:
+  ```dart
+  attestationProvider: const NoAttestationProvider(),
+  ```
+  Once you are ready to enforce hardware integrity on physical production devices, you switch channel modes to `monitor` and then `enforce` without any server redeployments or downtime (see [Section 8](#8-recommended-rollout-strategy-off--monitor--enforce)).
+
+---
+
+## 2. How Attestation Works
 
 Remote Logger uses a **stateless, two-tier cryptographic protocol** handled by `auth_worker` so that expensive hardware attestation operations occur only once every 90 days per device, while every app session proves key possession using a fast ECDSA P-256 signature.
 
@@ -78,7 +149,7 @@ When `logger_gateway` validates an `access` JWT on log ingestion routes, it extr
 
 ---
 
-## 2. Backend Prerequisites (ECDSA P-256 Keys)
+## 3. Backend Prerequisites (ECDSA P-256 Keys)
 
 `auth_worker` signs challenges, enrollment tokens, and access tokens using an ECDSA P-256 private key (`GATEWAY_PRIVATE_KEY_PATH`), and `logger_gateway` verifies access tokens using the corresponding public key (`GATEWAY_PUBLIC_KEY_PATH`).
 
@@ -94,17 +165,17 @@ openssl ec -in private.pem -pubout -out public.pem
 
 ---
 
-## 3. Android Setup (Hardware Keystore Attestation — TEE / StrongBox)
+## 4. Android Setup (Hardware Keystore Attestation — TEE / StrongBox)
 
 Android attestation uses the offline **Android Keystore Key Attestation** mechanism built into [`KeyAttestationPlugin.kt`](../mobile/flutter_remote_logging/android/src/main/kotlin/dev/femrek/flutter_remote_logging/KeyAttestationPlugin.kt) and verified by [`AndroidKeyAttestationVerifier`](../auth_worker/src/auth/attestation.rs):
 - Generates a hardware-backed EC P-256 (`secp256r1`) key pair inside **StrongBox** (API 28+) or **TEE** with `.setAttestationChallenge(challenge)`.
 - Produces an X.509 PEM certificate chain (`attestation` in `/auth/enroll`) verified offline by `auth_worker` against Google's Hardware Attestation Root CAs.
 - **No Google Cloud project, service account, or external API quota is required.**
 
-### Step 3.1: Set Minimum SDK Version
+### Step 4.1: Set Minimum SDK Version
 Ensure `minSdkVersion` is **24** (Android 7.0) or higher in `android/app/build.gradle`.
 
-### Step 3.2: Optional — Restrict Allowed APK Signing Certificate SHA-256 Digests
+### Step 4.2: Optional — Restrict Allowed APK Signing Certificate SHA-256 Digests
 The Android hardware attestation certificate embeds your app's package name (`app_id`) and APK signing certificate SHA-256 digest inside its `AttestationApplicationId` ASN.1 extension (`1.3.6.1.4.1.11129.2.1.17`).
 
 - **Default (`android_signing_cert_sha256: []`)**: `auth_worker` always verifies the X.509 chain up to Google's Hardware Attestation Root CA, checks that `attestationSecurityLevel` is `TrustedEnvironment (1)` or `StrongBox (2)`, verifies `attestationChallenge`, and enforces that the attested package name matches `channel.app_id`. Leaving `android_signing_cert_sha256` empty skips the APK signing certificate hash check so both debug and release builds work out-of-the-box.
@@ -118,20 +189,20 @@ The Android hardware attestation certificate embeds your app's package name (`ap
 
 ---
 
-## 4. iOS Host App Setup (Apple App Attest & Secure Enclave)
+## 5. iOS Host App Setup (Apple App Attest & Secure Enclave)
 
 `flutter_remote_logging` includes [`AppAttestPlugin.swift`](../mobile/flutter_remote_logging/ios/Classes/AppAttestPlugin.swift), which supports two hardware-backed modes verified by [`AppleAppAttestVerifier`](../auth_worker/src/auth/attestation.rs):
 1. **Full Apple DeviceCheck App Attest (CBOR)**: Used when App Attest is available and entitled, and enforced when `apple_team_id` is configured on the channel.
 2. **Secure Enclave Key Possession Fallback**: When `apple_team_id` is omitted (`None`), `auth_worker` accepts either a valid App Attest CBOR object or a hardware-backed Secure Enclave ECDSA P-256 signature over the challenge (`AttestationTier::SecureEnclave`).
 
-### Step 4.1: Enable App Attest in Apple Developer Portal (When Using `apple_team_id`)
+### Step 5.1: Enable App Attest in Apple Developer Portal (When Using `apple_team_id`)
 1. Sign in to the **Apple Developer Portal** (`https://developer.apple.com/account`).
 2. Copy your 10-character **Team ID** (e.g., `ABCDE12345`) from the top-right account header and set it as `apple_team_id` in Consul KV.
 3. Navigate to **Certificates, Identifiers & Profiles → Identifiers** and select your app's **App ID** (matching `app_id`, e.g., `com.company.app`).
 4. Scroll down the **Capabilities** list, check **App Attest**, and click **Save**.
 5. Regenerate your provisioning profiles if you manage profiles manually (Xcode Automatic Signing refreshes them automatically).
 
-### Step 4.2: Add the App Attest Capability in Xcode
+### Step 5.2: Add the App Attest Capability in Xcode
 Because a Flutter plugin cannot add entitlements to the host app automatically, enable it on your iOS Runner target:
 1. Ensure your iOS deployment target is **iOS 14.0** or higher in `ios/Podfile` and Xcode.
 2. Open `ios/Runner.xcworkspace` in **Xcode**.
@@ -153,7 +224,7 @@ Because a Flutter plugin cannot add entitlements to the host app automatically, 
 
 ---
 
-## 5. Activating Attestation in Consul KV
+## 6. Activating Attestation in Consul KV
 
 Channel attestation policies live in HashiCorp Consul KV under `gateway/config/channels/{channel_id}`. `auth_worker` watches this prefix via Consul HTTP blocking queries and hot-reloads changes in real time with **zero downtime**.
 
@@ -192,7 +263,7 @@ curl -X PUT "http://localhost:8500/v1/kv/gateway/config/channels/mobile-app-prod
 
 ---
 
-## 6. Mobile Client SDK Configuration
+## 7. Mobile Client SDK Configuration
 
 ### Production (Real Hardware Attestation)
 
@@ -240,7 +311,7 @@ final remoteLogger = await FlutterRemoteLogging.initRemote(
 
 ---
 
-## 7. Recommended Rollout Strategy (`off` → `monitor` → `enforce`)
+## 8. Recommended Rollout Strategy (`off` → `monitor` → `enforce`)
 
 1. **Stage 1 — Development (`off`)**:
    Keep `example-app-dev` set to `off` so local emulators, simulators, and CI tests work without hardware keys.
@@ -253,11 +324,11 @@ final remoteLogger = await FlutterRemoteLogging.initRemote(
 
 ---
 
-## 8. Backend Verifier Architecture & Production Readiness Checklist
+## 9. Backend Verifier Architecture & Production Readiness Checklist
 
 The offline cryptographic verifiers in [`auth_worker/src/auth/attestation.rs`](../auth_worker/src/auth/attestation.rs) perform the following checks during `POST /auth/enroll` and direct `POST /auth/exchange`:
 
-### 8.1 Android Keystore Key Attestation Verifier (`AndroidKeyAttestationVerifier`)
+### 9.1 Android Keystore Key Attestation Verifier (`AndroidKeyAttestationVerifier`)
 1. **Parse Certificate Chain:** Base64-decodes `req.attestation` and parses the concatenated PEM X.509 certificate chain (`cert[0]` = leaf key certificate, `cert[n-1]` = root CA).
 2. **Verify Signatures & Root CA:** Validates every certificate signature (`cert[i]` signed by `cert[i+1]`) and confirms `cert[n-1]` is self-signed and matches one of the pinned **Google Hardware Attestation Root CAs** (RSA-4096 and EC P-384 roots).
 3. **Public Key Binding:** Confirms `cert[0]`'s SubjectPublicKeyInfo EC P-256 public key matches `req.public_key`.
@@ -267,7 +338,7 @@ The offline cryptographic verifiers in [`auth_worker/src/auth/attestation.rs`](.
    - Extracts `AttestationApplicationId` (tag `[709]`) from `softwareEnforced` / `teeEnforced` `AuthorizationList` and verifies the attested package name equals `channel.app_id`.
    - When `channel.android_signing_cert_sha256` is non-empty, verifies that at least one attested APK signing certificate SHA-256 digest matches the configured list.
 
-### 8.2 Apple App Attest & Secure Enclave Verifier (`AppleAppAttestVerifier`)
+### 9.2 Apple App Attest & Secure Enclave Verifier (`AppleAppAttestVerifier`)
 1. **Mode 1 — Full CBOR App Attest (`fmt == "apple-appattest"`):**
    - Validates `attStmt.x5c` certificate chain signatures up to the pinned **Apple App Attest Root CA**.
    - Computes `clientDataHash = SHA256(req.challenge)` and `expectedNonce = SHA256(authData || clientDataHash)`, and confirms leaf certificate (`x5c[0]`) extension `1.2.840.113635.100.8.2` equals `expectedNonce`.
@@ -277,6 +348,6 @@ The offline cryptographic verifiers in [`auth_worker/src/auth/attestation.rs`](.
 2. **Mode 2 — Secure Enclave ECDSA P-256 Signature Fallback:**
    - When `channel.apple_team_id` is `None` and the token is an ECDSA P-256 DER signature over `challenge`, verifies the signature against `req.public_key` and returns `AttestationTier::SecureEnclave` (`"secure_enclave"`).
 
-### 8.3 Production Key Rotation Checklist
-- [ ] Replace `docker/keys/private.pem` and `docker/keys/public.pem` with freshly generated production ECDSA P-256 keys (Section 2).
+### 9.3 Production Key Rotation Checklist
+- [ ] Replace `docker/keys/private.pem` and `docker/keys/public.pem` with freshly generated production ECDSA P-256 keys (Section 3).
 
