@@ -4,7 +4,7 @@ A high-throughput, multi-tenant mobile log ingestion and search pipeline built w
 
 Remote Logger enables mobile applications to stream telemetry and diagnostic logs securely at scale. Built with Cloudflare's **Pingora** reverse proxy and **Axum** microservices, the system enforces hardware key attestation (Android Keystore Key Attestation & Apple App Attest / Secure Enclave), mints cryptographic ES256 session tokens, buffers events through Kafka, and indexes them into OpenSearch for real-time query and dashboard visualization.
 
-Includes native client SDKs for **Dart** and **Flutter** with built-in batching, truncation, and offline persistence.
+Includes native client SDKs for [**Dart**](mobile/remote_logging) and [**Flutter**](mobile/flutter_remote_logging) with built-in batching, truncation, and offline persistence.
 
 ---
 
@@ -32,7 +32,7 @@ Includes native client SDKs for **Dart** and **Flutter** with built-in batching,
 - 🔒 **Stateless ES256 Authentication**: Two-tier 90-day hardware key enrollment + per-session ECDSA P-256 proofs of possession with channel binding and identity enrichment.
 - 📡 **Zero-Data-Loss Reliability**: Kafka producer pipeline waits for broker ACKs prior to client response.
 - 🔄 **Dynamic Hot-Reloading**: Channels, attestation rules, and routing live in HashiCorp Consul KV with zero-downtime subscriber updates.
-- 📱 **Ready-to-Use Mobile SDKs**: First-class Dart core and Flutter plugins with local SQLite offline caching and queue recovery.
+- 📱 **Ready-to-Use Mobile SDKs**: First-class [Dart core](mobile/remote_logging) and [Flutter](mobile/flutter_remote_logging) plugins with local SQLite offline caching and queue recovery (see [example app](mobile/example)).
 - 📊 **Turnkey Observability**: Out-of-the-box Prometheus metrics, Grafana dashboards, and OpenSearch log search UIs.
 
 ---
