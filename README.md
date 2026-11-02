@@ -102,8 +102,8 @@ Mobile Clients ──▶ logger_gateway (:8080) ──┬──▶ auth_worker (
 - **Data Plane:** Mobile clients authenticate and ingest logs via Cloudflare Pingora (`logger_gateway`). `/auth/*` requests (`/auth/challenge`, `/auth/enroll`, `/auth/exchange`) are routed to `auth_worker` for hardware attestation, 90-day key enrollment, and ES256 session token issuance. Ingestion requests are validated for bearer tokens and routed to Axum (`validation_worker`) instances, which validate payload schemas and publish directly to Apache Kafka. Fluent Bit consumes Kafka streams and bulk-indexes into OpenSearch.
 - **Control Plane:** HashiCorp Consul provides dynamic worker discovery and stores channel definitions in KV, managed via the `logger_admin` dashboard (:8082).
 
-📖 **For detailed architecture diagrams, service roles, and project layout, see [ARCHITECTURE.md](ARCHITECTURE.md).**
-🛡️ **For hardware attestation setup, channel modes, and activation steps, see [docs/attestation.md](docs/attestation.md).**
+📖 **For detailed architecture diagrams, service roles, and project layout, see [docs/ARCHITECTURE.md](ARCHITECTURE.md).**
+🛡️ **For hardware attestation setup, channel modes, and activation steps, see [docs/ATTESTATION.md](docs/ATTESTATION.md).**
 
 ---
 
