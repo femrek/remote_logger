@@ -58,7 +58,7 @@ When remote logging is enabled, the mobile SDK connects seamlessly to the centra
 
 #### 🖥️ Centralized Remote System & OpenSearch Ingestion
 - 🔍 **Centralized Indexed Database (OpenSearch)**: High-speed full-text search, multi-tenant index partitioning (`mobile-logs-{app_id}`), and instant document retrieval for millions of mobile telemetry events.
-- 📊 **Turnkey Analytics & Dashboards**: Pre-configured OpenSearch Dashboards and Grafana visual analytics for real-time error rate tracking, crash investigations, latency percentiles, and device distribution metrics.
+- 📊 **Turnkey Analytics & Dashboards**: Pre-configured Grafana visual dashboards for system telemetry (request latencies, produce rates, cluster health) paired with an integrated OpenSearch Dashboards web interface for interactive log search and discovery.
 - ⚡ **High-Performance Ingestion Gateway**: Cloudflare Pingora reverse proxy providing zero-copy streaming, sub-millisecond overhead, and memory-efficient routing to upstream workers.
 - 📡 **Zero-Data-Loss Kafka Streaming**: Microservice pipeline powered by Apache Kafka in KRaft mode; producers wait for broker ACKs before confirming ingestion requests.
 - 🔄 **Dynamic Hot-Reloading via Consul**: Live routing tables, body size limits, and per-channel configurations synchronized dynamically via HashiCorp Consul KV with zero downtime.
