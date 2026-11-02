@@ -2,7 +2,7 @@
 
 A high-throughput, multi-tenant mobile log ingestion and search pipeline built with **Rust**, **Apache Kafka**, and **OpenSearch**.
 
-Remote Logger enables mobile applications to stream telemetry and diagnostic logs securely at scale. Built with Cloudflare's **Pingora** reverse proxy and **Axum** microservices, the system enforces hardware key attestation (Android Keystore Key Attestation & Apple App Attest / Secure Enclave), mints cryptographic ES256 session tokens, buffers events through Kafka, and indexes them into OpenSearch for real-time query and dashboard visualization.
+Remote Logger enables mobile applications to log locally and stream telemetry to a centralized, high-throughput search database. Built with Cloudflare's **Pingora** reverse proxy and **Axum** microservices, the pipeline buffers events through **Apache Kafka**, indexes them into **OpenSearch** for real-time querying and dashboards, and provides session security with optional hardware key attestation.
 
 Includes native client SDKs for [**Dart**](mobile/remote_logging) and [**Flutter**](mobile/flutter_remote_logging) with built-in batching, truncation, and offline persistence.
 
@@ -11,8 +11,8 @@ Includes native client SDKs for [**Dart**](mobile/remote_logging) and [**Flutter
 ## 📑 Table of Contents
 
 - [Key Features](#-key-features)
-  - [Remote Backend System](#-remote-backend-system)
-  - [Mobile Plugins & Client SDKs](#-mobile-plugins--client-sdks)
+  - [Local Mode (Offline & Standalone)](#-local-mode-offline--standalone)
+  - [Remote Mode (Client Sync & Centralized Pipeline)](#-remote-mode-client-sync--centralized-pipeline)
 - [Roadmap / TODO](#-roadmap--todo)
 - [Prerequisites](#prerequisites)
 - [High-Level Architecture](#high-level-architecture)
@@ -30,24 +30,39 @@ Includes native client SDKs for [**Dart**](mobile/remote_logging) and [**Flutter
 
 ## 🚀 Key Features
 
-### 🌐 Remote Backend System
+Remote Logger provides a unified logging experience across two operating modes:
 
-- 🛡️ **Offline Hardware Key Attestation**: Verify authentic devices and application builds using Android Keystore Key Attestation (StrongBox / TEE) and Apple App Attest / Secure Enclave without external cloud API dependencies.
-- ⚡ **High-Performance Ingestion**: Powered by Cloudflare Pingora reverse proxy and Axum microservices for zero-copy streaming, sub-millisecond overhead, and memory efficiency.
-- 🔒 **Stateless ES256 Authentication**: Two-tier 90-day hardware key enrollment (`/auth/enroll`) + per-session ECDSA P-256 proofs of possession (`/auth/exchange`) with channel binding and identity enrichment.
-- 📡 **Zero-Data-Loss Reliability**: Multi-broker Apache Kafka pipeline waits for broker ACKs prior to client response.
-- 🔄 **Dynamic Hot-Reloading**: Channels, attestation rules, and routing live in HashiCorp Consul KV with zero-downtime subscriber updates via HTTP blocking queries.
-- 📊 **Turnkey Observability**: Out-of-the-box Prometheus metrics, Grafana dashboards, Kafka UI, and OpenSearch log search UIs.
+### 📴 Local Mode (Offline & Standalone)
 
-### 📱 Mobile Plugins & Client SDKs
+The client SDKs—available as both a pure [**Dart core package**](mobile/remote_logging) (`remote_logging`) and a [**Flutter plugin**](mobile/flutter_remote_logging) (`flutter_remote_logging`)—operate completely standalone without requiring any backend server or network connection:
 
-- 📦 **Batch Ingestion & Smart Flushes**: Queues records and flushes them in batches over HTTP to minimize mobile network radio wakeups and battery consumption.
-- 💾 **SQLite Offline Persistence**: Built-in offline queue via SQLite ([`flutter_remote_logging`](mobile/flutter_remote_logging)); logs survive network outages and app restarts with automatic queue recovery.
-- 🛡️ **Defensive Payload Truncation**: Configurable limits on message lengths, error descriptions, and stack trace frames (`LogTruncationConfig`) to safely constrain payloads directly at the source.
-- 🆔 **Device & Session Tracking**: Automatic collection of device metadata across 6 platforms (Android, iOS, macOS, Windows, Linux, and Web), persistent device UUIDs, and unique per-session tracking.
-- 🔑 **Hardware Attestation Integration**: Native integration with Android Keystore Key Attestation and Apple App Attest / Secure Enclave, plus seamless fallbacks (`NoAttestationProvider`) for emulators and local development.
-- 📴 **Local-Only & Dual Logging**: Toggle between local console logging and remote network ingestion without modifying application logging code.
-- 🚀 **Standard Logging API Compatible**: Seamless integration with the standard Dart [`package:logging`](https://pub.dev/packages/logging); available as pure [**Dart**](mobile/remote_logging) and [**Flutter**](mobile/flutter_remote_logging) packages with an [example app](mobile/example).
+- 📴 **Zero-Infrastructure Local Logging**: Works immediately out-of-the-box using standard, familiar `Logger` APIs from Dart [`package:logging`](https://pub.dev/packages/logging).
+- 🖥️ **Console Formatting & Level Filtering**: Clean, readable console output with configurable log severity thresholds (`ALL`, `FINE`, `INFO`, `WARNING`, `SEVERE`), hierarchical zone tags, and support for custom `logPrinter` formatters.
+- 🔔 **In-App `onLog` Callbacks**: Intercept log records in real time via an `onLog` callback—ideal for displaying logs in in-app debug panels, developer overlays, or diagnostic tools.
+- 🔄 **Frictionless Transition to Remote**: Write standard `logger.info(...)` statements once. Transition from local console logging to remote synchronization simply by initializing the remote handler—no code refactoring needed.
+
+---
+
+### 🌐 Remote Mode (Client Sync & Centralized Pipeline)
+
+When remote logging is enabled, the mobile SDK connects seamlessly to the centralized, high-throughput ingestion and indexing pipeline:
+
+#### 📱 Mobile Plugin Features
+- 💾 **SQLite Offline Persistence**: Integrated local queue powered by SQLite ([`flutter_remote_logging`](mobile/flutter_remote_logging)); logs survive network dead zones, app kills, and device reboots with automatic queue recovery.
+- 📦 **Smart Batch Ingestion**: Queues records in memory and flushes them in batches over HTTP to minimize mobile radio wakeups, save bandwidth, and conserve battery life.
+- 🔀 **Dual Logging Control**: Independently configure console output (`logPrintLevel`) and remote ingestion (`logSendLevel`), allowing verbose local debugging while streaming only high-priority events to the server.
+- 🛡️ **Defensive Payload Truncation**: Configurable bounds on message lengths, error descriptions, and stack trace frames (`LogTruncationConfig`) applied at the source before queuing, ensuring the offline SQLite database and network payloads never hold oversized data.
+- 🆔 **Automated Device & Session Metadata**: Automatically collects OS, OS version, device model, brand, manufacturer, app package identifier, persistent device UUIDs, and unique per-session UUIDs across Android, iOS, macOS, Windows, Linux, and Web.
+- 🔌 **Pluggable & Extensible**: Pluggable network invokers (Dio or HTTP client), custom device metadata generators, and local cache strategies (see [example app](mobile/example)).
+- 🛑 **Graceful Queue Flush & Teardown**: Explicit `flush()` and `stop({flush: true})` controls ensure all pending in-memory and SQLite batches are transmitted before application termination.
+
+#### 🖥️ Centralized Remote System & OpenSearch Ingestion
+- 🔍 **Centralized Indexed Database (OpenSearch)**: High-speed full-text search, multi-tenant index partitioning (`mobile-logs-{app_id}`), and instant document retrieval for millions of mobile telemetry events.
+- 📊 **Turnkey Analytics & Dashboards**: Pre-configured OpenSearch Dashboards and Grafana visual analytics for real-time error rate tracking, crash investigations, latency percentiles, and device distribution metrics.
+- ⚡ **High-Performance Ingestion Gateway**: Cloudflare Pingora reverse proxy providing zero-copy streaming, sub-millisecond overhead, and memory-efficient routing to upstream workers.
+- 📡 **Zero-Data-Loss Kafka Streaming**: Microservice pipeline powered by Apache Kafka in KRaft mode; producers wait for broker ACKs before confirming ingestion requests.
+- 🔄 **Dynamic Hot-Reloading via Consul**: Live routing tables, body size limits, and per-channel configurations synchronized dynamically via HashiCorp Consul KV with zero downtime.
+- 🛡️ **Stateless Authentication & Optional Attestation**: Fast ES256 session tokens with lightweight validation at the gateway, backed by optional hardware key verification (Android Keystore / Apple App Attest) for untampered device assurance.
 
 ---
 
