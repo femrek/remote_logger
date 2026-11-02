@@ -1,5 +1,7 @@
 # Kubernetes Deployment Guide
 
+> **OUTDATED**: This Kubernetes deployment guide and the manifests in this directory are currently outdated and may not reflect recent architecture updates (such as Consul KV dynamic configuration and two-tier authentication). For the actively supported deployment workflow, please refer to the [Docker Compose Deployment Guide](../docs/DEPLOYMENT_DOCKER.md).
+
 This guide covers how to deploy the **Remote Logger** pipeline on any Kubernetes cluster — including local clusters (Minikube, Kind, Docker Desktop) and cloud providers (GKE, EKS, AKS).
 
 ---
